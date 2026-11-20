@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f7f7f5;
+  --foreground: #111111;
+  --surface: #efece6;
+  --border: #111111;
+}
+
+@layer base {
+  /* Tactile Brutalism: ninguna esquina redondeada, ninguna sombra. */
+  * {
+    border-radius: 0 !important;
+    box-shadow: none;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html,
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  body {
+    font-family:
+      'Helvetica Neue', Helvetica, Arial, system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'kern';
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.03em;
+    font-weight: 600;
+    text-wrap: balance;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  ::selection {
+    background-color: var(--foreground);
+    color: var(--background);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 2px;
+  }
+
+  img,
+  svg {
+    display: block;
+    max-width: 100%;
+  }
+}
+
+@layer components {
+  /*
+   * Retícula brutalista: contenedor con fondo tinta y gap de 1px.
+   * Las celdas pintan el fondo claro, de modo que la separación
+   * es exactamente 1px sin bordes dobles.
+   */
+  .grid-brutal {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1px;
+    background-color: var(--foreground);
+    border: 1px solid var(--border);
+  }
+
+  .grid-brutal > * {
+    background-color: var(--background);
+    border-radius: 0;
+  }
+
+  .cell-surface > *,
+  .grid-brutal > .cell-surface {
+    background-color: var(--surface);
+  }
+
+  @media (min-width: 768px) {
+    .grid-brutal--2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-brutal--4 {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  /* Etiquetas y numeraciones: mono, mayúsculas, 11px. */
+  .label-mono {
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .rule {
+    border-top: 1px solid var(--border);
+  }
+
+  .btn-brutal {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    min-height: 44px;
+    padding: 0 20px;
+    border: 1px solid var(--foreground);
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition:
+      background-color 120ms linear,
+      color 120ms linear;
+  }
+
+  /* Variante sobre superficie secundaria; el hover la invierte igual. */
+  .btn-brutal--surface {
+    background-color: var(--surface);
+  }
+
+  .btn-brutal:hover,
+  .btn-brutal:focus-visible {
+    background-color: var(--foreground);
+    color: var(--background);
+  }
+
+  .btn-brutal__arrow {
+    font-size: 14px;
+    line-height: 1;
+    transition: transform 120ms linear;
+  }
+
+  .btn-brutal:hover .btn-brutal__arrow,
+  .btn-brutal:focus-visible .btn-brutal__arrow {
+    transform: translate(2px, -2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-brutal,
+  .btn-brutal__arrow {
+    transition: none;
+  }
+
+  .btn-brutal:hover .btn-brutal__arrow,
+  .btn-brutal:focus-visible .btn-brutal__arrow {
+    transform: none;
+  }
+}
