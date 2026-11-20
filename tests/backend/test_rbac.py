@@ -83,7 +83,7 @@ async def test_collaborator_without_membership_denied_project(
     from fastapi import HTTPException
 
     # Create a project the collaborator is NOT a member of.
-    project = Project(id=uuid.uuid4(), name="Other Project")
+    project = Project(id=uuid.uuid4(), title="Other Project")
     db_session.add(project)
     await db_session.commit()
 

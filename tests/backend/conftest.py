@@ -128,7 +128,7 @@ def collaborator_token(collaborator_user: User) -> str:
 async def test_project(db_session: AsyncSession, client_user: User, collaborator_user: User) -> Project:
     project = Project(
         id=uuid.uuid4(),
-        name="Test Project",
+        title="Test Project",
         client_id=client_user.id,
     )
     db_session.add(project)
