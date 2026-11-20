@@ -3,17 +3,30 @@
 import asyncio
 import uuid
 from collections.abc import AsyncGenerator
+from decimal import Decimal
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.app.core.config import Settings
 from backend.app.core.security import create_access_token, get_password_hash
 from backend.app.db.base import Base
 from backend.app.db.session import get_db
 from backend.app.main import app
-from backend.app.models import User, UserRole, Project, ProjectMember, ProjectRole
+from backend.app.models import (
+    BudgetRange,
+    Lead,
+    LeadStatus,
+    Project,
+    ProjectMember,
+    ProjectRole,
+    ServiceType,
+    SpaceType,
+    User,
+    UserRole,
+)
 
 
 @pytest.fixture(scope="session")
@@ -144,3 +157,47 @@ async def test_project(db_session: AsyncSession, client_user: User, collaborator
     db_session.add(member)
     await db_session.commit()
     return project
+
+
+@pytest_asyncio.fixture
+async def lead_designer_user(db_session: AsyncSession) -> User:
+    user = User(
+        id=uuid.uuid4(),
+        email="designer@pomme.studio",
+        hashed_password=get_password_hash("designerpass123"),
+        full_name="Lead Designer",
+        role=UserRole.LEAD_DESIGNER,
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def lead_designer_token(lead_designer_user: User) -> str:
+    return create_access_token({"sub": str(lead_designer_user.id)})
+
+
+@pytest.fixture
+def calendar_settings() -> Settings:
+    return Settings(GOOGLE_REFRESH_TOKEN="test-refresh-token")
+
+
+@pytest_asyncio.fixture
+async def sample_lead(db_session: AsyncSession) -> Lead:
+    lead = Lead(
+        id=uuid.uuid4(),
+        contact_name="Prospecto Prueba",
+        email="prospecto@example.com",
+        service_type=ServiceType.INTERIOR,
+        space_type=SpaceType.RESIDENTIAL,
+        area_m2=Decimal("80.00"),
+        budget_range=BudgetRange.FROM_25K_TO_50K,
+        status=LeadStatus.NEW,
+    )
+    db_session.add(lead)
+    await db_session.commit()
+    await db_session.refresh(lead)
+    return lead

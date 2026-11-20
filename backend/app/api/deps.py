@@ -12,11 +12,12 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import API_V1_PREFIX
+from ..core.config import API_V1_PREFIX, settings
 from ..core.security import decode_access_token
 from ..db.session import get_db
 from ..models.user import User, UserRole
 from ..models.project_member import ProjectMember
+from ..services.google_calendar import GoogleCalendarClient
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{API_V1_PREFIX}/auth/login",
@@ -139,3 +140,8 @@ async def require_project_access_from_path(
             detail="No access to this project",
         )
     return current_user
+
+
+def get_calendar_client() -> GoogleCalendarClient:
+    """Return the process-wide Google Calendar client instance."""
+    return GoogleCalendarClient(settings)
