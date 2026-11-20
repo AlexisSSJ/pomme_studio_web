@@ -161,20 +161,67 @@ El sistema puede *documentar y especificar* lo que otros ejecutan, pero no
 gestiona la ejecución. Ante una solicitud que implique alguna de estas
 exclusiones, debe rechazarse o reformularse como entregable de diseño.
 
-### 4.3 Entidades principales (conceptuales)
+### 4.3 Entidades principales
 
-| Entidad | Rol en el negocio |
-|---|---|
-| `users` | Cuentas con rol, `is_active` y credenciales. |
-| `leads` | Prospectos del front-office; origen de reuniones y propuestas. |
-| `projects` | Proyecto de diseño con cliente, líder y miembros. |
-| `project_members` | Membresía usuario↔proyecto (base del control de acceso). |
-| `deliverables` | Entregables versionados con pines/comentarios y aprobación. |
-| `ffe_items` | Especificaciones FF&E (ficha, acabado, proveedor sugerido, estado). |
-| `pricing_config` | Reglas de precios editables por `SUPER_ADMIN`. |
-| `payments` | Pagos y liquidaciones sujetos a validación. |
-| `meetings` | Reuniones sincronizadas con Google Calendar. |
-| `audit_logs` | Bitácora inmutable de acciones sensibles. |
+| Entidad | Rol en el negocio | Estado |
+|---|---|---|
+| `users` | Cuentas con rol, `is_active` y credenciales. | Sprint 1 |
+| `leads` | Prospectos del front-office; origen de reuniones y propuestas. | **Sprint 2** |
+| `projects` | Proyecto de diseño con cliente, líder y miembros. | Sprint 1 + **Sprint 2** |
+| `project_members` | Membresía usuario↔proyecto (base del control de acceso). | Sprint 1 |
+| `deliverables` | Entregables versionados con pines/comentarios y aprobación. | Sprint 1 |
+| `ffe_items` | Especificaciones FF&E (ficha, acabado, proveedor sugerido, estado). | Sprint 1 |
+| `pricing_config` | Reglas de precios editables por `SUPER_ADMIN`. | Sprint 1 |
+| `payments` | Pagos y liquidaciones sujetos a validación. | Sprint 1 |
+| `meetings` | Reuniones sincronizadas con Google Calendar. | **Sprint 2** |
+| `audit_logs` | Bitácora inmutable de acciones sensibles. | Sprint 1 |
+
+#### 4.3.1 `leads`
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `contact_name` | string(255) | Nombre del prospecto. |
+| `email` | string(320) | Correo de contacto (indexado, no único). |
+| `service_type` | enum | `branding` \| `interior` \| `integral`. |
+| `space_type` | enum / null | `residential` \| `commercial` \| `hospitality` \| `office`. |
+| `area_m2` | numeric(10,2) / null | Metros cuadrados aproximados. |
+| `budget_range` | enum / null | `under_10k` \| `10k_25k` \| `25k_50k` \| `50k_100k` \| `over_100k`. |
+| `status` | enum | `new` \| `contacted` \| `qualified` \| `proposal_sent` \| `converted` \| `discarded`. |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+#### 4.3.2 `projects`
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `title` | string(255) | Nombre del proyecto. |
+| `lead_id` | UUID / null | FK a `leads.id` (proyecto generado desde un lead). |
+| `client_id` | UUID / null | FK a `users.id` (cliente asignado). |
+| `lead_designer_id` | UUID / null | FK a `users.id` (diseñador líder). |
+| `scope_type` | enum / null | `branding` \| `interior` \| `integral`. |
+| `status` | enum | `draft` \| `active` \| `on_hold` \| `completed` \| `cancelled`. |
+| `included_rounds` | int | Rondas de cambio incluidas en la propuesta. |
+| `remaining_rounds` | int | Rondas de cambio aún disponibles. |
+| `balance_paid` | bool | Indica si el anticipo fue recibido. |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+#### 4.3.3 `meetings`
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `lead_id` | UUID / null | FK a `leads.id` (reuniones de captación). |
+| `project_id` | UUID / null | FK a `projects.id` (reuniones de seguimiento). |
+| `google_event_id` | string(255) / null | ID del evento en Google Calendar. |
+| `meet_link` | string(512) / null | URL de Google Meet generada por Google. |
+| `start_time` | timestamptz | Inicio en UTC. |
+| `end_time` | timestamptz | Fin en UTC. |
+| `meeting_type` | enum | `discovery` \| `proposal` \| `review` \| `follow_up`. |
+| `status` | enum | `scheduled` \| `confirmed` \| `cancelled` \| `completed` \| `no_show`. |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `end_time > start_time`; exactamente uno de `lead_id` o `project_id` debe estar presente; índices sobre `lead_id`, `project_id` y `start_time`.
 
 ### 4.4 Auditoría
 
@@ -193,17 +240,24 @@ La agenda del estudio se sincroniza con **Google Calendar API** mediante
 1. El estudio inicia el flujo desde el back-office; se redirige a Google con
    `GOOGLE_CLIENT_ID` y `GOOGLE_REDIRECT_URI`.
 2. Google devuelve un `code` que se canjea por `access_token` + `refresh_token`.
-3. El **`refresh_token`** se persiste **cifrado** (nunca en logs, nunca en
-   respuestas de API) y se usa para renovar el `access_token` de forma
-   silenciosa antes de cada llamada.
+3. El **`refresh_token`** se almacena en la variable de entorno
+   `GOOGLE_REFRESH_TOKEN`. Un valor **vacío** significa que la integración está
+   **desconectada**; en ese caso cualquier llamada a Calendar falla inmediatamente
+   con `CalendarNotConnectedError`. El token **nunca** se expone en respuestas de
+   API ni en mensajes de error.
 4. Los scopes se limitan al mínimo necesario (`calendar.events`,
    `calendar.freebusy`, y el email de la cuenta cuando se requiera
    identificación).
 5. Si el `refresh_token` es revocado o inválido, se marca la integración como
    desconectada y se solicita reconexión; no se reintenta indefinidamente.
 
+> **Decisión Sprint 2:** el flujo de consentimiento OAuth y la persistencia
+> cifrada del `refresh_token` en base de datos se aplazan a un sprint posterior.
+> Durante este sprint el token se lee directamente de `GOOGLE_REFRESH_TOKEN`.
+
 Variables: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`,
-`GOOGLE_PROJECT_ID`, `GOOGLE_CALENDAR_ID` (por defecto `primary`).
+`GOOGLE_PROJECT_ID`, `GOOGLE_CALENDAR_ID` (por defecto `primary`),
+`GOOGLE_REFRESH_TOKEN`.
 
 ### 5.2 Consulta de disponibilidad (`freebusy`)
 
@@ -217,7 +271,31 @@ Variables: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`,
   confirma una reunión sin una verificación final previa a la creación del
   evento.
 
-### 5.3 Creación de eventos con Google Meet
+El horario de operación del estudio se configura con:
+
+| Variable | Valor por defecto | Descripción |
+|---|---|---|
+| `STUDIO_TIMEZONE` | `America/Mexico_City` | Zona horaria IANA para mostrar horarios hábiles. |
+| `STUDIO_BUSINESS_START` | `09:00` | Inicio de la jornada (`HH:MM`). |
+| `STUDIO_BUSINESS_END` | `18:00` | Fin de la jornada (`HH:MM`). |
+| `DISCOVERY_CALL_MINUTES` | `30` | Duración por defecto de una Discovery Call. |
+
+### 5.3 Verificación final antes de confirmar
+
+Inmediatamente antes de crear el evento remoto se ejecuta una **doble
+verificación**:
+
+1. **`freebusy`** de Google sobre el slot exacto solicitado.
+2. **Solapamiento local**: se consultan las reuniones de la base de datos con
+   `status != cancelled` cuyo intervalo `[start_time, end_time)` intersecte el
+   slot.
+
+Si cualquiera de las dos fuentes reporta un solape, se lanza
+`SlotUnavailableError` (HTTP `409`) y **no** se crea el evento en Google ni se
+persiste la reunión como confirmada. Esto previene carreras y reintentos
+duplicados.
+
+### 5.4 Creación de eventos con Google Meet
 
 - Al confirmar una reunión se crea el evento con
   `conferenceDataVersion=1` y una `createRequest` de tipo `hangoutsMeet`, de modo
@@ -229,7 +307,7 @@ Variables: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`,
 - Cancelar o reprogramar una reunión actualiza/elimina el evento remoto y deja
   rastro en `audit_logs`.
 
-### 5.4 Tabla `meetings`
+### 5.5 Tabla `meetings`
 
 Cada reunión se vincula a un `lead_id` **o** a un `project_id` (nunca a ambos de
 forma ambigua) y persiste:
@@ -250,7 +328,7 @@ forma ambigua) y persiste:
 Restricciones: `end_time > start_time`, sin solapamientos para el mismo
 asistente interno, e índice por `project_id`, `lead_id` y `start_time`.
 
-### 5.5 Registro en `audit_logs`
+### 5.6 Registro en `audit_logs`
 
 Toda operación sobre reuniones (creación, reprogramación, cancelación,
 reconexión OAuth, fallo de sincronización) se registra en `audit_logs` con el
@@ -258,6 +336,27 @@ actor, el `meeting_id`, el `google_event_id` cuando exista y el resultado de la
 operación.
 
 ## 6. Seguridad de la API
+
+### 6.1 Endpoints introducidos en Sprint 2
+
+Los siguientes contratos se implementaron durante el Sprint 2 (leads, proyectos,
+reuniones y autenticación). Todos los paths usan el prefijo `/api/v1`.
+
+| Método | Path | Roles permitidos | Propósito |
+|---|---|---|---|
+| `POST` | `/leads` | Público | Crear un lead desde el front-office. |
+| `GET` | `/leads/availability?date=YYYY-MM-DD` | Público | Consultar slots disponibles para Discovery Calls. |
+| `POST` | `/leads/{id}/meetings` | Público | Agendar una Discovery Call para un lead. |
+| `GET` | `/leads` | `SUPER_ADMIN`, `LEAD_DESIGNER` | Listar todos los leads (más recientes primero). |
+| `GET` | `/leads/{id}` | `SUPER_ADMIN`, `LEAD_DESIGNER` | Detalle de un lead. |
+| `GET` | `/admin/leads/{id}/quote` | `SUPER_ADMIN`, `LEAD_DESIGNER` | Cotizar un lead con la última `pricing_config`. |
+| `POST` | `/admin/leads/{id}/proposal` | `SUPER_ADMIN`, `LEAD_DESIGNER` | Generar propuesta y marcar el lead como `proposal_sent`. |
+| `POST` | `/admin/leads/{id}/convert` | `SUPER_ADMIN`, `LEAD_DESIGNER` | Convertir un lead en proyecto `draft`. |
+| `GET` | `/admin/projects` | `SUPER_ADMIN`, `LEAD_DESIGNER` | Listar proyectos: `SUPER_ADMIN` ve todos; `LEAD_DESIGNER` solo los propios o con membresía. |
+| `POST` | `/admin/projects/{id}/activate` | `SUPER_ADMIN` | Activar un proyecto `draft` tras recibir el anticipo. |
+| `GET` | `/auth/me` | Cualquier usuario autenticado y activo | Perfil del usuario actual. |
+
+### 6.2 Validaciones transversales
 
 Todo endpoint protegido aplica, **en este orden**, las siguientes validaciones:
 
