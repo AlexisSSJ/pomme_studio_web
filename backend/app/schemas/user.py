@@ -11,6 +11,7 @@ from ..models.user import UserRole
 class UserBase(BaseModel):
     email: str = Field(..., max_length=320, description="Unique login email")
     full_name: str | None = Field(default=None, max_length=255)
+    specialty: str | None = Field(default=None, max_length=255)
 
 
 class UserCreate(UserBase):
@@ -20,6 +21,7 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, max_length=255)
+    specialty: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
     role: UserRole | None = None
     is_active: bool | None = None
