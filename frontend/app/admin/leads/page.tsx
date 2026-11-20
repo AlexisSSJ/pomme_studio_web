@@ -46,6 +46,8 @@ export default function LeadsPage() {
   const [clientId, setClientId] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
   const [proposalLoading, setProposalLoading] = useState(false);
   const [convertLoading, setConvertLoading] = useState(false);
 
@@ -53,7 +55,7 @@ export default function LeadsPage() {
     setLoading(true);
     setMessage("");
     try {
-      const res = await apiFetch("/api/v1/admin/leads");
+      const res = await apiFetch("/api/v1/leads");
       if (res.ok) {
         setLeads(await res.json());
       } else {
@@ -74,6 +76,8 @@ export default function LeadsPage() {
   async function selectLead(lead: Lead) {
     setSelectedLead(lead);
     setQuote(null);
+    setQuoteError(null);
+    setQuoteLoading(true);
     setMessage("");
     try {
       const res = await apiFetch(`/api/v1/admin/leads/${lead.id}/quote`);
@@ -81,10 +85,16 @@ export default function LeadsPage() {
         setQuote(await res.json());
       } else {
         const data = await res.json().catch(() => ({}));
-        setMessage(data.detail || "Error al cargar cotización");
+        const detail = data.detail || "Error al cargar cotización";
+        setQuoteError(detail);
+        setMessage(detail);
       }
     } catch {
-      setMessage("Error de conexión con el servidor");
+      const detail = "Error de conexión con el servidor";
+      setQuoteError(detail);
+      setMessage(detail);
+    } finally {
+      setQuoteLoading(false);
     }
   }
 
@@ -185,9 +195,11 @@ export default function LeadsPage() {
           <div className="p-3">
             {!selectedLead ? (
               <p className="text-sm text-foreground/70">Selecciona un lead para cotizar.</p>
-            ) : !quote ? (
+            ) : quoteLoading ? (
               <p className="text-sm">Cargando cotización…</p>
-            ) : (
+            ) : quoteError ? (
+              <p className="text-sm text-foreground/70">No se pudo cargar la cotización. {quoteError}</p>
+            ) : quote ? (
               <div className="flex flex-col gap-4">
                 <div>
                   <p className="label-mono">Cotización</p>
@@ -258,7 +270,7 @@ export default function LeadsPage() {
                   </div>
                 </form>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
