@@ -2,6 +2,34 @@ import { getToken, clearToken } from "./auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+export function extractDetail(data: unknown, fallback: string): string {
+  if (typeof data === "string") return data;
+
+  if (Array.isArray(data)) {
+    const messages = data
+      .map((item) => {
+        if (
+          item !== null &&
+          typeof item === "object" &&
+          "msg" in item &&
+          typeof item.msg === "string"
+        ) {
+          return item.msg;
+        }
+        return null;
+      })
+      .filter((message): message is string => message !== null);
+    return messages.length > 0 ? messages.join("; ") : fallback;
+  }
+
+  if (data !== null && typeof data === "object") {
+    if ("msg" in data && typeof data.msg === "string") return data.msg;
+    if ("detail" in data) return extractDetail(data.detail, fallback);
+  }
+
+  return fallback;
+}
+
 export async function apiFetch(
   path: string,
   options: RequestInit = {}

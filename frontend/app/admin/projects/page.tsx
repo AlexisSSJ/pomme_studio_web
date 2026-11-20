@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, extractDetail } from "@/lib/api";
 
 interface Project {
   id: string;
@@ -37,14 +37,13 @@ export default function ProjectsPage() {
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
-    setMessage("");
     try {
       const res = await apiFetch("/api/v1/admin/projects");
       if (res.ok) {
         setProjects(await res.json());
       } else {
-        const data = await res.json().catch(() => ({}));
-        setMessage(data.detail || "Error al cargar proyectos");
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al cargar proyectos"));
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -80,8 +79,8 @@ export default function ProjectsPage() {
         setMessage("Proyecto activado");
         loadProjects();
       } else {
-        const data = await res.json().catch(() => ({}));
-        setMessage(data.detail || "Error al activar proyecto");
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al activar proyecto"));
       }
     } catch {
       setMessage("Error de conexión con el servidor");

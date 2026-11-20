@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { useMemo, useRef, useState } from "react";
+import { apiFetch, extractDetail } from "@/lib/api";
 
 type Phase = "form" | "schedule" | "confirmed";
 
@@ -20,7 +20,7 @@ interface LeadResponse {
   email: string;
   service_type: ServiceType;
   space_type: SpaceType | null;
-  area_m2: number | null;
+  area_m2: string | null;
   budget_range: BudgetRange | null;
   status: string;
   created_at: string;
@@ -104,6 +104,8 @@ export default function DiagnosticoPage() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
+  const [hasCheckedAvailability, setHasCheckedAvailability] = useState(false);
+  const availabilityRequestSeq = useRef(0);
 
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -160,15 +162,15 @@ export default function DiagnosticoPage() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      const data = (await res.json().catch(() => ({}))) as {
-        detail?: string;
-      } & Partial<LeadResponse>;
+      const data: unknown = await res.json().catch(() => ({}));
 
       if (res.ok) {
         setLead(data as LeadResponse);
         setPhase("schedule");
       } else {
-        setFormError(data.detail || "No se pudo enviar el formulario. Intenta de nuevo.");
+        setFormError(
+          extractDetail(data, "No se pudo enviar el formulario. Intenta de nuevo.")
+        );
       }
     } catch {
       setFormError("Error de conexión con el servidor");
@@ -178,12 +180,16 @@ export default function DiagnosticoPage() {
   }
 
   async function handleCheckAvailability() {
+    const requestSeq = ++availabilityRequestSeq.current;
+    const requestedDate = selectedDate;
     setSlotsError("");
     setSlots([]);
     setSelectedSlot(null);
     setBookingError("");
+    setHasCheckedAvailability(false);
 
-    if (!selectedDate) {
+    if (!requestedDate) {
+      setSlotsLoading(false);
       setSlotsError("Selecciona una fecha.");
       return;
     }
@@ -192,24 +198,33 @@ export default function DiagnosticoPage() {
 
     try {
       const res = await apiFetch(
-        `/api/v1/leads/availability?date=${encodeURIComponent(selectedDate)}`
+        `/api/v1/leads/availability?date=${encodeURIComponent(requestedDate)}`
       );
-      const data = (await res.json().catch(() => ({}))) as {
-        detail?: string;
-        slots?: Slot[];
-      };
+      const data: unknown = await res.json().catch(() => ({}));
+      if (requestSeq !== availabilityRequestSeq.current) return;
 
-      if (res.ok && Array.isArray(data.slots)) {
-        setSlots(data.slots);
+      if (
+        res.ok &&
+        data !== null &&
+        typeof data === "object" &&
+        "slots" in data &&
+        Array.isArray(data.slots)
+      ) {
+        setSlots(data.slots as Slot[]);
+        setHasCheckedAvailability(true);
       } else {
         setSlotsError(
-          data.detail || "No pudimos consultar la disponibilidad. Intenta más tarde."
+          extractDetail(
+            data,
+            "No pudimos consultar la disponibilidad. Intenta más tarde."
+          )
         );
       }
     } catch {
+      if (requestSeq !== availabilityRequestSeq.current) return;
       setSlotsError("Error de conexión con el servidor");
     } finally {
-      setSlotsLoading(false);
+      if (requestSeq === availabilityRequestSeq.current) setSlotsLoading(false);
     }
   }
 
@@ -224,15 +239,15 @@ export default function DiagnosticoPage() {
         method: "POST",
         body: JSON.stringify({ start_time: selectedSlot.start_time }),
       });
-      const data = (await res.json().catch(() => ({}))) as {
-        detail?: string;
-      } & Partial<MeetingResponse>;
+      const data: unknown = await res.json().catch(() => ({}));
 
       if (res.ok) {
         setMeeting(data as MeetingResponse);
         setPhase("confirmed");
       } else {
-        setBookingError(data.detail || "No se pudo confirmar la llamada. Intenta de nuevo.");
+        setBookingError(
+          extractDetail(data, "No se pudo confirmar la llamada. Intenta de nuevo.")
+        );
       }
     } catch {
       setBookingError("Error de conexión con el servidor");
@@ -426,10 +441,13 @@ export default function DiagnosticoPage() {
                 min={todayInputValue()}
                 value={selectedDate}
                 onChange={(e) => {
+                  availabilityRequestSeq.current += 1;
                   setSelectedDate(e.target.value);
                   setSlots([]);
                   setSelectedSlot(null);
+                  setSlotsLoading(false);
                   setSlotsError("");
+                  setHasCheckedAvailability(false);
                   setBookingError("");
                 }}
                 className="min-h-[44px] border border-border bg-background px-3 text-sm"
@@ -501,7 +519,7 @@ export default function DiagnosticoPage() {
             </>
           )}
 
-          {!slotsLoading && slots.length === 0 && !slotsError && selectedDate && (
+          {!slotsLoading && hasCheckedAvailability && slots.length === 0 && !slotsError && selectedDate && (
             <p className="mt-6 text-sm leading-relaxed">
               No hay horarios disponibles para esta fecha. Prueba con otra.
             </p>

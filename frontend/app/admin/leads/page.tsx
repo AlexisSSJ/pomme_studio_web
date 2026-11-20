@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { apiFetch } from "@/lib/api";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { apiFetch, extractDetail } from "@/lib/api";
 
 interface Lead {
   id: string;
@@ -50,17 +50,17 @@ export default function LeadsPage() {
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [proposalLoading, setProposalLoading] = useState(false);
   const [convertLoading, setConvertLoading] = useState(false);
+  const quoteRequestSeq = useRef(0);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
-    setMessage("");
     try {
       const res = await apiFetch("/api/v1/leads");
       if (res.ok) {
         setLeads(await res.json());
       } else {
-        const data = await res.json().catch(() => ({}));
-        setMessage(data.detail || "Error al cargar leads");
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al cargar leads"));
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -74,6 +74,7 @@ export default function LeadsPage() {
   }, [loadLeads]);
 
   async function selectLead(lead: Lead) {
+    const requestSeq = ++quoteRequestSeq.current;
     setSelectedLead(lead);
     setQuote(null);
     setQuoteError(null);
@@ -82,19 +83,22 @@ export default function LeadsPage() {
     try {
       const res = await apiFetch(`/api/v1/admin/leads/${lead.id}/quote`);
       if (res.ok) {
-        setQuote(await res.json());
+        const data = (await res.json()) as Quote;
+        if (requestSeq === quoteRequestSeq.current) setQuote(data);
       } else {
-        const data = await res.json().catch(() => ({}));
-        const detail = data.detail || "Error al cargar cotización";
+        const data: unknown = await res.json().catch(() => ({}));
+        if (requestSeq !== quoteRequestSeq.current) return;
+        const detail = extractDetail(data, "Error al cargar cotización");
         setQuoteError(detail);
         setMessage(detail);
       }
     } catch {
+      if (requestSeq !== quoteRequestSeq.current) return;
       const detail = "Error de conexión con el servidor";
       setQuoteError(detail);
       setMessage(detail);
     } finally {
-      setQuoteLoading(false);
+      if (requestSeq === quoteRequestSeq.current) setQuoteLoading(false);
     }
   }
 
@@ -112,8 +116,8 @@ export default function LeadsPage() {
         setMessage("Propuesta generada");
         loadLeads();
       } else {
-        const data = await res.json().catch(() => ({}));
-        setMessage(data.detail || "Error al generar propuesta");
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al generar propuesta"));
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -138,15 +142,17 @@ export default function LeadsPage() {
         body: JSON.stringify(body),
       });
       if (res.ok) {
+        quoteRequestSeq.current += 1;
         setMessage("Lead convertido en proyecto");
         setTitle("");
         setClientId("");
         setSelectedLead(null);
         setQuote(null);
+        setQuoteLoading(false);
         loadLeads();
       } else {
-        const data = await res.json().catch(() => ({}));
-        setMessage(data.detail || "Error al convertir lead");
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al convertir lead"));
       }
     } catch {
       setMessage("Error de conexión con el servidor");
