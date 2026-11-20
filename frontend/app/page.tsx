@@ -82,7 +82,7 @@ export default function HomePage() {
             </p>
           </div>
 
-          <dl className="grid flex-1 grid-cols-2 gap-1 bg-border">
+          <dl className="grid flex-1 grid-cols-1 sm:grid-cols-2 gap-px bg-border">
             {[
               ['2026', 'Nueva etapa'],
               ['04', 'Líneas de servicio'],
