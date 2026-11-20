@@ -7,6 +7,8 @@ import { isAuthenticated, clearToken } from "@/lib/auth";
 
 const navItems = [
   { href: "/admin", label: "Dashboard" },
+  { href: "/admin/leads", label: "Leads" },
+  { href: "/admin/projects", label: "Proyectos" },
   { href: "/admin/users", label: "Usuarios" },
   { href: "/admin/pricing", label: "Pricing" },
   { href: "/admin/audit", label: "Auditoría" },
@@ -54,7 +56,7 @@ export default function AdminLayout({
         </button>
       </header>
 
-      <nav className="grid-brutal mt-4 grid-cols-2 sm:grid-cols-4">
+      <nav className="grid-brutal mt-4 grid-cols-2 sm:grid-cols-3">
         {navItems.map((item) => (
           <Link
             key={item.href}
