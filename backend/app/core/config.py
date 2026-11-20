@@ -73,6 +73,18 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "http://localhost:3000/api/auth/callback/google"
     GOOGLE_PROJECT_ID: str = "change-me"
     GOOGLE_CALENDAR_ID: str = "primary"
+    # OAuth refresh token for server-side Calendar API calls. Empty means the
+    # integration is disconnected; the value is never exposed through the API.
+    GOOGLE_REFRESH_TOKEN: str = ""
+
+    # --- studio schedule ---------------------------------------------------
+    # IANA timezone used when displaying studio business hours to clients.
+    STUDIO_TIMEZONE: str = "America/Mexico_City"
+    # Daily business window start/end (HH:MM) for appointment booking.
+    STUDIO_BUSINESS_START: str = "09:00"
+    STUDIO_BUSINESS_END: str = "18:00"
+    # Default length of a discovery / intro call (minutes).
+    DISCOVERY_CALL_MINUTES: int = 30
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
