@@ -206,6 +206,10 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `balance_paid` | bool | Indica si el anticipo fue recibido. |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
+`lead_id` tiene la restricción única `uq_projects_lead_id` para impedir conversiones
+duplicadas; los proyectos legados pueden conservar `lead_id = NULL` (se permiten
+múltiples valores NULL).
+
 #### 4.3.3 `meetings`
 
 | Columna | Tipo | Descripción |
@@ -221,14 +225,15 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `status` | enum | `scheduled` \| `confirmed` \| `cancelled` \| `completed` \| `no_show`. |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
-Restricciones: `end_time > start_time`; exactamente uno de `lead_id` o `project_id` debe estar presente; índices sobre `lead_id`, `project_id` y `start_time`.
+Restricciones: `end_time > start_time`; exactamente uno de `lead_id` o `project_id` debe estar presente; índices sobre `lead_id`, `project_id` y `start_time`. El índice parcial único `ux_meetings_start_time_active` impide dos reuniones con el mismo `start_time` cuando `status != 'cancelled'`; para las Discovery Calls de 30 minutos sobre un único calendario, igual inicio equivale a solapamiento.
 
 ### 4.4 Auditoría
 
-Toda acción sensible (cambios de rol, activación/desactivación de cuentas,
-edición de `pricing_config`, validación de pagos, creación/cancelación de
-reuniones y acceso a datos de otro usuario) se registra en `audit_logs` con
-actor, acción, entidad afectada, timestamp y metadatos relevantes.
+Toda acción sensible implementada (cambios de rol, activación/desactivación de
+cuentas, edición de `pricing_config`, validación de pagos, creación de reuniones
+y acceso a datos de otro usuario) se registra en `audit_logs` con actor, acción,
+entidad afectada, timestamp y metadatos relevantes. La cancelación de reuniones
+y su auditoría son comportamiento futuro, no parte de Sprint 2.
 
 ## 5. Integración con Google Calendar
 
@@ -248,8 +253,10 @@ La agenda del estudio se sincroniza con **Google Calendar API** mediante
 4. Los scopes se limitan al mínimo necesario (`calendar.events`,
    `calendar.freebusy`, y el email de la cuenta cuando se requiera
    identificación).
-5. Si el `refresh_token` es revocado o inválido, se marca la integración como
-   desconectada y se solicita reconexión; no se reintenta indefinidamente.
+5. **Comportamiento futuro (no implementado en Sprint 2):** si el
+   `refresh_token` es revocado o inválido, marcar la integración como desconectada
+   y solicitar reconexión, sin reintentos indefinidos. En Sprint 2 el fallo de
+   Google se propaga como `CalendarAPIError` sin cambiar estado de conexión.
 
 > **Decisión Sprint 2:** el flujo de consentimiento OAuth y la persistencia
 > cifrada del `refresh_token` en base de datos se aplazan a un sprint posterior.
@@ -282,29 +289,42 @@ El horario de operación del estudio se configura con:
 
 ### 5.3 Verificación final antes de confirmar
 
-Inmediatamente antes de crear el evento remoto se ejecuta una **doble
-verificación**:
+Antes de crear el evento remoto se ejecuta una verificación final y una reserva
+local transaccional:
 
 1. **`freebusy`** de Google sobre el slot exacto solicitado.
 2. **Solapamiento local**: se consultan las reuniones de la base de datos con
    `status != cancelled` cuyo intervalo `[start_time, end_time)` intersecte el
-   slot.
+   slot. Un solape produce `SlotUnavailableError` (HTTP `409`) sin crear evento.
+3. Se inserta y confirma una reserva `scheduled`, todavía sin evento ni enlace.
+   El índice parcial único `ux_meetings_start_time_active` sobre `start_time`
+   (`status != 'cancelled'`) convierte una carrera perdedora en `IntegrityError`,
+   que se traduce a HTTP `409`. Como todas las reservas Sprint 2 son Discovery
+   Calls de 30 minutos alineadas a la retícula y usan un solo calendario, igual
+   `start_time` es una invariante completa de solapamiento para estos casos.
+4. Solo después de reservar se crea el evento remoto. Un fallo elimina la reserva
+   antes de propagar el error; si la confirmación local falla tras crear el
+   evento, se intenta borrar el evento y también la reserva.
 
-Si cualquiera de las dos fuentes reporta un solape, se lanza
-`SlotUnavailableError` (HTTP `409`) y **no** se crea el evento en Google ni se
-persiste la reunión como confirmada. Esto previene carreras y reintentos
-duplicados.
+La comprobación previa reduce llamadas remotas innecesarias y el invariante de
+base de datos es la barrera frente a carreras; la comprobación por sí sola no se
+presenta como prevención de carreras. Si un timeout deja un resultado incierto
+(evento posiblemente creado pero respuesta perdida, sin `event_id` para
+compensar), queda un residual: una tarea de reconciliación Google↔BD es trabajo
+futuro y no forma parte de Sprint 2.
 
 ### 5.4 Creación de eventos con Google Meet
 
 - Al confirmar una reunión se crea el evento con
   `conferenceDataVersion=1` y una `createRequest` de tipo `hangoutsMeet`, de modo
   que Google genera el enlace de **Google Meet** automáticamente.
-- Se persiste el identificador del evento y el enlace de Meet devueltos por la
-  API.
-- Si la creación falla, la reunión no se marca como confirmada (consistencia
-  entre Google y la base local).
-- Cancelar o reprogramar una reunión actualiza/elimina el evento remoto y deja
+- Tras reservar localmente, se persiste el identificador del evento y el enlace
+  de Meet devueltos por la API y la reunión pasa a `confirmed`.
+- Si la creación falla, se elimina la reserva y no queda reunión confirmada. Si
+  Google devuelve un `event_id` pero ningún `entryPoint` de video, se intenta
+  borrar ese evento antes de devolver `CalendarAPIError`.
+- **Comportamiento futuro (no implementado en Sprint 2):** cancelar o
+  reprogramar una reunión actualizando/eliminando el evento remoto y dejando
   rastro en `audit_logs`.
 
 ### 5.5 Tabla `meetings`
@@ -325,15 +345,16 @@ forma ambigua) y persiste:
 | `status` | enum/text | `scheduled`, `confirmed`, `cancelled`, `completed`, `no_show`. |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
-Restricciones: `end_time > start_time`, sin solapamientos para el mismo
-asistente interno, e índice por `project_id`, `lead_id` y `start_time`.
+Restricciones: `end_time > start_time`, exactamente un padre (`lead_id` o
+`project_id`), índices por `project_id`, `lead_id` y `start_time`, y el índice
+parcial único `ux_meetings_start_time_active` para inicios no cancelados.
 
 ### 5.6 Registro en `audit_logs`
 
-Toda operación sobre reuniones (creación, reprogramación, cancelación,
-reconexión OAuth, fallo de sincronización) se registra en `audit_logs` con el
-actor, el `meeting_id`, el `google_event_id` cuando exista y el resultado de la
-operación.
+En Sprint 2 la creación exitosa de una reunión se registra en `audit_logs` con
+actor público `NULL`, `meeting_id`, `google_event_id`, `lead_id` e inicio. La
+auditoría de reprogramación, cancelación, reconexión OAuth y fallos de
+sincronización es **comportamiento futuro**, no implementado en este sprint.
 
 ## 6. Seguridad de la API
 
@@ -355,6 +376,10 @@ reuniones y autenticación). Todos los paths usan el prefijo `/api/v1`.
 | `GET` | `/admin/projects` | `SUPER_ADMIN`, `LEAD_DESIGNER` | Listar proyectos: `SUPER_ADMIN` ve todos; `LEAD_DESIGNER` solo los propios o con membresía. |
 | `POST` | `/admin/projects/{id}/activate` | `SUPER_ADMIN` | Activar un proyecto `draft` tras recibir el anticipo. |
 | `GET` | `/auth/me` | Cualquier usuario autenticado y activo | Perfil del usuario actual. |
+
+La superficie pública de leads y agenda queda con **hardening pendiente (rate
+limiting / mitigación de bots en superficie pública)**; no se implementó en
+Sprint 2.
 
 ### 6.2 Validaciones transversales
 
