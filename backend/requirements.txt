@@ -1,0 +1,39 @@
+# ---------------------------------------------------------------------------
+# Pomme Studio — backend dependencies
+# ---------------------------------------------------------------------------
+# Install:
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+# ---------------------------------------------------------------------------
+
+# Web framework / ASGI server
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.17
+
+# Settings / validation
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+
+# Database (PostgreSQL, async)
+sqlalchemy[asyncio]>=2.0.36
+alembic>=1.14.0
+asyncpg>=0.30.0
+
+# Auth (JWT + password hashing)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+# passlib 1.7.4 is not compatible with bcrypt>=5 (bcrypt 5 raises on the
+# >72-byte probe password passlib uses at backend load time instead of
+# truncating). bcrypt 4.0.x is the last line passlib fully supports.
+bcrypt>=4.0.1,<4.1
+
+# S3/R2-compatible object storage
+boto3>=1.35.0
+
+# HTTP client (also required by fastapi.testclient)
+httpx>=0.27.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0

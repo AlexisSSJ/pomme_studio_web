@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
 
@@ -10,10 +14,15 @@ venv/
 node_modules/
 .next/
 out/
+*.log
 
 # Secrets / local environment
 .env
 .env.local
 
-# OS / editor
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
