@@ -61,7 +61,7 @@ export default function HomePage() {
               </span>
             </a>
             <a
-              href="#contacto"
+              href="/diagnostico"
               className="btn-brutal btn-brutal--surface"
             >
               Hablemos del proyecto
@@ -158,9 +158,17 @@ export default function HomePage() {
 
       <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 pb-2">
         <p className="label-mono">Pomme Studio</p>
-        <p className="label-mono opacity-60">
-          Branding · Interiores · FF&amp;E
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <a
+            href="mailto:hola@pommestudio.com"
+            className="label-mono opacity-60 hover:opacity-100"
+          >
+            hola@pommestudio.com
+          </a>
+          <p className="label-mono opacity-60">
+            Branding · Interiores · FF&amp;E
+          </p>
+        </div>
       </footer>
     </main>
   );
