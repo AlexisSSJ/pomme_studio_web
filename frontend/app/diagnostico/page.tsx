@@ -15,7 +15,7 @@ type BudgetRange =
   | "over_100k";
 
 interface LeadResponse {
-  id: number;
+  id: string;
   contact_name: string;
   email: string;
   service_type: ServiceType;
@@ -32,14 +32,14 @@ interface Slot {
 }
 
 interface MeetingResponse {
-  id: number;
-  lead_id: number;
-  project_id: number | null;
+  id: string;
+  lead_id: string;
+  project_id: string | null;
   start_time: string;
   end_time: string;
   meeting_type: string;
   status: string;
-  meet_link: string;
+  meet_link: string | null;
 }
 
 const SERVICE_OPTIONS: { value: ServiceType; label: string }[] = [
@@ -155,22 +155,26 @@ export default function DiagnosticoPage() {
       body.area_m2 = area;
     }
 
-    const res = await apiFetch("/api/v1/leads", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      detail?: string;
-    } & Partial<LeadResponse>;
+    try {
+      const res = await apiFetch("/api/v1/leads", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        detail?: string;
+      } & Partial<LeadResponse>;
 
-    if (res.ok) {
-      setLead(data as LeadResponse);
-      setPhase("schedule");
-    } else {
-      setFormError(data.detail || "No se pudo enviar el formulario. Intenta de nuevo.");
+      if (res.ok) {
+        setLead(data as LeadResponse);
+        setPhase("schedule");
+      } else {
+        setFormError(data.detail || "No se pudo enviar el formulario. Intenta de nuevo.");
+      }
+    } catch {
+      setFormError("Error de conexión con el servidor");
+    } finally {
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
   }
 
   async function handleCheckAvailability() {
@@ -186,23 +190,27 @@ export default function DiagnosticoPage() {
 
     setSlotsLoading(true);
 
-    const res = await apiFetch(
-      `/api/v1/leads/availability?date=${encodeURIComponent(selectedDate)}`
-    );
-    const data = (await res.json().catch(() => ({}))) as {
-      detail?: string;
-      slots?: Slot[];
-    };
-
-    if (res.ok && Array.isArray(data.slots)) {
-      setSlots(data.slots);
-    } else {
-      setSlotsError(
-        data.detail || "No pudimos consultar la disponibilidad. Intenta más tarde."
+    try {
+      const res = await apiFetch(
+        `/api/v1/leads/availability?date=${encodeURIComponent(selectedDate)}`
       );
-    }
+      const data = (await res.json().catch(() => ({}))) as {
+        detail?: string;
+        slots?: Slot[];
+      };
 
-    setSlotsLoading(false);
+      if (res.ok && Array.isArray(data.slots)) {
+        setSlots(data.slots);
+      } else {
+        setSlotsError(
+          data.detail || "No pudimos consultar la disponibilidad. Intenta más tarde."
+        );
+      }
+    } catch {
+      setSlotsError("Error de conexión con el servidor");
+    } finally {
+      setSlotsLoading(false);
+    }
   }
 
   async function handleConfirmMeeting() {
@@ -211,22 +219,26 @@ export default function DiagnosticoPage() {
     setBookingError("");
     setBookingLoading(true);
 
-    const res = await apiFetch(`/api/v1/leads/${lead.id}/meetings`, {
-      method: "POST",
-      body: JSON.stringify({ start_time: selectedSlot.start_time }),
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      detail?: string;
-    } & Partial<MeetingResponse>;
+    try {
+      const res = await apiFetch(`/api/v1/leads/${lead.id}/meetings`, {
+        method: "POST",
+        body: JSON.stringify({ start_time: selectedSlot.start_time }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        detail?: string;
+      } & Partial<MeetingResponse>;
 
-    if (res.ok) {
-      setMeeting(data as MeetingResponse);
-      setPhase("confirmed");
-    } else {
-      setBookingError(data.detail || "No se pudo confirmar la llamada. Intenta de nuevo.");
+      if (res.ok) {
+        setMeeting(data as MeetingResponse);
+        setPhase("confirmed");
+      } else {
+        setBookingError(data.detail || "No se pudo confirmar la llamada. Intenta de nuevo.");
+      }
+    } catch {
+      setBookingError("Error de conexión con el servidor");
+    } finally {
+      setBookingLoading(false);
     }
-
-    setBookingLoading(false);
   }
 
   return (
@@ -515,17 +527,19 @@ export default function DiagnosticoPage() {
               .
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <a
-                href={meeting.meet_link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-brutal"
-              >
-                Unirse a Google Meet
-                <span className="btn-brutal__arrow" aria-hidden="true">
-                  ↗
-                </span>
-              </a>
+              {meeting.meet_link && (
+                <a
+                  href={meeting.meet_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-brutal"
+                >
+                  Unirse a Google Meet
+                  <span className="btn-brutal__arrow" aria-hidden="true">
+                    ↗
+                  </span>
+                </a>
+              )}
               <a
                 href="/"
                 className="btn-brutal btn-brutal--surface"
