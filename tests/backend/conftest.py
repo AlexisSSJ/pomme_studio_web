@@ -19,6 +19,7 @@ from backend.app.models import (
     BudgetRange,
     Lead,
     LeadStatus,
+    PricingConfig,
     Project,
     ProjectMember,
     ProjectRole,
@@ -201,3 +202,17 @@ async def sample_lead(db_session: AsyncSession) -> Lead:
     await db_session.commit()
     await db_session.refresh(lead)
     return lead
+
+
+@pytest_asyncio.fixture
+async def pricing_config(db_session: AsyncSession) -> PricingConfig:
+    config = PricingConfig(
+        price_per_m2_base=Decimal("150.00"),
+        branding_base_price=Decimal("5000.00"),
+        integral_multiplier=Decimal("1.50"),
+        default_change_rounds=3,
+    )
+    db_session.add(config)
+    await db_session.commit()
+    await db_session.refresh(config)
+    return config
