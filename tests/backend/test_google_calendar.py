@@ -31,6 +31,13 @@ def _test_settings() -> Settings:
     )
 
 
+def _assert_secret_free(error: Exception) -> None:
+    message = str(error)
+    assert "test-refresh-token" not in message
+    assert "csecret" not in message
+    assert "at-123" not in message
+
+
 def test_settings_defaults():
     """The five new settings exist with the exact defaults from the brief."""
     settings = Settings()
@@ -174,22 +181,31 @@ async def test_create_meet_event():
 
 @pytest.mark.asyncio
 async def test_create_event_without_meet_link_raises():
-    """A missing video entryPoint results in CalendarAPIError."""
+    """A known event without a Meet link is deleted before raising."""
+
+    delete_requests = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "oauth2.googleapis.com":
             return httpx.Response(200, json={"access_token": "at-123"})
+        if request.method == "DELETE":
+            delete_requests.append(request)
+            return httpx.Response(204)
         return httpx.Response(200, json={"id": "evt-2", "conferenceData": {"entryPoints": []}})
 
     client = GoogleCalendarClient(_test_settings(), transport=httpx.MockTransport(handler))
 
-    with pytest.raises(CalendarAPIError):
+    with pytest.raises(CalendarAPIError) as exc_info:
         await client.create_meet_event(
             summary="No meet",
             start=_utc(2026, 11, 20, 15, 0),
             end=_utc(2026, 11, 20, 15, 30),
             attendee_email="client@example.com",
         )
+
+    assert len(delete_requests) == 1
+    assert delete_requests[0].url.path == "/calendar/v3/calendars/primary/events/evt-2"
+    _assert_secret_free(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -207,6 +223,123 @@ async def test_api_error_on_http_500():
         await client.freebusy(_utc(2026, 11, 20, 9, 0), _utc(2026, 11, 20, 18, 0))
 
     assert "test-refresh-token" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_token_non_json_success_is_calendar_api_error():
+    """A malformed OAuth 200 response does not leak a JSON exception."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>not json</html>")
+
+    client = GoogleCalendarClient(_test_settings(), transport=httpx.MockTransport(handler))
+
+    with pytest.raises(CalendarAPIError) as exc_info:
+        await client.freebusy(_utc(2026, 11, 20, 9, 0), _utc(2026, 11, 20, 18, 0))
+
+    _assert_secret_free(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_freebusy_rejects_busy_entry_missing_start():
+    """A malformed busy item is normalized at the calendar boundary."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "at-123"})
+        return httpx.Response(
+            200,
+            json={
+                "calendars": {
+                    "primary": {
+                        "busy": [{"end": "2026-11-20T11:00:00Z"}],
+                    }
+                }
+            },
+        )
+
+    client = GoogleCalendarClient(_test_settings(), transport=httpx.MockTransport(handler))
+
+    with pytest.raises(CalendarAPIError) as exc_info:
+        await client.freebusy(_utc(2026, 11, 20, 9, 0), _utc(2026, 11, 20, 18, 0))
+
+    _assert_secret_free(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_freebusy_rejects_non_dict_success_payload():
+    """A JSON array is not a valid freebusy response object."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "at-123"})
+        return httpx.Response(200, json=[])
+
+    client = GoogleCalendarClient(_test_settings(), transport=httpx.MockTransport(handler))
+
+    with pytest.raises(CalendarAPIError) as exc_info:
+        await client.freebusy(_utc(2026, 11, 20, 9, 0), _utc(2026, 11, 20, 18, 0))
+
+    _assert_secret_free(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_create_event_rejects_malformed_success_response():
+    """A non-JSON event creation response becomes CalendarAPIError."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "at-123"})
+        return httpx.Response(200, text="not-json")
+
+    client = GoogleCalendarClient(_test_settings(), transport=httpx.MockTransport(handler))
+
+    with pytest.raises(CalendarAPIError) as exc_info:
+        await client.create_meet_event(
+            summary="Malformed",
+            start=_utc(2026, 11, 20, 15, 0),
+            end=_utc(2026, 11, 20, 15, 30),
+            attendee_email="client@example.com",
+        )
+
+    _assert_secret_free(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_transport_timeout_is_calendar_api_error():
+    """Connection timeouts cross the public service boundary as 502-mappable errors."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timeout", request=request)
+
+    client = GoogleCalendarClient(_test_settings(), transport=httpx.MockTransport(handler))
+
+    with pytest.raises(CalendarAPIError) as exc_info:
+        await client.freebusy(_utc(2026, 11, 20, 9, 0), _utc(2026, 11, 20, 18, 0))
+
+    _assert_secret_free(exc_info.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [404, 410])
+async def test_delete_event_treats_already_gone_as_success(status_code):
+    """Deleting an event that is already absent is idempotent."""
+    delete_requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "at-123"})
+        delete_requests.append(request)
+        return httpx.Response(status_code)
+
+    client = GoogleCalendarClient(_test_settings(), transport=httpx.MockTransport(handler))
+
+    await client.delete_event("evt-gone")
+
+    assert len(delete_requests) == 1
+    assert delete_requests[0].method == "DELETE"
+    assert delete_requests[0].url.path == "/calendar/v3/calendars/primary/events/evt-gone"
+    assert delete_requests[0].headers["Authorization"] == "Bearer at-123"
 
 
 def test_compute_slots_empty_busy():

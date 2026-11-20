@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from backend.app.db.base import Base
 from backend.app.models import (
@@ -138,3 +139,58 @@ async def test_lead_meeting_roundtrip(db_session):
 
     assert meeting.status == MeetingStatus.SCHEDULED
     assert meeting.lead_id == lead.id
+
+
+@pytest.mark.asyncio
+async def test_active_meeting_start_is_unique_but_cancelled_can_share(db_session, sample_lead):
+    """The DB rejects duplicate active slots while allowing cancelled history."""
+    start = datetime.now(timezone.utc) + timedelta(days=2)
+    lead_id = sample_lead.id
+    active = Meeting(
+        lead_id=lead_id,
+        start_time=start,
+        end_time=start + timedelta(minutes=30),
+        meeting_type=MeetingType.DISCOVERY,
+        status=MeetingStatus.CONFIRMED,
+    )
+    db_session.add(active)
+    await db_session.commit()
+
+    duplicate = Meeting(
+        lead_id=lead_id,
+        start_time=start,
+        end_time=start + timedelta(minutes=30),
+        meeting_type=MeetingType.DISCOVERY,
+        status=MeetingStatus.SCHEDULED,
+    )
+    db_session.add(duplicate)
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+    cancelled = Meeting(
+        lead_id=lead_id,
+        start_time=start,
+        end_time=start + timedelta(minutes=30),
+        meeting_type=MeetingType.DISCOVERY,
+        status=MeetingStatus.CANCELLED,
+    )
+    db_session.add(cancelled)
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_project_lead_is_unique_but_multiple_nulls_are_allowed(db_session, sample_lead):
+    """A lead converts once, while legacy projects may have no lead."""
+    db_session.add(Project(title="Converted", lead_id=sample_lead.id))
+    await db_session.commit()
+
+    db_session.add(Project(title="Duplicate conversion", lead_id=sample_lead.id))
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+    db_session.add_all(
+        [Project(title="Legacy A"), Project(title="Legacy B")]
+    )
+    await db_session.commit()

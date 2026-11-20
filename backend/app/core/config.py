@@ -8,11 +8,12 @@ Development defaults are safe placeholders only — real secrets must be injecte
 through the environment in staging/production.
 """
 
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Repository root (backend/app/core/config.py -> backend/app/core -> ...).
@@ -93,6 +94,32 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @field_validator("DISCOVERY_CALL_MINUTES")
+    @classmethod
+    def _validate_discovery_call_minutes(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("DISCOVERY_CALL_MINUTES must be greater than zero")
+        return value
+
+    @field_validator("STUDIO_BUSINESS_START", "STUDIO_BUSINESS_END")
+    @classmethod
+    def _validate_business_time(cls, value: str) -> str:
+        try:
+            parsed = datetime.strptime(value, "%H:%M")
+        except ValueError as exc:
+            raise ValueError("business times must use valid HH:MM values") from exc
+        if parsed.strftime("%H:%M") != value:
+            raise ValueError("business times must use valid HH:MM values")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_business_window(self) -> "Settings":
+        start = datetime.strptime(self.STUDIO_BUSINESS_START, "%H:%M").time()
+        end = datetime.strptime(self.STUDIO_BUSINESS_END, "%H:%M").time()
+        if start >= end:
+            raise ValueError("STUDIO_BUSINESS_START must be before STUDIO_BUSINESS_END")
+        return self
 
     @property
     def is_development(self) -> bool:

@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import create_access_token
@@ -326,3 +327,28 @@ async def test_list_projects_rbac(
     # No token: 401
     response = client.get("/api/v1/admin/projects")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_activate_integrity_conflict_returns_409(
+    client: TestClient,
+    super_admin_token: str,
+    draft_project: Project,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A concurrent membership insert is a conflict, not an unhandled 500."""
+    async def fail_with_integrity_error():
+        raise IntegrityError("INSERT project_members", {}, Exception("duplicate"))
+
+    monkeypatch.setattr(db_session, "commit", fail_with_integrity_error)
+    client.raise_server_exceptions = False
+
+    response = client.post(
+        f"/api/v1/admin/projects/{draft_project.id}/activate",
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Project is not in draft status"
+    await db_session.rollback()

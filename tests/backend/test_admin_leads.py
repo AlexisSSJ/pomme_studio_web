@@ -1,10 +1,13 @@
 """Tests for admin/lead-designer lead quotation, proposal and conversion endpoints."""
 
 import uuid
+from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import create_access_token, get_password_hash
@@ -158,6 +161,63 @@ class TestProposal:
             headers={"Authorization": f"Bearer {super_admin_token}"},
         )
         assert response.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_proposal_audit_contains_reconstructable_quote(
+        self,
+        client: TestClient,
+        super_admin_token: str,
+        pricing_config: PricingConfig,
+        db_session: AsyncSession,
+    ):
+        lead = Lead(
+            id=uuid.uuid4(),
+            contact_name="Integral Audit",
+            email="integral-audit@example.com",
+            service_type=ServiceType.INTEGRAL,
+            area_m2=Decimal("80.00"),
+            status=LeadStatus.NEW,
+        )
+        db_session.add(lead)
+        await db_session.commit()
+
+        response = client.post(
+            f"/api/v1/admin/leads/{lead.id}/proposal",
+            headers={"Authorization": f"Bearer {super_admin_token}"},
+        )
+        assert response.status_code == 200
+
+        result = await db_session.execute(
+            select(AuditLog).where(
+                AuditLog.action == "lead.proposal",
+                AuditLog.entity_id == lead.id,
+            )
+        )
+        metadata = result.scalar_one().metadata_json
+        assert metadata["service_type"] == "integral"
+        assert metadata["area_m2"] == "80.00"
+        assert metadata["lines"] == [
+            {"concept": "Branding base", "amount": "5000.00"},
+            {"concept": "Diseño interior por m²", "amount": "12000.00"},
+        ]
+        assert metadata["multiplier"] == "1.50"
+        assert metadata["total"] == "25500.00"
+        assert metadata["change_rounds"] == 3
+        assert datetime.fromisoformat(metadata["generated_at"]) == datetime.fromisoformat(
+            response.json()["generated_at"]
+        )
+
+        subtotal = sum(Decimal(line["amount"]) for line in metadata["lines"])
+        reconstructed_total = (subtotal * Decimal(metadata["multiplier"])).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        assert reconstructed_total == Decimal(metadata["total"])
+
+        stored_config = await db_session.get(
+            PricingConfig, uuid.UUID(metadata["pricing_config_id"])
+        )
+        assert stored_config is not None
+        assert stored_config.id == pricing_config.id
 
 
 class TestConvert:
@@ -340,3 +400,30 @@ class TestConvert:
             json={"title": "Proyecto RBAC"},
         )
         assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_convert_integrity_conflict_returns_409(
+        self,
+        client: TestClient,
+        super_admin_token: str,
+        sample_lead: Lead,
+        pricing_config: PricingConfig,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """The unique lead constraint surfaces as a graceful conversion conflict."""
+        async def fail_with_integrity_error():
+            raise IntegrityError("INSERT projects", {}, Exception("duplicate lead_id"))
+
+        monkeypatch.setattr(db_session, "commit", fail_with_integrity_error)
+        client.raise_server_exceptions = False
+
+        response = client.post(
+            f"/api/v1/admin/leads/{sample_lead.id}/convert",
+            headers={"Authorization": f"Bearer {super_admin_token}"},
+            json={"title": "Concurrent conversion"},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Lead already converted"
+        await db_session.rollback()

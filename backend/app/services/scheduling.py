@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings
@@ -83,12 +84,16 @@ async def list_discovery_slots(
     google_busy = await client.freebusy(window_start, window_end)
     local_busy = await _local_busy(db, window_start, window_end)
 
-    return compute_available_slots(
+    slots = compute_available_slots(
         google_busy + local_busy,
         window_start,
         window_end,
         duration,
     )
+    now_local = datetime.now(timezone.utc).astimezone(
+        ZoneInfo(settings.STUDIO_TIMEZONE)
+    )
+    return [(start, end) for start, end in slots if start > now_local]
 
 
 async def book_discovery(
@@ -119,8 +124,10 @@ async def book_discovery(
     if local_end > window_end:
         raise ValueError("start_time is outside business hours")
 
-    minutes_since_open = int((local_start - window_start).total_seconds() // 60)
-    if minutes_since_open % settings.DISCOVERY_CALL_MINUTES != 0:
+    if local_start.second or local_start.microsecond:
+        raise ValueError("start_time is not aligned to slot grid")
+    elapsed_since_open = local_start - window_start
+    if elapsed_since_open % duration != timedelta(0):
         raise ValueError("start_time is not aligned to slot grid")
 
     google_busy = await client.freebusy(local_start, local_end)
@@ -130,25 +137,56 @@ async def book_discovery(
         if local_start < interval.end and local_end > interval.start:
             raise SlotUnavailableError("slot overlaps an existing booking")
 
-    event = await client.create_meet_event(
-        summary=f"Discovery Call — {lead.contact_name}",
-        start=local_start,
-        end=local_end,
-        attendee_email=lead.email,
-    )
-
     meeting = Meeting(
         lead_id=lead.id,
         project_id=None,
-        google_event_id=event.event_id,
-        meet_link=event.meet_link,
+        google_event_id=None,
+        meet_link=None,
         start_time=local_start.astimezone(timezone.utc),
         end_time=local_end.astimezone(timezone.utc),
         meeting_type=MeetingType.DISCOVERY,
-        status=MeetingStatus.CONFIRMED,
+        status=MeetingStatus.SCHEDULED,
     )
     db.add(meeting)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise SlotUnavailableError("slot overlaps an existing booking") from exc
+    await db.refresh(meeting)
+
+    try:
+        event = await client.create_meet_event(
+            summary=f"Discovery Call — {lead.contact_name}",
+            start=local_start,
+            end=local_end,
+            attendee_email=lead.email,
+        )
+    except Exception:
+        try:
+            await db.delete(meeting)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+        raise
+
+    meeting.google_event_id = event.event_id
+    meeting.meet_link = event.meet_link
+    meeting.status = MeetingStatus.CONFIRMED
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        try:
+            await client.delete_event(event.event_id)
+        except Exception:
+            pass
+        try:
+            await db.delete(meeting)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+        raise
     await db.refresh(meeting)
 
     await log_audit(

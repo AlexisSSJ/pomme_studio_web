@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import require_roles
@@ -104,7 +105,14 @@ async def activate_project(
                 )
                 members_added.append(str(user_id))
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Project is not in draft status",
+        ) from exc
     await db.refresh(project)
 
     await log_audit(

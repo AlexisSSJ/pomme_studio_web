@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import require_roles
@@ -121,6 +122,7 @@ async def create_proposal(
             detail=str(exc),
         ) from exc
 
+    generated_at = datetime.now(timezone.utc)
     lead.status = LeadStatus.PROPOSAL_SENT
     await db.commit()
     await db.refresh(lead)
@@ -132,8 +134,17 @@ async def create_proposal(
         entity_type="lead",
         entity_id=lead.id,
         metadata={
+            "service_type": quote.service_type.value,
+            "area_m2": str(quote.area_m2) if quote.area_m2 is not None else None,
+            "lines": [
+                {"concept": line.concept, "amount": str(line.amount)}
+                for line in quote.lines
+            ],
+            "multiplier": str(quote.multiplier),
             "total": str(quote.total),
-            "service_type": lead.service_type.value,
+            "change_rounds": quote.change_rounds,
+            "pricing_config_id": str(config.id),
+            "generated_at": generated_at.isoformat(),
         },
     )
 
@@ -141,7 +152,7 @@ async def create_proposal(
     return ProposalRead(
         **read.model_dump(),
         lead_id=lead.id,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=generated_at,
     )
 
 
@@ -209,7 +220,14 @@ async def convert_lead(
     )
     db.add(project)
     lead.status = LeadStatus.CONVERTED
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Lead already converted",
+        ) from exc
     await db.refresh(project)
 
     await log_audit(

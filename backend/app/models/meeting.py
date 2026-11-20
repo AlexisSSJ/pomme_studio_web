@@ -4,6 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
+import sqlalchemy as sa
 from sqlalchemy import CheckConstraint, DateTime, Enum as SAEnum, ForeignKey, Index, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +39,13 @@ class Meeting(Base):
             name="ck_meeting_single_parent",
         ),
         Index("ix_meetings_start_time", "start_time"),
+        Index(
+            "ux_meetings_start_time_active",
+            "start_time",
+            unique=True,
+            postgresql_where=sa.text("status != 'cancelled'"),
+            sqlite_where=sa.text("status != 'cancelled'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -78,7 +86,12 @@ class Meeting(Base):
         nullable=False,
     )
     status: Mapped[MeetingStatus] = mapped_column(
-        SAEnum(MeetingStatus, name="meeting_status", native_enum=False),
+        SAEnum(
+            MeetingStatus,
+            name="meeting_status",
+            native_enum=False,
+            values_callable=lambda members: [member.value for member in members],
+        ),
         default=MeetingStatus.SCHEDULED,
         nullable=False,
     )

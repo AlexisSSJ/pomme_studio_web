@@ -24,6 +24,9 @@ class ProjectStatus(str, enum.Enum):
 
 class Project(Base):
     __tablename__ = "projects"
+    __table_args__ = (
+        sa.UniqueConstraint("lead_id", name="uq_projects_lead_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
