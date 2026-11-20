@@ -445,8 +445,12 @@ async def test_book_discovery_meeting_persisted(
         app.dependency_overrides.pop(get_calendar_client, None)
 
 
-def test_book_discovery_conflict_freebusy(
-    client: TestClient, sample_lead: Lead, calendar_settings: Settings
+@pytest.mark.asyncio
+async def test_book_discovery_conflict_freebusy(
+    client: TestClient,
+    sample_lead: Lead,
+    calendar_settings: Settings,
+    db_session: AsyncSession,
 ):
     test_day = date.today() + timedelta(days=7)
     window_start, _ = studio_day_window(test_day, calendar_settings)
@@ -465,6 +469,9 @@ def test_book_discovery_conflict_freebusy(
         )
         assert response.status_code == 409
         assert response.json()["detail"] == "Slot no longer available"
+
+        count = await db_session.scalar(select(func.count(Meeting.id)))
+        assert count == 0
     finally:
         app.dependency_overrides.pop(get_calendar_client, None)
 

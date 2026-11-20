@@ -40,17 +40,19 @@ async def _local_busy(
 ) -> list[BusyInterval]:
     """Return non-cancelled meetings overlapping [start, end) as busy intervals.
 
-    Meeting times are persisted in UTC. SQLite represents them as naive strings,
-    so the query uses naive UTC values and re-attaches ``timezone.utc`` to the
-    returned rows before building ``BusyInterval`` objects.
+    Meeting times are persisted in UTC and bound as aware UTC datetimes. This
+    avoids asyncpg interpreting a naive ``timestamptz`` bind in the process
+    local timezone on PostgreSQL. SQLite in-memory tests store datetimes as
+    wall-clock strings and continue to compare correctly because both sides use
+    the same UTC wall-clock representation.
     """
-    start_utc_naive = start.astimezone(timezone.utc).replace(tzinfo=None)
-    end_utc_naive = end.astimezone(timezone.utc).replace(tzinfo=None)
+    start_utc = start.astimezone(timezone.utc)
+    end_utc = end.astimezone(timezone.utc)
 
     result = await db.execute(
         select(Meeting).where(
-            Meeting.start_time < end_utc_naive,
-            Meeting.end_time > start_utc_naive,
+            Meeting.start_time < end_utc,
+            Meeting.end_time > start_utc,
             Meeting.status != MeetingStatus.CANCELLED,
         )
     )

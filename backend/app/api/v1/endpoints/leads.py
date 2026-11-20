@@ -74,7 +74,7 @@ async def get_availability(
     now_local = datetime.now(timezone.utc).astimezone(tz)
     if day < now_local.date():
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Cannot check availability for a past date",
         )
 
@@ -116,7 +116,7 @@ async def book_meeting(
         meeting = await book_discovery(db, lead, payload.start_time, client, settings)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
     except SlotUnavailableError as exc:
