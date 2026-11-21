@@ -2,7 +2,8 @@
 
 Every protected endpoint must authenticate the caller, confirm `is_active`,
 and (where relevant) check the role and project membership/ownership. The
-helpers here cover the first two; project-level checks will build on them.
+helpers here cover authentication, activation, role checks and the
+project-level membership guards.
 """
 
 from pathlib import Path
@@ -16,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import API_V1_PREFIX, settings
 from ..core.security import decode_access_token
 from ..db.session import get_db
+from ..models.project import Project, ProjectStatus
+from ..models.project_member import ProjectMember, ProjectRole
 from ..models.user import User, UserRole
-from ..models.project_member import ProjectMember
 from ..services.google_calendar import GoogleCalendarClient
 from ..services.storage import LocalStorage
 
@@ -142,6 +144,90 @@ async def require_project_access_from_path(
             detail="No access to this project",
         )
     return current_user
+
+
+async def get_project_or_404(project_id: UUID, db: AsyncSession) -> Project:
+    """Return the project for `project_id` or raise 404 ("Project not found")."""
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+    return project
+
+
+async def require_active_project(project_id: UUID, db: AsyncSession) -> Project:
+    """Return the project when it is ACTIVE.
+
+    Raises 404 ("Project not found") when the project does not exist and
+    409 ("Project is not active") for any other status.
+    """
+    project = await get_project_or_404(project_id, db)
+    if project.status != ProjectStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Project is not active",
+        )
+    return project
+
+
+async def get_membership(
+    db: AsyncSession,
+    project_id: UUID,
+    user_id: UUID,
+) -> ProjectMember | None:
+    """Return the user's membership row for the project, if any."""
+    result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def require_team_member(
+    project_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Require studio-team access to the project.
+
+    SUPER_ADMIN always passes. LEAD_DESIGNER passes with a LEAD_DESIGNER
+    membership or when the project's lead designer is the caller.
+    COLLABORATOR passes only with a COLLABORATOR membership. Callers
+    without a membership get "No access to this project"; members whose
+    assigned role is insufficient (including CLIENT members) get
+    "Insufficient permissions".
+    """
+    if current_user.role == UserRole.SUPER_ADMIN:
+        return current_user
+
+    member = await get_membership(db, project_id, current_user.id)
+
+    if current_user.role == UserRole.LEAD_DESIGNER:
+        if member is not None and member.assigned_role == ProjectRole.LEAD_DESIGNER:
+            return current_user
+        project = await db.get(Project, project_id)
+        if project is not None and project.lead_designer_id == current_user.id:
+            return current_user
+    elif (
+        current_user.role == UserRole.COLLABORATOR
+        and member is not None
+        and member.assigned_role == ProjectRole.COLLABORATOR
+    ):
+        return current_user
+
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Insufficient permissions",
+    )
 
 
 def get_calendar_client() -> GoogleCalendarClient:
