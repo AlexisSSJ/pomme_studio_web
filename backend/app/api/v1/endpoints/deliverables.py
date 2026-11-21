@@ -183,3 +183,64 @@ async def approve_deliverable(
         metadata={"project_id": str(project_id)},
     )
     return deliverable
+
+
+@router.post("/{deliverable_id}/request-changes", response_model=DeliverableRead)
+async def request_changes(
+    project_id: UUID,
+    deliverable_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    db: AsyncSession = Depends(get_db),
+) -> Deliverable:
+    """Request changes on an in-review deliverable, consuming one change round.
+
+    The project must have remaining rounds; existing pins are not required,
+    but any unconsumed pin on this deliverable is marked as consumed. The
+    decrement, the pin consumption and the status flip happen in a single
+    transaction.
+    """
+    await require_client_member(db, project_id, current_user)
+    project = await require_active_project(project_id, db)
+    deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    stage = await get_stage_or_404(db, project_id, deliverable.stage_id)
+    require_active_stage(stage)
+    if deliverable.status != DeliverableStatus.IN_REVIEW:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Deliverable is not in review",
+        )
+    if project.remaining_rounds <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No remaining change rounds",
+        )
+
+    project.remaining_rounds -= 1
+    result = await db.execute(
+        select(DeliverableComment).where(
+            DeliverableComment.deliverable_id == deliverable.id,
+            DeliverableComment.consumes_round.is_(False),
+        )
+    )
+    for comment in result.scalars().all():
+        comment.consumes_round = True
+    deliverable.status = DeliverableStatus.CHANGES_REQUESTED
+    await db.commit()
+    await db.refresh(project)
+    await db.refresh(deliverable)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="deliverable.changes_requested",
+        entity_type="deliverable",
+        entity_id=deliverable.id,
+        metadata={
+            "project_id": str(project_id),
+            "deliverable_id": str(deliverable.id),
+            "stage_id": str(deliverable.stage_id),
+            "remaining_rounds": project.remaining_rounds,
+            "consumed_round": project.included_rounds - project.remaining_rounds,
+        },
+    )
+    return deliverable

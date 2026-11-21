@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....api.deps import require_roles
+from ....api.deps import require_active_project, require_roles, require_team_member
 from ....db.session import get_db
 from ....models.project import Project, ProjectStatus
 from ....models.project_member import ProjectMember, ProjectRole
@@ -127,4 +127,42 @@ async def activate_project(
         },
     )
 
+    return project
+
+
+@router.post("/projects/{project_id}/extra-round", response_model=ProjectRead)
+async def grant_extra_round(
+    project_id: UUID,
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Project:
+    """Grant one extra change round on an ACTIVE project (studio leadership).
+
+    Only SUPER_ADMIN or the project's lead designer (LEAD_DESIGNER membership
+    or assignment) may grant rounds; collaborators and clients are rejected
+    by the role gate. Both counters increment, keeping remaining rounds at
+    most the included ones.
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    project = await require_active_project(project_id, db)
+
+    project.included_rounds += 1
+    project.remaining_rounds += 1
+    await db.commit()
+    await db.refresh(project)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.extra_round_granted",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={
+            "project_id": str(project_id),
+            "included_rounds": project.included_rounds,
+            "remaining_rounds": project.remaining_rounds,
+        },
+    )
     return project
