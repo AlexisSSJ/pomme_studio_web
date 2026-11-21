@@ -449,6 +449,26 @@ async def test_pin_validation(
 
 
 @pytest.mark.asyncio
+async def test_pin_whitespace_body_rejected(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    review: SimpleNamespace,
+    client_token: str,
+):
+    blank = pin_comment(
+        client,
+        active_project.id,
+        review.deliverable["id"],
+        client_token,
+        x_pct=10,
+        y_pct=10,
+        body="   ",
+    )
+    assert blank.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_pin_requires_client_and_in_review(
     client: TestClient,
     db_session: AsyncSession,

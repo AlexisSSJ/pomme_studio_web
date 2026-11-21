@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..models.deliverable import DeliverableStatus
 
@@ -35,6 +35,14 @@ class DeliverableCommentCreate(BaseModel):
     y_pct: float = Field(ge=0, le=100)
     page_or_frame: int = Field(default=1, ge=1)
     body: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("body")
+    @classmethod
+    def validate_body_not_blank(cls, value: str) -> str:
+        """Reject whitespace-only bodies before they hit the DB check."""
+        if not value.strip():
+            raise ValueError("body must not be blank")
+        return value
 
 
 class DeliverableCommentRead(BaseModel):
