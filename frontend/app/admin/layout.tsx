@@ -4,6 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { isAuthenticated, clearToken } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
+
+interface Me {
+  id: string;
+  email: string;
+  full_name: string | null;
+  specialty: string | null;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
 
 const navItems = [
   { href: "/admin", label: "Dashboard" },
@@ -26,9 +38,38 @@ export default function AdminLayout({
   useEffect(() => {
     if (!isAuthenticated()) {
       router.replace("/login");
-    } else {
-      setChecked(true);
+      return;
     }
+
+    let cancelled = false;
+
+    async function loadMe() {
+      try {
+        const res = await apiFetch("/api/v1/auth/me");
+        if (cancelled) return;
+        if (res.ok) {
+          const me: Me = await res.json();
+          if (me.role === "CLIENT") {
+            router.replace("/portal");
+            return;
+          }
+          setChecked(true);
+        } else {
+          // The role could not be confirmed (e.g. deactivated account);
+          // fail closed and send the visitor back to login.
+          router.replace("/login");
+        }
+      } catch {
+        if (!cancelled) {
+          router.replace("/login");
+        }
+      }
+    }
+
+    loadMe();
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   if (!checked) {

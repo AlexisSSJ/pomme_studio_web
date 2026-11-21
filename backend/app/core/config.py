@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     STORAGE_SECRET_ACCESS_KEY: str = "change-me"
     STORAGE_BUCKET_NAME: str = "pomme-studio-assets"
     STORAGE_PUBLIC_URL: str = "https://cdn.example.com"
+    # Local filesystem root for uploaded project media (brief references,
+    # moodboard pins). Consumed by the LocalStorage service.
+    MEDIA_ROOT: str = str(ROOT_DIR / "media")
 
     # --- google calendar ---------------------------------------------------
     GOOGLE_CLIENT_ID: str = "change-me"
@@ -86,6 +89,22 @@ class Settings(BaseSettings):
     STUDIO_BUSINESS_END: str = "18:00"
     # Default length of a discovery / intro call (minutes).
     DISCOVERY_CALL_MINUTES: int = 30
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _normalize_asyncpg_url(cls, value: object) -> object:
+        """Accept managed Postgres URLs (postgresql:// or postgres://).
+
+        Railway and similar providers inject a plain postgresql:// URL; the
+        async engine requires the +asyncpg driver. SQLite and already-qualified
+        URLs pass through unchanged.
+        """
+        if isinstance(value, str):
+            if value.startswith("postgresql://"):
+                return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if value.startswith("postgres://"):
+                return value.replace("postgres://", "postgresql+asyncpg://", 1)
+        return value
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

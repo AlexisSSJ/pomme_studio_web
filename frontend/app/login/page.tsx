@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "@/lib/auth";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Same-origin by default (Next.js rewrites proxy /api/v1/* to the backend).
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,6 +34,22 @@ export default function LoginPage() {
 
       const data = await res.json();
       setToken(data.access_token);
+
+      // Route by role: clients land on their portal, the team on admin.
+      // If the role cannot be confirmed, fall back to admin (its layout
+      // re-checks the role server-side and redirects clients anyway).
+      try {
+        const meRes = await fetch(`${API_BASE}/api/v1/auth/me`, {
+          headers: { Authorization: `Bearer ${data.access_token}` },
+        });
+        if (meRes.ok) {
+          const me: { role: string } = await meRes.json();
+          router.push(me.role === "CLIENT" ? "/portal" : "/admin");
+          return;
+        }
+      } catch {
+        // Fall through to the default admin destination.
+      }
       router.push("/admin");
     } catch {
       setError("Error de conexión con el servidor");
@@ -49,9 +66,10 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Email</span>
+            <span className="label-mono">Usuario o email</span>
             <input
-              type="email"
+              type="text"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required

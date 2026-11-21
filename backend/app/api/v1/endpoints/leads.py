@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ....api.deps import get_calendar_client, get_db, require_roles
 from ....core.config import settings
 from ....models.lead import Lead, LeadStatus
+from ....models.meeting import Meeting
 from ....models.user import User, UserRole
 from ....schemas.lead import (
     AvailabilityRead,

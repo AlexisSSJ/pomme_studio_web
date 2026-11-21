@@ -23,6 +23,7 @@ from backend.app.models import (
     Project,
     ProjectMember,
     ProjectRole,
+    ProjectStatus,
     ServiceType,
     SpaceType,
     User,
@@ -216,3 +217,93 @@ async def pricing_config(db_session: AsyncSession) -> PricingConfig:
     await db_session.commit()
     await db_session.refresh(config)
     return config
+
+
+@pytest_asyncio.fixture
+async def active_project(
+    db_session: AsyncSession,
+    test_project: Project,
+    client_user: User,
+) -> Project:
+    """The shared test project, activated, with a CLIENT membership for its client."""
+    test_project.status = ProjectStatus.ACTIVE
+    member = ProjectMember(
+        id=uuid.uuid4(),
+        project_id=test_project.id,
+        user_id=client_user.id,
+        assigned_role=ProjectRole.CLIENT,
+    )
+    db_session.add(member)
+    await db_session.commit()
+    await db_session.refresh(test_project)
+    return test_project
+
+
+@pytest_asyncio.fixture
+async def other_client_user(db_session: AsyncSession) -> User:
+    user = User(
+        id=uuid.uuid4(),
+        email="other-client@example.com",
+        hashed_password=get_password_hash("otherclient123"),
+        full_name="Other Client",
+        role=UserRole.CLIENT,
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def other_client_token(other_client_user: User) -> str:
+    return create_access_token({"sub": str(other_client_user.id)})
+
+
+@pytest_asyncio.fixture
+async def other_project(
+    db_session: AsyncSession,
+    other_client_user: User,
+) -> Project:
+    """An ACTIVE project owned by `other_client_user`, inaccessible to the main fixtures."""
+    project = Project(
+        id=uuid.uuid4(),
+        title="Other Project",
+        client_id=other_client_user.id,
+        status=ProjectStatus.ACTIVE,
+    )
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+
+    member = ProjectMember(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        user_id=other_client_user.id,
+        assigned_role=ProjectRole.CLIENT,
+    )
+    db_session.add(member)
+    await db_session.commit()
+    return project
+
+
+@pytest_asyncio.fixture
+async def collaborator_two_user(db_session: AsyncSession) -> User:
+    """An active COLLABORATOR with no project memberships."""
+    user = User(
+        id=uuid.uuid4(),
+        email="collab2@pomme.studio",
+        hashed_password=get_password_hash("collab2pass123"),
+        full_name="Test Collaborator Two",
+        role=UserRole.COLLABORATOR,
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def collaborator_two_token(collaborator_two_user: User) -> str:
+    return create_access_token({"sub": str(collaborator_two_user.id)})

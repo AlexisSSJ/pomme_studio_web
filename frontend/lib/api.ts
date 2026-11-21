@@ -1,6 +1,8 @@
 import { getToken, clearToken } from "./auth";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Same-origin by default: Next.js rewrites proxy /api/v1/* to the backend
+// (see next.config.js). NEXT_PUBLIC_API_URL overrides for split deployments.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export function extractDetail(data: unknown, fallback: string): string {
   if (typeof data === "string") return data;
@@ -35,8 +37,12 @@ export async function apiFetch(
   options: RequestInit = {}
 ): Promise<Response> {
   const token = getToken();
+  // With a FormData body the browser must set the Content-Type itself
+  // (including the multipart boundary), so the JSON default is skipped.
+  const isFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   };
   if (token) {
@@ -56,4 +62,19 @@ export async function apiFetch(
   }
 
   return response;
+}
+
+/**
+ * Fetch a protected binary file and wrap it in a blob URL.
+ *
+ * The returned URL must be revoked by the caller once it is no longer
+ * needed (unmount, state change, or after triggering a download).
+ */
+export async function apiFetchBlobUrl(path: string): Promise<string> {
+  const res = await apiFetch(path);
+  if (!res.ok) {
+    const data: unknown = await res.json().catch(() => ({}));
+    throw new Error(extractDetail(data, "Error al cargar el archivo"));
+  }
+  return URL.createObjectURL(await res.blob());
 }

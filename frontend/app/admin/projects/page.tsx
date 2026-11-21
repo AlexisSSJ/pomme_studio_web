@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { apiFetch, extractDetail } from "@/lib/api";
 
 interface Project {
@@ -35,10 +36,10 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(false);
   const [activatingId, setActivatingId] = useState<string | null>(null);
 
-  const loadProjects = useCallback(async () => {
+  const loadProjects = useCallback(async (path: string) => {
     setLoading(true);
     try {
-      const res = await apiFetch("/api/v1/admin/projects");
+      const res = await apiFetch(path);
       if (res.ok) {
         setProjects(await res.json());
       } else {
@@ -53,19 +54,27 @@ export default function ProjectsPage() {
   }, []);
 
   useEffect(() => {
-    async function loadMe() {
+    async function load() {
+      let role: string | null = null;
       try {
         const res = await apiFetch("/api/v1/auth/me");
         if (res.ok) {
-          setMe(await res.json());
+          const meData: Me = await res.json();
+          setMe(meData);
+          role = meData.role;
         }
       } catch {
         // Silent: role-gated UI falls back to hidden controls.
       }
+
+      // COLLABORATOR cannot list every project; the membership endpoint
+      // scopes the list to the projects they belong to.
+      await loadProjects(
+        role === "COLLABORATOR" ? "/api/v1/projects" : "/api/v1/admin/projects"
+      );
     }
 
-    loadMe();
-    loadProjects();
+    load();
   }, [loadProjects]);
 
   async function activateProject(projectId: string) {
@@ -77,7 +86,7 @@ export default function ProjectsPage() {
       });
       if (res.ok) {
         setMessage("Proyecto activado");
-        loadProjects();
+        loadProjects("/api/v1/admin/projects");
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al activar proyecto"));
@@ -99,6 +108,8 @@ export default function ProjectsPage() {
 
       {loading && projects.length === 0 ? (
         <p className="mt-4 text-sm">Cargando…</p>
+      ) : projects.length === 0 ? (
+        <p className="mt-4 text-sm">Todavía no hay proyectos.</p>
       ) : (
         <div className="grid-brutal mt-4">
           {projects.map((project) => (
@@ -116,16 +127,32 @@ export default function ProjectsPage() {
                   {project.balance_paid ? "PAGADO" : "PENDIENTE"}
                 </p>
               </div>
-              {me?.role === "SUPER_ADMIN" && project.status === "draft" && (
-                <button
-                  onClick={() => activateProject(project.id)}
-                  disabled={activatingId === project.id}
+              <div className="flex flex-wrap gap-2">
+                {me?.role === "SUPER_ADMIN" && project.status === "draft" && (
+                  <button
+                    onClick={() => activateProject(project.id)}
+                    disabled={activatingId === project.id}
+                    className="btn-brutal min-h-[44px] px-3 text-xs"
+                  >
+                    {activatingId === project.id ? "Activando…" : "Activar proyecto"}
+                    <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                  </button>
+                )}
+                <Link
+                  href={`/admin/projects/${project.id}/brief`}
                   className="btn-brutal min-h-[44px] px-3 text-xs"
                 >
-                  {activatingId === project.id ? "Activando…" : "Activar proyecto"}
+                  Brief
                   <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                </button>
-              )}
+                </Link>
+                <Link
+                  href={`/admin/projects/${project.id}/moodboard`}
+                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                >
+                  Moodboard
+                  <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                </Link>
+              </div>
             </div>
           ))}
         </div>
