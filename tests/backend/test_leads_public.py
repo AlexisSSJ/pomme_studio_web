@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_calendar_client
-from backend.app.core.config import Settings
+from backend.app.core.config import Settings, settings
 from backend.app.core.security import create_access_token, get_password_hash
 from backend.app.main import app
 from backend.app.models import (
@@ -342,7 +342,8 @@ def test_availability_not_connected(client: TestClient):
 
 
 def test_availability_past_date(client: TestClient):
-    past_day = date.today() - timedelta(days=1)
+    studio_today = datetime.now(ZoneInfo(settings.STUDIO_TIMEZONE)).date()
+    past_day = studio_today - timedelta(days=1)
     response = client.get(f"/api/v1/leads/availability?date={past_day.isoformat()}")
     assert response.status_code == 422
 
@@ -574,7 +575,8 @@ def test_book_discovery_past(
     )
     try:
         tz = ZoneInfo(calendar_settings.STUDIO_TIMEZONE)
-        past_day = date.today() - timedelta(days=1)
+        studio_today = datetime.now(ZoneInfo(settings.STUDIO_TIMEZONE)).date()
+        past_day = studio_today - timedelta(days=1)
         slot = datetime.combine(past_day, datetime.min.time()).replace(
             hour=10, minute=0, tzinfo=tz
         )
