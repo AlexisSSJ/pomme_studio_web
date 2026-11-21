@@ -45,8 +45,9 @@ async def review(
     media_storage: LocalStorage,
     active_project: Project,
     collaborator_token: str,
+    super_admin_token: str,
 ) -> SimpleNamespace:
-    """Three-round ACTIVE project with an ACTIVE stage and a v1 deliverable."""
+    """Three-round ACTIVE project with an ACTIVE stage and a published v1."""
     active_project.included_rounds = 3
     active_project.remaining_rounds = 3
     await db_session.commit()
@@ -59,6 +60,12 @@ async def review(
 
     upload = upload_deliverable(client, active_project.id, stage_id, collaborator_token)
     assert upload.status_code == 201
+
+    # Collaborator uploads start as drafts; publish so client actions below work.
+    published = publish_deliverable(
+        client, active_project.id, upload.json()["id"], super_admin_token
+    )
+    assert published.status_code == 200
 
     return SimpleNamespace(stage_id=stage_id, deliverable=upload.json())
 
@@ -112,6 +119,20 @@ def upload_deliverable(
         f"/api/v1/projects/{project_id}/stages/{stage_id}/deliverables",
         files={"file": (file_name, payload, content_type)},
         data={"title": title},
+        headers=auth(token),
+    )
+
+
+def publish_deliverable(
+    client: TestClient,
+    project_id: uuid.UUID,
+    deliverable_id: str,
+    token: str,
+):
+    """Publish a deliverable version to the client portal."""
+    return client.post(
+        f"/api/v1/projects/{project_id}/deliverables/{deliverable_id}/publish",
+        json={},
         headers=auth(token),
     )
 
@@ -172,6 +193,7 @@ async def test_upload_versions_increment(
     collaborator_user: User,
     collaborator_token: str,
     client_token: str,
+    super_admin_token: str,
 ):
     stage = create_stage(
         client, active_project.id, collaborator_token, name="Concepto", order_index=0
@@ -198,6 +220,20 @@ async def test_upload_versions_increment(
     )
     assert second.status_code == 201
     assert second.json()["version"] == 2
+
+    # Collaborator uploads stay drafts; publish both before the client listing.
+    assert (
+        publish_deliverable(
+            client, active_project.id, data["id"], super_admin_token
+        ).status_code
+        == 200
+    )
+    assert (
+        publish_deliverable(
+            client, active_project.id, second.json()["id"], super_admin_token
+        ).status_code
+        == 200
+    )
 
     listing = client.get(
         f"/api/v1/projects/{active_project.id}/stages/{stage_id}/deliverables",

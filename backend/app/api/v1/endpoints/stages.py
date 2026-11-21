@@ -189,13 +189,16 @@ async def list_stage_deliverables(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> list[Deliverable]:
-    """List a stage's deliverable versions (any member, any status)."""
+    """List a stage's deliverable versions.
+
+    Team roles see every version, published or draft. CLIENT callers only
+    see versions that have been published to the client portal.
+    """
     stage = await get_stage_or_404(db, project_id, stage_id)
-    result = await db.execute(
-        select(Deliverable)
-        .where(Deliverable.stage_id == stage.id)
-        .order_by(Deliverable.version.asc())
-    )
+    query = select(Deliverable).where(Deliverable.stage_id == stage.id)
+    if current_user.role == UserRole.CLIENT:
+        query = query.where(Deliverable.is_client_visible == True)
+    result = await db.execute(query.order_by(Deliverable.version.asc()))
     return list(result.scalars().all())
 
 
@@ -209,6 +212,8 @@ async def upload_stage_deliverable(
     stage_id: UUID,
     file: UploadFile = File(...),
     title: str = Form(..., min_length=1, max_length=255),
+    is_client_visible: bool = Form(False),
+    is_final_handover: bool = Form(False),
     current_user: User = Depends(require_team_member),
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
@@ -216,7 +221,10 @@ async def upload_stage_deliverable(
     """Upload a new deliverable version to a stage (team, ACTIVE stage only).
 
     The version number continues the stage's sequence, so every upload
-    supersedes the previous one and starts IN_REVIEW. Two concurrent
+    supersedes the previous one and starts IN_REVIEW. LEAD_DESIGNER and
+    SUPER_ADMIN uploads honor the `is_client_visible`/`is_final_handover`
+    form flags; COLLABORATOR uploads are always drafts (both flags forced
+    off) and must be published by a lead or super admin. Two concurrent
     uploads computing the same next version trip the uniqueness backstop;
     the losing request gets a 409 and its stored file is deleted.
     """
@@ -245,6 +253,11 @@ async def upload_stage_deliverable(
     )
     last_version = result.scalar_one_or_none()
 
+    if current_user.role == UserRole.COLLABORATOR:
+        # Collaborators cannot self-publish: drafts always start hidden.
+        is_client_visible = False
+        is_final_handover = False
+
     deliverable = Deliverable(
         project_id=project_id,
         stage_id=stage.id,
@@ -255,6 +268,8 @@ async def upload_stage_deliverable(
         size_bytes=len(data),
         storage_key=storage_key,
         status=DeliverableStatus.IN_REVIEW,
+        is_client_visible=is_client_visible,
+        is_final_handover=is_final_handover,
         created_by=current_user.id,
     )
     db.add(deliverable)

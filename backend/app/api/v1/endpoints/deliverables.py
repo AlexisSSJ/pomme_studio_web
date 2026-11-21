@@ -1,5 +1,6 @@
 """Deliverable endpoints: version reads, file download, pins and approval."""
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,8 +15,10 @@ from ....api.deps import (
     require_active_project,
     require_active_stage,
     require_client_member,
+    require_deliverable_visible,
     require_project_access_from_path,
     require_roles,
+    require_team_member,
 )
 from ....db.session import get_db
 from ....models.deliverable import Deliverable, DeliverableStatus
@@ -24,6 +27,8 @@ from ....models.user import User, UserRole
 from ....schemas.deliverable import (
     DeliverableCommentCreate,
     DeliverableCommentRead,
+    DeliverableFinalHandover,
+    DeliverablePublish,
     DeliverableRead,
 )
 from ....services.audit import log_audit
@@ -39,8 +44,13 @@ async def get_deliverable(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> Deliverable:
-    """Read one deliverable version (any member, any status)."""
-    return await get_deliverable_or_404(db, project_id, deliverable_id)
+    """Read one deliverable version.
+
+    Team roles see every version; CLIENT callers only see published ones.
+    """
+    deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    require_deliverable_visible(deliverable, current_user)
+    return deliverable
 
 
 @router.get("/{deliverable_id}/file")
@@ -51,8 +61,9 @@ async def download_deliverable_file(
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
 ) -> FileResponse:
-    """Download a deliverable file (any member, any project status)."""
+    """Download a deliverable file (published ones only for CLIENT callers)."""
     deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    require_deliverable_visible(deliverable, current_user)
 
     try:
         path = storage.resolve(deliverable.storage_key)
@@ -84,8 +95,9 @@ async def list_deliverable_comments(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> list[DeliverableComment]:
-    """List a deliverable's pins in creation order (any member, any status)."""
+    """List a deliverable's pins in creation order (published only for CLIENT)."""
     deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    require_deliverable_visible(deliverable, current_user)
     result = await db.execute(
         select(DeliverableComment)
         .where(DeliverableComment.deliverable_id == deliverable.id)
@@ -114,6 +126,7 @@ async def create_deliverable_comment(
     await require_client_member(db, project_id, current_user)
     project = await require_active_project(project_id, db)
     deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    require_deliverable_visible(deliverable, current_user)
     stage = await get_stage_or_404(db, project_id, deliverable.stage_id)
     require_active_stage(stage)
     if deliverable.status != DeliverableStatus.IN_REVIEW:
@@ -162,6 +175,7 @@ async def approve_deliverable(
     await require_client_member(db, project_id, current_user)
     await require_active_project(project_id, db)
     deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    require_deliverable_visible(deliverable, current_user)
     stage = await get_stage_or_404(db, project_id, deliverable.stage_id)
     require_active_stage(stage)
     if deliverable.status == DeliverableStatus.APPROVED:
@@ -202,6 +216,7 @@ async def request_changes(
     await require_client_member(db, project_id, current_user)
     project = await require_active_project(project_id, db)
     deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    require_deliverable_visible(deliverable, current_user)
     stage = await get_stage_or_404(db, project_id, deliverable.stage_id)
     require_active_stage(stage)
     if deliverable.status != DeliverableStatus.IN_REVIEW:
@@ -241,6 +256,109 @@ async def request_changes(
             "stage_id": str(deliverable.stage_id),
             "remaining_rounds": project.remaining_rounds,
             "consumed_round": project.included_rounds - project.remaining_rounds,
+        },
+    )
+    return deliverable
+
+
+@router.post("/{deliverable_id}/publish", response_model=DeliverableRead)
+async def publish_deliverable(
+    project_id: UUID,
+    deliverable_id: UUID,
+    payload: DeliverablePublish,
+    current_user: User = Depends(
+        require_roles(UserRole.LEAD_DESIGNER, UserRole.SUPER_ADMIN)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Deliverable:
+    """Publish a deliverable version to the client portal.
+
+    Only LEAD_DESIGNER and SUPER_ADMIN members of the project may
+    publish: the role gate rejects COLLABORATOR (and CLIENT) callers with
+    403 "Insufficient permissions" even though they can upload drafts.
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    await require_active_project(project_id, db)
+    deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+
+    deliverable.is_client_visible = True
+    deliverable.is_final_handover = payload.is_final_handover
+    deliverable.published_at = datetime.now(timezone.utc)
+    deliverable.published_by = current_user.id
+    await db.commit()
+    await db.refresh(deliverable)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="deliverable.publish",
+        entity_type="deliverable",
+        entity_id=deliverable.id,
+        metadata={
+            "project_id": str(project_id),
+            "is_final_handover": deliverable.is_final_handover,
+        },
+    )
+    return deliverable
+
+
+@router.post("/{deliverable_id}/unpublish", response_model=DeliverableRead)
+async def unpublish_deliverable(
+    project_id: UUID,
+    deliverable_id: UUID,
+    current_user: User = Depends(
+        require_roles(UserRole.LEAD_DESIGNER, UserRole.SUPER_ADMIN)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Deliverable:
+    """Hide a published deliverable version from the client portal again."""
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    await require_active_project(project_id, db)
+    deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+
+    deliverable.is_client_visible = False
+    await db.commit()
+    await db.refresh(deliverable)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="deliverable.unpublish",
+        entity_type="deliverable",
+        entity_id=deliverable.id,
+        metadata={"project_id": str(project_id)},
+    )
+    return deliverable
+
+
+@router.post("/{deliverable_id}/final-handover", response_model=DeliverableRead)
+async def mark_final_handover(
+    project_id: UUID,
+    deliverable_id: UUID,
+    payload: DeliverableFinalHandover,
+    current_user: User = Depends(
+        require_roles(UserRole.LEAD_DESIGNER, UserRole.SUPER_ADMIN)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Deliverable:
+    """(Un)mark a deliverable version as the project's final handover."""
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    await require_active_project(project_id, db)
+    deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+
+    deliverable.is_final_handover = payload.is_final_handover
+    await db.commit()
+    await db.refresh(deliverable)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="deliverable.final_handover",
+        entity_type="deliverable",
+        entity_id=deliverable.id,
+        metadata={
+            "project_id": str(project_id),
+            "is_final_handover": deliverable.is_final_handover,
         },
     )
     return deliverable

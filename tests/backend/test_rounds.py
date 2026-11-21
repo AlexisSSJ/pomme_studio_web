@@ -75,6 +75,20 @@ def upload_deliverable(
     )
 
 
+def publish_deliverable(
+    client: TestClient,
+    project_id: uuid.UUID,
+    deliverable_id: str,
+    token: str,
+):
+    """Publish a deliverable version to the client portal."""
+    return client.post(
+        f"/api/v1/projects/{project_id}/deliverables/{deliverable_id}/publish",
+        json={},
+        headers=auth(token),
+    )
+
+
 def pin_comment(
     client: TestClient,
     project_id: uuid.UUID,
@@ -132,8 +146,9 @@ async def rounds(
     active_project: Project,
     collaborator_token: str,
     client_token: str,
+    super_admin_token: str,
 ) -> SimpleNamespace:
-    """Two-round ACTIVE project with an ACTIVE stage, a v1 deliverable and 2 pins."""
+    """Two-round ACTIVE project with an ACTIVE stage, a published v1 and 2 pins."""
     active_project.included_rounds = 2
     active_project.remaining_rounds = 2
     await db_session.commit()
@@ -149,6 +164,12 @@ async def rounds(
     )
     assert upload.status_code == 201
     deliverable_id = upload.json()["id"]
+
+    # Collaborator uploads start as drafts; publish before the client pins.
+    published = publish_deliverable(
+        client, active_project.id, deliverable_id, super_admin_token
+    )
+    assert published.status_code == 200
 
     for body in ("Revisar altura", "Ajustar color"):
         pin = pin_comment(
@@ -166,6 +187,7 @@ async def exhaust_rounds(
     rounds: SimpleNamespace,
     collaborator_token: str,
     client_token: str,
+    super_admin_token: str,
 ) -> None:
     """Spend both included rounds: request changes on v1, then on a fresh v2."""
     first = request_changes(
@@ -177,6 +199,12 @@ async def exhaust_rounds(
         client, active_project.id, rounds.stage_id, collaborator_token, title="Plano v2"
     )
     assert second.status_code == 201
+
+    # The fresh v2 is a draft; publish it before the client requests changes.
+    published = publish_deliverable(
+        client, active_project.id, second.json()["id"], super_admin_token
+    )
+    assert published.status_code == 200
 
     second_request = request_changes(
         client, active_project.id, second.json()["id"], client_token
@@ -247,9 +275,16 @@ async def test_rounds_exhaust_to_zero(
     rounds: SimpleNamespace,
     collaborator_token: str,
     client_token: str,
+    super_admin_token: str,
 ):
     await exhaust_rounds(
-        client, db_session, active_project, rounds, collaborator_token, client_token
+        client,
+        db_session,
+        active_project,
+        rounds,
+        collaborator_token,
+        client_token,
+        super_admin_token,
     )
 
     project = await project_rounds(db_session, active_project.id)
@@ -266,9 +301,16 @@ async def test_zero_rounds_blocks(
     rounds: SimpleNamespace,
     collaborator_token: str,
     client_token: str,
+    super_admin_token: str,
 ):
     await exhaust_rounds(
-        client, db_session, active_project, rounds, collaborator_token, client_token
+        client,
+        db_session,
+        active_project,
+        rounds,
+        collaborator_token,
+        client_token,
+        super_admin_token,
     )
 
     third = upload_deliverable(
@@ -276,6 +318,10 @@ async def test_zero_rounds_blocks(
     )
     assert third.status_code == 201
     third_id = third.json()["id"]
+
+    # Publish v3 so the client's (blocked) request reaches the rounds check.
+    published = publish_deliverable(client, active_project.id, third_id, super_admin_token)
+    assert published.status_code == 200
 
     blocked = request_changes(client, active_project.id, third_id, client_token)
     assert blocked.status_code == 409
@@ -316,6 +362,7 @@ async def test_extra_round_by_lead_designer_unblocks(
     lead_designer_token: str,
     collaborator_token: str,
     client_token: str,
+    super_admin_token: str,
 ):
     db_session.add(
         ProjectMember(
@@ -328,7 +375,13 @@ async def test_extra_round_by_lead_designer_unblocks(
     await db_session.commit()
 
     await exhaust_rounds(
-        client, db_session, active_project, rounds, collaborator_token, client_token
+        client,
+        db_session,
+        active_project,
+        rounds,
+        collaborator_token,
+        client_token,
+        super_admin_token,
     )
 
     extra = grant_extra_round(client, active_project.id, lead_designer_token)
@@ -359,6 +412,12 @@ async def test_extra_round_by_lead_designer_unblocks(
         client, active_project.id, rounds.stage_id, collaborator_token, title="Plano v3"
     )
     assert third.status_code == 201
+
+    # Publish v3 before the client's request, which the extra round unblocks.
+    published = publish_deliverable(
+        client, active_project.id, third.json()["id"], super_admin_token
+    )
+    assert published.status_code == 200
 
     unblocked = request_changes(
         client, active_project.id, third.json()["id"], client_token
@@ -421,12 +480,19 @@ async def test_request_changes_without_pins_allowed(
     rounds: SimpleNamespace,
     collaborator_token: str,
     client_token: str,
+    super_admin_token: str,
 ):
     unpinned = upload_deliverable(
         client, active_project.id, rounds.stage_id, collaborator_token, title="Plano v2"
     )
     assert unpinned.status_code == 201
     unpinned_id = unpinned.json()["id"]
+
+    # The unpinned v2 is a draft; publish it before the client's request.
+    published = publish_deliverable(
+        client, active_project.id, unpinned_id, super_admin_token
+    )
+    assert published.status_code == 200
 
     response = request_changes(client, active_project.id, unpinned_id, client_token)
     assert response.status_code == 200

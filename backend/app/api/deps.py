@@ -296,6 +296,21 @@ async def get_deliverable_or_404(
     return deliverable
 
 
+def require_deliverable_visible(deliverable: Deliverable, current_user: User) -> None:
+    """Gate deliverable reads on the published flag for CLIENT callers.
+
+    Team roles (SUPER_ADMIN, LEAD_DESIGNER, COLLABORATOR) always pass and
+    can inspect drafts. A CLIENT only sees deliverables whose
+    `is_client_visible` flag is set; unpublished drafts read as missing
+    (404 "Deliverable not found") rather than forbidden.
+    """
+    if current_user.role == UserRole.CLIENT and not deliverable.is_client_visible:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deliverable not found",
+        )
+
+
 async def require_client_member(
     db: AsyncSession, project_id: UUID, current_user: User
 ) -> None:
