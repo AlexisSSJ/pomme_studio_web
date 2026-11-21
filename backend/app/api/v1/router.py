@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from .endpoints import admin_audit, admin_leads, admin_pricing, admin_projects, admin_users, auth, brief, health, leads, projects
+from .endpoints import admin_audit, admin_leads, admin_pricing, admin_projects, admin_users, auth, brief, health, leads, moodboard, projects
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
@@ -18,4 +18,9 @@ api_router.include_router(
     brief.router,
     prefix="/projects/{project_id}/brief",
     tags=["brief"],
+)
+api_router.include_router(
+    moodboard.router,
+    prefix="/projects/{project_id}/moodboard",
+    tags=["moodboard"],
 )
