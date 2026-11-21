@@ -1,6 +1,8 @@
 import { getToken, clearToken } from "./auth";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Same-origin by default: Next.js rewrites proxy /api/v1/* to the backend
+// (see next.config.js). NEXT_PUBLIC_API_URL overrides for split deployments.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export function extractDetail(data: unknown, fallback: string): string {
   if (typeof data === "string") return data;

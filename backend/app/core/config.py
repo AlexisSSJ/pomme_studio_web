@@ -90,6 +90,22 @@ class Settings(BaseSettings):
     # Default length of a discovery / intro call (minutes).
     DISCOVERY_CALL_MINUTES: int = 30
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def _normalize_asyncpg_url(cls, value: object) -> object:
+        """Accept managed Postgres URLs (postgresql:// or postgres://).
+
+        Railway and similar providers inject a plain postgresql:// URL; the
+        async engine requires the +asyncpg driver. SQLite and already-qualified
+        URLs pass through unchanged.
+        """
+        if isinstance(value, str):
+            if value.startswith("postgresql://"):
+                return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if value.startswith("postgres://"):
+                return value.replace("postgres://", "postgresql+asyncpg://", 1)
+        return value
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def _split_cors_origins(cls, value: object) -> object:
