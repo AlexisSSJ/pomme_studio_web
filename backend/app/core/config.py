@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     STORAGE_SECRET_ACCESS_KEY: str = "change-me"
     STORAGE_BUCKET_NAME: str = "pomme-studio-assets"
     STORAGE_PUBLIC_URL: str = "https://cdn.example.com"
+    # Local filesystem root for uploaded project media (brief references,
+    # moodboard pins). Consumed by the LocalStorage service.
+    MEDIA_ROOT: str = str(ROOT_DIR / "media")
 
     # --- google calendar ---------------------------------------------------
     GOOGLE_CLIENT_ID: str = "change-me"

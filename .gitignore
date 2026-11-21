@@ -21,6 +21,9 @@ out/
 .env
 .env.local
 
+# Local uploaded media (default MEDIA_ROOT location)
+media/
+
 # IDE
 .vscode/
 .idea/

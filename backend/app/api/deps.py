@@ -5,6 +5,7 @@ and (where relevant) check the role and project membership/ownership. The
 helpers here cover the first two; project-level checks will build on them.
 """
 
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
@@ -18,6 +19,7 @@ from ..db.session import get_db
 from ..models.user import User, UserRole
 from ..models.project_member import ProjectMember
 from ..services.google_calendar import GoogleCalendarClient
+from ..services.storage import LocalStorage
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl=f"{API_V1_PREFIX}/auth/login",
@@ -145,3 +147,8 @@ async def require_project_access_from_path(
 def get_calendar_client() -> GoogleCalendarClient:
     """Return the process-wide Google Calendar client instance."""
     return GoogleCalendarClient(settings)
+
+
+def get_storage() -> LocalStorage:
+    """Return the local media storage service (overrideable in tests)."""
+    return LocalStorage(Path(settings.MEDIA_ROOT))
