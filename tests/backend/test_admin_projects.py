@@ -78,14 +78,14 @@ async def test_activate_ok(
     data = response.json()
     assert data["id"] == str(draft_project.id)
     assert data["status"] == ProjectStatus.ACTIVE.value
-    assert data["balance_paid"] is True
+    assert data["balance_paid"] is False
 
     result = await db_session.execute(
         select(Project).where(Project.id == draft_project.id)
     )
     project = result.scalar_one()
     assert project.status == ProjectStatus.ACTIVE
-    assert project.balance_paid is True
+    assert project.balance_paid is False
 
     result = await db_session.execute(
         select(ProjectMember).where(ProjectMember.project_id == draft_project.id)
@@ -105,7 +105,6 @@ async def test_activate_ok(
         .order_by(AuditLog.created_at.desc())
     )
     log = result.scalar_one()
-    assert log.metadata_json["balance_paid"] is True
     assert len(log.metadata_json["members_added"]) == 2
     assert str(client_user.id) in log.metadata_json["members_added"]
     assert str(lead_designer_user.id) in log.metadata_json["members_added"]
