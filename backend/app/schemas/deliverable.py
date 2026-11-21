@@ -22,6 +22,10 @@ class DeliverableRead(BaseModel):
     content_type: str
     size_bytes: int
     status: DeliverableStatus
+    is_client_visible: bool
+    is_final_handover: bool
+    published_at: datetime | None
+    published_by: UUID | None
     created_by: UUID
     created_at: datetime
 
@@ -60,3 +64,19 @@ class DeliverableCommentRead(BaseModel):
     round_number: int
     consumes_round: bool
     created_at: datetime
+
+
+class DeliverablePublish(BaseModel):
+    """Payload for publishing a deliverable version to the client portal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_final_handover: bool = False
+
+
+class DeliverableFinalHandover(BaseModel):
+    """Payload for (un)marking a deliverable version as the final handover."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_final_handover: bool

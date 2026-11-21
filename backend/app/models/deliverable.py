@@ -4,7 +4,9 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
+import sqlalchemy as sa
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
@@ -72,6 +74,27 @@ class Deliverable(Base):
         default=DeliverableStatus.IN_REVIEW,
         server_default="in_review",
         nullable=False,
+    )
+    is_client_visible: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=sa.false(),
+        nullable=False,
+    )
+    is_final_handover: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=sa.false(),
+        nullable=False,
+    )
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    published_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

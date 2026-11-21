@@ -36,6 +36,10 @@ from .deliverable import (
     DeliverableStatus,
 )
 from .deliverable_comment import DeliverableComment
+from .project_specification import (
+    ProjectSpecification,
+    SpecificationCategory,
+)
 
 __all__ = [
     "User",
@@ -65,4 +69,6 @@ __all__ = [
     "Deliverable",
     "DeliverableStatus",
     "DeliverableComment",
+    "ProjectSpecification",
+    "SpecificationCategory",
 ]
