@@ -3,13 +3,22 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import (
     get_stage_or_404,
+    get_storage,
     require_active_project,
     require_active_stage,
     require_client_member,
@@ -18,10 +27,18 @@ from ....api.deps import (
     require_team_member,
 )
 from ....db.session import get_db
+from ....models.deliverable import Deliverable, DeliverableStatus
 from ....models.project_stage import ProjectStage, StageStatus
 from ....models.user import User, UserRole
+from ....schemas.deliverable import DeliverableRead
 from ....schemas.stage import StageCreate, StageRead
 from ....services.audit import log_audit
+from ....services.storage import (
+    MOODBOARD_CONTENT_TYPES,
+    LocalStorage,
+    UploadTooLargeError,
+    UploadValidationError,
+)
 
 router = APIRouter()
 
@@ -163,3 +180,95 @@ async def approve_stage(
             },
         )
     return stage
+
+
+@router.get("/{stage_id}/deliverables", response_model=list[DeliverableRead])
+async def list_stage_deliverables(
+    project_id: UUID,
+    stage_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+) -> list[Deliverable]:
+    """List a stage's deliverable versions (any member, any status)."""
+    stage = await get_stage_or_404(db, project_id, stage_id)
+    result = await db.execute(
+        select(Deliverable)
+        .where(Deliverable.stage_id == stage.id)
+        .order_by(Deliverable.version.asc())
+    )
+    return list(result.scalars().all())
+
+
+@router.post(
+    "/{stage_id}/deliverables",
+    response_model=DeliverableRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_stage_deliverable(
+    project_id: UUID,
+    stage_id: UUID,
+    file: UploadFile = File(...),
+    title: str = Form(..., min_length=1, max_length=255),
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> Deliverable:
+    """Upload a new deliverable version to a stage (team, ACTIVE stage only).
+
+    The version number continues the stage's sequence, so every upload
+    supersedes the previous one and starts IN_REVIEW.
+    """
+    await require_active_project(project_id, db)
+    stage = await get_stage_or_404(db, project_id, stage_id)
+    require_active_stage(stage)
+
+    data = await file.read()
+    try:
+        storage_key = await storage.save(
+            project_id, data, file.content_type, MOODBOARD_CONTENT_TYPES
+        )
+    except UploadTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="File exceeds the 10 MiB limit",
+        ) from exc
+    except UploadValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Unsupported file type",
+        ) from exc
+
+    result = await db.execute(
+        select(func.max(Deliverable.version)).where(Deliverable.stage_id == stage.id)
+    )
+    last_version = result.scalar_one_or_none()
+
+    deliverable = Deliverable(
+        project_id=project_id,
+        stage_id=stage.id,
+        title=title,
+        version=(last_version or 0) + 1,
+        file_name=(file.filename or "deliverable")[:255],
+        content_type=file.content_type,
+        size_bytes=len(data),
+        storage_key=storage_key,
+        status=DeliverableStatus.IN_REVIEW,
+        created_by=current_user.id,
+    )
+    db.add(deliverable)
+    await db.commit()
+    await db.refresh(deliverable)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="deliverable.create",
+        entity_type="deliverable",
+        entity_id=deliverable.id,
+        metadata={
+            "project_id": str(project_id),
+            "stage_id": str(stage.id),
+            "version": deliverable.version,
+        },
+    )
+    return deliverable

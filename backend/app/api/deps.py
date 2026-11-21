@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import API_V1_PREFIX, settings
 from ..core.security import decode_access_token
 from ..db.session import get_db
+from ..models.deliverable import Deliverable
 from ..models.project import Project, ProjectStatus
 from ..models.project_member import ProjectMember, ProjectRole
 from ..models.project_stage import ProjectStage, StageStatus
@@ -270,6 +271,29 @@ def require_active_stage(stage: ProjectStage) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="Stage is already approved",
         )
+
+
+async def get_deliverable_or_404(
+    db: AsyncSession, project_id: UUID, deliverable_id: UUID
+) -> Deliverable:
+    """Return the deliverable for `deliverable_id` within `project_id` or 404.
+
+    The lookup filters on both the deliverable id and the path project id,
+    so cross-project ids are indistinguishable from missing ones.
+    """
+    result = await db.execute(
+        select(Deliverable).where(
+            Deliverable.id == deliverable_id,
+            Deliverable.project_id == project_id,
+        )
+    )
+    deliverable = result.scalar_one_or_none()
+    if deliverable is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deliverable not found",
+        )
+    return deliverable
 
 
 async def require_client_member(
