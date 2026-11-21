@@ -1,6 +1,7 @@
 """Studio scheduling helpers for discovery calls and availability windows."""
 
 from datetime import date, datetime, timedelta, timezone
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import Settings
 from ..models.lead import Lead
 from ..models.meeting import Meeting, MeetingStatus, MeetingType
+from ..models.project import Project
 from ..services.audit import log_audit
 from ..services.google_calendar import (
     BusyInterval,
@@ -200,5 +202,156 @@ async def book_discovery(
             "google_event_id": event.event_id,
             "start_time": meeting.start_time.isoformat(),
         },
+    )
+    return meeting
+
+
+async def list_project_meeting_slots(
+    db: AsyncSession,
+    client: GoogleCalendarClient,
+    day: date,
+    settings: Settings,
+) -> list[tuple[datetime, datetime]]:
+    """Return available review/survey slots for `day`."""
+    window_start, window_end = studio_day_window(day, settings)
+    duration = timedelta(minutes=settings.PROJECT_MEETING_MINUTES)
+
+    google_busy = await client.freebusy(window_start, window_end)
+    local_busy = await _local_busy(db, window_start, window_end)
+
+    slots = compute_available_slots(
+        google_busy + local_busy,
+        window_start,
+        window_end,
+        duration,
+    )
+    now_local = datetime.now(timezone.utc).astimezone(
+        ZoneInfo(settings.STUDIO_TIMEZONE)
+    )
+    return [(start, end) for start, end in slots if start > now_local]
+
+
+async def book_project_meeting(
+    db: AsyncSession,
+    project: Project,
+    meeting_type: MeetingType,
+    start_time: datetime,
+    client: GoogleCalendarClient,
+    settings: Settings,
+    *,
+    actor_user_id: UUID,
+    attendee_email: str,
+    stage_id: UUID | None = None,
+    stage_name: str | None = None,
+) -> Meeting:
+    """Book a review or survey meeting for a project after validating the slot."""
+    if start_time.tzinfo is None:
+        raise ValueError("start_time must be timezone-aware")
+
+    tz = ZoneInfo(settings.STUDIO_TIMEZONE)
+    local_start = start_time.astimezone(tz)
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+
+    if local_start < now_local:
+        raise ValueError("start_time is in the past")
+
+    day = local_start.date()
+    window_start, window_end = studio_day_window(day, settings)
+    duration = timedelta(minutes=settings.PROJECT_MEETING_MINUTES)
+    local_end = local_start + duration
+
+    if local_start < window_start or local_start >= window_end:
+        raise ValueError("start_time is outside business hours")
+    if local_end > window_end:
+        raise ValueError("start_time is outside business hours")
+
+    if local_start.second or local_start.microsecond:
+        raise ValueError("start_time is not aligned to slot grid")
+    elapsed_since_open = local_start - window_start
+    if elapsed_since_open % duration != timedelta(0):
+        raise ValueError("start_time is not aligned to slot grid")
+
+    google_busy = await client.freebusy(local_start, local_end)
+    local_busy = await _local_busy(db, local_start, local_end)
+
+    for interval in google_busy + local_busy:
+        if local_start < interval.end and local_end > interval.start:
+            raise SlotUnavailableError("slot overlaps an existing booking")
+
+    if meeting_type is MeetingType.REVIEW:
+        summary = f"Revisión de etapa — {project.title}"
+        if stage_name is not None:
+            summary = f"{summary} · {stage_name}"
+    else:
+        summary = f"Levantamiento — {project.title}"
+
+    meeting = Meeting(
+        lead_id=None,
+        project_id=project.id,
+        google_event_id=None,
+        meet_link=None,
+        start_time=local_start.astimezone(timezone.utc),
+        end_time=local_end.astimezone(timezone.utc),
+        meeting_type=meeting_type,
+        status=MeetingStatus.SCHEDULED,
+    )
+    db.add(meeting)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise SlotUnavailableError("slot overlaps an existing booking") from exc
+    await db.refresh(meeting)
+
+    try:
+        event = await client.create_meet_event(
+            summary=summary,
+            start=local_start,
+            end=local_end,
+            attendee_email=attendee_email,
+        )
+    except Exception:
+        try:
+            await db.delete(meeting)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+        raise
+
+    meeting.google_event_id = event.event_id
+    meeting.meet_link = event.meet_link
+    meeting.status = MeetingStatus.CONFIRMED
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        try:
+            await client.delete_event(event.event_id)
+        except Exception:
+            pass
+        try:
+            await db.delete(meeting)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+        raise
+    await db.refresh(meeting)
+
+    metadata = {
+        "project_id": str(project.id),
+        "meeting_type": meeting_type.value,
+        "google_event_id": event.event_id,
+        "start_time": meeting.start_time.isoformat(),
+    }
+    if stage_id is not None:
+        metadata["stage_id"] = str(stage_id)
+
+    await log_audit(
+        db,
+        actor_user_id=actor_user_id,
+        action="meeting.create",
+        entity_type="meeting",
+        entity_id=meeting.id,
+        metadata=metadata,
     )
     return meeting
