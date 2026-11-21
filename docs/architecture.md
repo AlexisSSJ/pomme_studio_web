@@ -12,8 +12,13 @@ de interiores**. Se compone de tres superficies sobre una misma API:
 | Superficie | Audiencia | Propósito |
 |---|---|---|
 | **Front-office público** | Visitantes y prospectos | Presentación del estudio, portafolio, captación de leads y agendamiento de reuniones. |
-| **Portal de clientes** | `CLIENT` | Consulta de proyectos, entregables, pines/decisiones, pagos y reuniones. |
+| **Portal de clientes** | `CLIENT` | Consulta de sus proyectos, brief (cuestionario y referencias), moodboard con reacciones, entregables, pines/decisiones, pagos y reuniones. |
 | **Back-office interno** | `SUPER_ADMIN`, `LEAD_DESIGNER`, `COLLABORATOR` | Gestión de leads, proyectos, entregables, FF&E, pricing, pagos y auditoría. |
+
+En Sprint 3 el portal de clientes se materializa en la ruta `/portal`
+(proyectos del cliente, brief y moodboard) y la gestión de brief/moodboard del
+equipo en `/admin/projects/{id}/brief` y `/admin/projects/{id}/moodboard`; el
+login redirige por rol (`CLIENT` → `/portal`). Ver §7.6.
 
 El repositorio es un **monorepo** con dos aplicaciones desacopladas que se
 comunican por HTTP:
@@ -76,13 +81,19 @@ Las dependencias exactas se declaran en `backend/requirements.txt`.
 
 ### 2.4 Storage
 
-- **Object storage compatible con S3** (Cloudflare R2 o AWS S3, o MinIO local).
-- Bucket privado para entregables, planos, documentación ejecutiva y fichas de
-  FF&E; los enlaces públicos se resuelven con `STORAGE_PUBLIC_URL`.
-- Los binarios **no** se guardan en la base de datos: solo metadatos y la clave
-  del objeto.
-- Variables: `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_ACCESS_KEY_ID`,
-  `STORAGE_SECRET_ACCESS_KEY`, `STORAGE_BUCKET_NAME`, `STORAGE_PUBLIC_URL`.
+- **Decisión Sprint 3 (interina):** los medios de brief y moodboard se guardan
+  en **disco local** bajo `MEDIA_ROOT` (por defecto `<repo>/media/`), con un
+  directorio por `project_id` y claves generadas por el servidor (servicio
+  `LocalStorage`). La descarga es **siempre autenticada** vía endpoints
+  `/file`; no existe mount público de estáticos.
+- Los binarios **no** se guardan en la base de datos: solo metadatos y la
+  `storage_key` del objeto.
+- **Migración pendiente:** object storage compatible con S3 (Cloudflare R2 o
+  AWS S3, o MinIO local) con bucket privado. Las variables `STORAGE_ENDPOINT`,
+  `STORAGE_REGION`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`,
+  `STORAGE_BUCKET_NAME` y `STORAGE_PUBLIC_URL` ya están reservadas en la
+  configuración y no deben reutilizarse para otro propósito.
+- Límites y validaciones de subida: ver §6.3.
 
 ### 2.5 Autenticación
 
@@ -174,6 +185,9 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `pricing_config` | Reglas de precios editables por `SUPER_ADMIN`. | Sprint 1 |
 | `payments` | Pagos y liquidaciones sujetos a validación. | Sprint 1 |
 | `meetings` | Reuniones sincronizadas con Google Calendar. | **Sprint 2** |
+| `brief_items` | Brief del proyecto: preguntas del cuestionario y referencias subidas. | **Sprint 3** |
+| `moodboard_items` | Piezas de inspiración del moodboard cargadas por el equipo. | **Sprint 3** |
+| `moodboard_reactions` | Reacciones (`like`/`dislike`/`comment`) de los clientes a las piezas. | **Sprint 3** |
 | `audit_logs` | Bitácora inmutable de acciones sensibles. | Sprint 1 |
 
 #### 4.3.1 `leads`
@@ -227,6 +241,67 @@ múltiples valores NULL).
 
 Restricciones: `end_time > start_time`; exactamente uno de `lead_id` o `project_id` debe estar presente; índices sobre `lead_id`, `project_id` y `start_time`. El índice parcial único `ux_meetings_start_time_active` impide dos reuniones con el mismo `start_time` cuando `status != 'cancelled'`; para las Discovery Calls de 30 minutos sobre un único calendario, igual inicio equivale a solapamiento.
 
+#### 4.3.4 `brief_items`
+
+Preguntas del cuestionario y archivos de referencia dentro del brief de un
+proyecto (migración `0004`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `item_type` | enum | `question` \| `reference`. |
+| `category` | enum | `branding` \| `interior` \| `general`. |
+| `prompt` | string(500) / null | Texto de la pregunta (obligatorio si `question`). |
+| `answer` | text / null | Respuesta del cliente a la pregunta. |
+| `note` | string(1000) / null | Nota adjunta a una referencia. |
+| `file_name` | string(255) / null | Nombre original del archivo (solo metadato). |
+| `content_type` | string(100) / null | MIME declarado del archivo. |
+| `size_bytes` | int / null | Tamaño en bytes. |
+| `storage_key` | string(500) / null | Clave en el storage (obligatoria si `reference`). |
+| `created_by` | UUID | FK a `users.id` (autor de la fila). |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricción `ck_brief_item_shape`: una fila `question` exige `prompt` no nulo y
+una fila `reference` exige `storage_key` no nulo.
+
+#### 4.3.5 `moodboard_items`
+
+Piezas de inspiración cargadas por el equipo para que el cliente reaccione
+(migración `0004`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `title` | string(255) | Título de la pieza. |
+| `description` | text / null | Descripción opcional. |
+| `file_name` | string(255) | Nombre original del archivo (metadato). |
+| `content_type` | string(100) | MIME (solo imágenes permitidas). |
+| `size_bytes` | int | Tamaño en bytes. |
+| `storage_key` | string(500) | Clave en el storage. |
+| `sort_order` | int | Orden de presentación (por defecto `0`). |
+| `created_by` | UUID | FK a `users.id` (autor de la carga). |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+#### 4.3.6 `moodboard_reactions`
+
+Reacción única por usuario y pieza (migración `0004`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `moodboard_item_id` | UUID | FK a `moodboard_items.id` (indexada). |
+| `user_id` | UUID | FK a `users.id` (indexada). |
+| `reaction` | enum | `like` \| `dislike` \| `comment`. |
+| `comment` | text / null | Texto de la reacción (obligatorio si `comment`). |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `uq_moodboard_reaction_user` hace única la pareja
+`(moodboard_item_id, user_id)` — base del upsert de reacciones — y
+`ck_reaction_comment_required` exige texto no vacío cuando
+`reaction = 'comment'`.
+
 ### 4.4 Auditoría
 
 Toda acción sensible implementada (cambios de rol, activación/desactivación de
@@ -234,6 +309,12 @@ cuentas, edición de `pricing_config`, validación de pagos, creación de reunio
 y acceso a datos de otro usuario) se registra en `audit_logs` con actor, acción,
 entidad afectada, timestamp y metadatos relevantes. La cancelación de reuniones
 y su auditoría son comportamiento futuro, no parte de Sprint 2.
+
+En Sprint 3 se auditan además las acciones de brief y moodboard:
+`brief.question_create`, `brief.answer`, `brief.reference_upload`,
+`moodboard.item_create`, `moodboard.item_delete`, `moodboard.reaction` y
+`moodboard.reaction_delete`, con `entity_type` `brief_item`, `moodboard_item` o
+`moodboard_reaction` y `project_id` (como string) en los metadatos.
 
 ## 5. Integración con Google Calendar
 
@@ -381,7 +462,75 @@ La superficie pública de leads y agenda queda con **hardening pendiente (rate
 limiting / mitigación de bots en superficie pública)**; no se implementó en
 Sprint 2.
 
-### 6.2 Validaciones transversales
+### 6.2 Endpoints introducidos en Sprint 3
+
+Los siguientes contratos se implementaron durante el Sprint 3 (proyectos del
+usuario, brief y moodboard). Todos los paths usan el prefijo `/api/v1`.
+
+| Método | Path | Roles permitidos | Propósito |
+|---|---|---|---|
+| `GET` | `/projects` | Cualquier usuario autenticado y activo | Proyectos del usuario: `SUPER_ADMIN` ve todos; el resto solo los de su membresía (más recientes primero). |
+| `GET` | `/projects/{id}` | Miembros del proyecto / `SUPER_ADMIN` | Detalle de un proyecto. |
+| `GET` | `/projects/{pid}/brief` | Cualquier miembro | Listar el brief (preguntas y referencias, más antiguos primero). |
+| `POST` | `/projects/{pid}/brief/questions` | Equipo | Crear una pregunta del cuestionario (proyecto `ACTIVE`). |
+| `PATCH` | `/projects/{pid}/brief/items/{id}` | `CLIENT` con membresía `CLIENT` | Responder/actualizar la respuesta de una pregunta (proyecto `ACTIVE`). |
+| `POST` | `/projects/{pid}/brief/references` | Cualquier miembro | Subir un archivo de referencia (multipart; proyecto `ACTIVE`). |
+| `GET` | `/projects/{pid}/brief/items/{id}/file` | Cualquier miembro | Descargar el archivo de una referencia. |
+| `GET` | `/projects/{pid}/moodboard` | Cualquier miembro | Listar piezas con conteos (`like`/`dislike`/`comment`) y `my_reaction`. |
+| `POST` | `/projects/{pid}/moodboard` | Equipo | Subir una pieza (multipart, solo imágenes; proyecto `ACTIVE`). |
+| `DELETE` | `/projects/{pid}/moodboard/items/{id}` | Equipo | Eliminar pieza, sus reacciones y su archivo (proyecto `ACTIVE`). |
+| `GET` | `/projects/{pid}/moodboard/items/{id}/file` | Cualquier miembro | Descargar la imagen de una pieza. |
+| `POST` | `/projects/{pid}/moodboard/items/{id}/reactions` | `CLIENT` con membresía `CLIENT` | Upsert de la reacción propia (201 nueva, 200 reemplaza; proyecto `ACTIVE`). |
+| `DELETE` | `/projects/{pid}/moodboard/items/{id}/reactions` | `CLIENT` con membresía `CLIENT` | Eliminar la reacción propia (proyecto `ACTIVE`). |
+| `GET` | `/projects/{pid}/moodboard/items/{id}/reactions` | Cualquier miembro | Listar las reacciones de una pieza (más antiguas primero). |
+
+Reglas de acceso específicas de Sprint 3:
+
+- **Lecturas** (listados, detalle y descargas): cualquier miembro del proyecto,
+  con cualquier `status`; `SUPER_ADMIN` pasa siempre.
+- **Escrituras** (crear preguntas, responder, subir referencias o piezas,
+  reaccionar, eliminar): exigen `project.status == ACTIVE`; si no → `409
+  "Project is not active"`.
+- **Equipo** (`require_team_member`): `SUPER_ADMIN` pasa; `LEAD_DESIGNER`
+  requiere membresía `assigned_role=LEAD_DESIGNER` **o** ser
+  `project.lead_designer_id`; `COLLABORATOR` requiere membresía
+  `assigned_role=COLLABORATOR`. Sin membresía → `403 "No access to this
+  project"`; membresía insuficiente (incluido `CLIENT`) → `403 "Insufficient
+  permissions"`.
+- **Acciones de cliente** (responder el brief, reaccionar): rol `CLIENT` más
+  membresía `assigned_role=CLIENT` en el proyecto.
+- **Aislamiento por ítem:** toda consulta filtra `id == item_id AND project_id
+  == project_id del path`; un id de ítem de otro proyecto responde `404`, sin
+  fuga de existencia.
+
+Queda con **hardening pendiente** (documentado, no implementado en Sprint 3):
+la carrera de INSERT concurrente en el upsert de reacciones (bajo carrera
+extrema un `IntegrityError` puede llegar como `500`; el único
+`uq_moodboard_reaction_user` impide duplicados), la verificación de tamaño en
+streaming para uploads (hoy se lee el archivo completo en memoria) y el focus
+trap con cierre por `Escape` en el overlay del moodboard.
+
+### 6.3 Uploads y descarga de medios (Sprint 3)
+
+- **Límite de tamaño:** 10 MiB (10 485 760 bytes) por archivo → `413 "File
+  exceeds the 10 MiB limit"`.
+- **Tipos permitidos:** referencias de brief aceptan `image/jpeg`,
+  `image/png`, `image/webp`, `image/gif` y `application/pdf`; el moodboard
+  acepta **solo las cuatro imágenes**. Tipo no permitido → `422 "Unsupported
+  file type"`.
+- **Notas de referencia:** máximo 1000 caracteres → `422 "Note exceeds the
+  1000 character limit"`.
+- El nombre de archivo del cliente **nunca** construye rutas: la extensión la
+  deriva el servidor del content-type validado y la clave es
+  `<project_id>/<uuid_hex><ext>` (servicio `LocalStorage` sobre `MEDIA_ROOT`).
+  Las claves se validan contra la raíz para rechazar rutas absolutas y
+  traversal (`../`).
+- **Descarga solo autenticada:** los archivos se sirven por endpoints `/file`
+  con guard de membresía; no hay mount público de estáticos.
+- El whitelist se evalúa sobre el content-type declarado; el sniffing de magic
+  bytes queda fuera de alcance.
+
+### 6.4 Validaciones transversales
 
 Todo endpoint protegido aplica, **en este orden**, las siguientes validaciones:
 
@@ -476,6 +625,25 @@ Prohibido: `box-shadow`, degradados y colores saturados innecesarios.
   coherentes con la estética.
 - El manifiesto se referencia desde `app/layout.tsx`; la app debe ser instalable
   en móvil y funcionar correctamente con viewport seguro.
+
+### 7.6 Portal de clientes y gestión de equipo (Sprint 3)
+
+- **Portal `/portal`** (rol `CLIENT`): listado de los proyectos del cliente
+  (`GET /api/v1/projects`), brief en `/portal/projects/{id}/brief` (responder
+  cuestionario, subir referencias, descargar archivos) y moodboard en
+  `/portal/projects/{id}/moodboard`. Las reacciones (me gusta / no me gusta /
+  comentar) son botones táctiles de ≥ 44×44px con `aria-pressed`, sin depender
+  de `hover`; tocar una imagen abre un overlay a pantalla completa con
+  `touch-action: pinch-zoom` y botón de cierre ≥ 44px.
+- **Gestión de equipo:** `/admin/projects/{id}/brief` (crear preguntas, ver
+  respuestas del cliente, descargar referencias) y
+  `/admin/projects/{id}/moodboard` (subir y eliminar piezas, ver conteos y
+  comentarios). La eliminación usa confirmación inline de dos pasos.
+- **Enrutado por rol:** el login redirige `CLIENT` → `/portal` y al equipo →
+  `/admin`; el layout de admin reenvía a `/portal` cualquier `CLIENT`. Los
+  `COLLABORATOR` cargan su lista de proyectos desde `GET /api/v1/projects`
+  (endpoint de membresía) en lugar de `/api/v1/admin/projects`.
+- **Pendiente:** focus trap y cierre con `Escape` en el overlay del moodboard.
 
 ## 8. Convenciones de contribución
 
