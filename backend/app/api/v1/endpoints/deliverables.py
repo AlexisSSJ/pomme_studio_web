@@ -3,13 +3,15 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import (
     get_deliverable_or_404,
+    get_project_or_404,
     get_stage_or_404,
     get_storage,
     require_active_project,
@@ -33,6 +35,7 @@ from ....schemas.deliverable import (
 )
 from ....services.audit import log_audit
 from ....services.storage import LocalStorage, UploadValidationError
+from ....services.watermark import WatermarkError, render_preview
 
 router = APIRouter()
 
@@ -61,9 +64,25 @@ async def download_deliverable_file(
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
 ) -> FileResponse:
-    """Download a deliverable file (published ones only for CLIENT callers)."""
+    """Download a deliverable file (published ones only for CLIENT callers).
+
+    Final-handover versions are additionally held back from CLIENT callers
+    until the project's final balance has been validated; team roles always
+    download.
+    """
     deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
     require_deliverable_visible(deliverable, current_user)
+
+    project = await get_project_or_404(project_id, db)
+    if (
+        deliverable.is_final_handover
+        and not project.balance_paid
+        and current_user.role == UserRole.CLIENT
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Final balance pending",
+        )
 
     try:
         path = storage.resolve(deliverable.storage_key)
@@ -83,6 +102,48 @@ async def download_deliverable_file(
         media_type=deliverable.content_type,
         filename=deliverable.file_name,
     )
+
+
+@router.get("/{deliverable_id}/preview")
+async def preview_deliverable_file(
+    project_id: UUID,
+    deliverable_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> Response:
+    """Serve a watermarked JPEG preview of a deliverable version.
+
+    Any member who can see the deliverable may request the preview, so
+    clients still get a usable (watermarked) rendering of the final
+    handover while their balance is unpaid. Missing or undecodable
+    payloads read as 404; the original file never leaves the server.
+    """
+    deliverable = await get_deliverable_or_404(db, project_id, deliverable_id)
+    require_deliverable_visible(deliverable, current_user)
+
+    try:
+        path = storage.resolve(deliverable.storage_key)
+    except UploadValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        ) from exc
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        )
+
+    data = await anyio.to_thread.run_sync(path.read_bytes)
+    try:
+        jpeg = await render_preview(data, deliverable.content_type)
+    except WatermarkError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        ) from exc
+    return Response(content=jpeg, media_type="image/jpeg")
 
 
 @router.get(
