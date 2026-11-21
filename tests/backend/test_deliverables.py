@@ -8,6 +8,7 @@ import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_storage
@@ -343,6 +344,51 @@ async def test_upload_rejects_type_and_size(
     )
     assert oversize.status_code == 413
     assert oversize.json()["detail"] == "File exceeds the 10 MiB limit"
+
+
+@pytest.mark.asyncio
+async def test_upload_version_conflict_returns_409_and_cleans_file(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A version race trips the uniqueness backstop: 409, no row, no orphan file."""
+    stage = create_stage(
+        client, active_project.id, collaborator_token, name="Concepto", order_index=0
+    )
+    stage_id = stage.json()["id"]
+
+    original_commit = db_session.commit
+    saved_paths: list[Path] = []
+
+    async def conflicting_commit():
+        # One-shot: snapshot the stored file, raise like the
+        # uq_deliverable_stage_version backstop losing a concurrent race,
+        # then delegate to the real commit from now on.
+        monkeypatch.setattr(db_session, "commit", original_commit)
+        saved_paths.extend(
+            path for path in media_storage.root.rglob("*") if path.is_file()
+        )
+        raise IntegrityError(
+            "INSERT deliverables", {}, Exception("uq_deliverable_stage_version")
+        )
+
+    monkeypatch.setattr(db_session, "commit", conflicting_commit)
+    response = upload_deliverable(client, active_project.id, stage_id, collaborator_token)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Deliverable version conflict"
+
+    result = await db_session.execute(
+        select(Deliverable).where(Deliverable.stage_id == uuid.UUID(stage_id))
+    )
+    assert result.scalar_one_or_none() is None
+
+    assert saved_paths, "the conflicted upload must have stored a file first"
+    assert not any(path.is_file() for path in media_storage.root.rglob("*"))
 
 
 @pytest.mark.asyncio

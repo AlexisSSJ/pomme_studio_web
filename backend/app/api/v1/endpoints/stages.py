@@ -216,7 +216,9 @@ async def upload_stage_deliverable(
     """Upload a new deliverable version to a stage (team, ACTIVE stage only).
 
     The version number continues the stage's sequence, so every upload
-    supersedes the previous one and starts IN_REVIEW.
+    supersedes the previous one and starts IN_REVIEW. Two concurrent
+    uploads computing the same next version trip the uniqueness backstop;
+    the losing request gets a 409 and its stored file is deleted.
     """
     await require_active_project(project_id, db)
     stage = await get_stage_or_404(db, project_id, stage_id)
@@ -256,7 +258,18 @@ async def upload_stage_deliverable(
         created_by=current_user.id,
     )
     db.add(deliverable)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        try:
+            await storage.delete(storage_key)
+        except Exception:
+            pass  # Best-effort cleanup; the conflict response still goes out.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Deliverable version conflict",
+        ) from exc
     await db.refresh(deliverable)
 
     await log_audit(
