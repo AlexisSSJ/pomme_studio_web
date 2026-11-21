@@ -712,8 +712,9 @@ Reglas de acceso específicas de Sprint 4:
 - **Escrituras:** exigen `project.status == ACTIVE` (si no → `409 "Project is
   not active"`). Las mutaciones de entregables y pines exigen además una etapa
   `ACTIVE` (`409 "Stage is locked"` / `409 "Stage is already approved"`) y,
-  para pines y decisiones, una versión `IN_REVIEW` (`409 "Deliverable is not in
-  review"`).
+  para pines y solicitar cambios, una versión `IN_REVIEW` (`409 "Deliverable
+  is not in review"`); aprobar solo exige una versión no aprobada (`409
+  "Deliverable is already approved"`).
 - **Equipo** (`require_team_member`): misma semántica que Sprint 3
   (`SUPER_ADMIN` pasa; `LEAD_DESIGNER` con membresía o asignación;
   `COLLABORATOR` con membresía).
