@@ -33,6 +33,22 @@ export default function LoginPage() {
 
       const data = await res.json();
       setToken(data.access_token);
+
+      // Route by role: clients land on their portal, the team on admin.
+      // If the role cannot be confirmed, fall back to admin (its layout
+      // re-checks the role server-side and redirects clients anyway).
+      try {
+        const meRes = await fetch(`${API_BASE}/api/v1/auth/me`, {
+          headers: { Authorization: `Bearer ${data.access_token}` },
+        });
+        if (meRes.ok) {
+          const me: { role: string } = await meRes.json();
+          router.push(me.role === "CLIENT" ? "/portal" : "/admin");
+          return;
+        }
+      } catch {
+        // Fall through to the default admin destination.
+      }
       router.push("/admin");
     } catch {
       setError("Error de conexión con el servidor");
