@@ -13,6 +13,7 @@ from backend.app.models import (
     Project,
     ProjectMember,
     ProjectRole,
+    ProjectStatus,
     ProjectStage,
     StageStatus,
     User,
@@ -254,6 +255,118 @@ async def test_approve_out_of_order_creation(
     assert stages[0] == "approved"
     assert stages[1] == "active"
     assert stages[2] == "locked"
+
+
+@pytest.mark.asyncio
+async def test_stage_created_after_predecessor_approved_is_active(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    client_user: User,
+    collaborator_user: User,
+    collaborator_token: str,
+    client_token: str,
+):
+    # All predecessors APPROVED: the new stage starts ACTIVE instead of
+    # being LOCKED behind a predecessor that was already approved.
+    first = create_stage(
+        client, active_project.id, collaborator_token, name="Concepto", order_index=0
+    )
+    assert first.status_code == 201
+    second = create_stage(
+        client, active_project.id, collaborator_token, name="Ejecutivo", order_index=1
+    )
+    assert second.status_code == 201
+    assert second.json()["status"] == "locked"
+
+    assert (
+        approve_stage(
+            client, active_project.id, first.json()["id"], client_token
+        ).status_code
+        == 200
+    )
+    assert (
+        approve_stage(
+            client, active_project.id, second.json()["id"], client_token
+        ).status_code
+        == 200
+    )
+
+    new_stage = create_stage(
+        client, active_project.id, collaborator_token, name="Entrega", order_index=2
+    )
+    assert new_stage.status_code == 201
+    assert new_stage.json()["status"] == "active"
+
+    # Dead-end case in a fresh project: orders 0 and 2 exist, approving 0
+    # unlocks 2, and an order 1 created afterwards must not be LOCKED
+    # forever just because it is not the project's first stage.
+    dead_end_project = Project(
+        id=uuid.uuid4(),
+        title="Etapas tardías",
+        client_id=client_user.id,
+        status=ProjectStatus.ACTIVE,
+    )
+    db_session.add(dead_end_project)
+    db_session.add(
+        ProjectMember(
+            id=uuid.uuid4(),
+            project_id=dead_end_project.id,
+            user_id=collaborator_user.id,
+            assigned_role=ProjectRole.COLLABORATOR,
+        )
+    )
+    db_session.add(
+        ProjectMember(
+            id=uuid.uuid4(),
+            project_id=dead_end_project.id,
+            user_id=client_user.id,
+            assigned_role=ProjectRole.CLIENT,
+        )
+    )
+    await db_session.commit()
+
+    zero = create_stage(
+        client, dead_end_project.id, collaborator_token, name="Concepto", order_index=0
+    )
+    assert zero.status_code == 201
+    two = create_stage(
+        client, dead_end_project.id, collaborator_token, name="Entrega", order_index=2
+    )
+    assert two.status_code == 201
+    assert two.json()["status"] == "locked"
+
+    assert (
+        approve_stage(
+            client, dead_end_project.id, zero.json()["id"], client_token
+        ).status_code
+        == 200
+    )
+
+    one = create_stage(
+        client, dead_end_project.id, collaborator_token, name="Ejecutivo", order_index=1
+    )
+    assert one.status_code == 201
+    assert one.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_stage_created_with_unapproved_predecessor_stays_locked(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+):
+    first = create_stage(
+        client, active_project.id, collaborator_token, name="Concepto", order_index=0
+    )
+    assert first.status_code == 201
+    assert first.json()["status"] == "active"
+
+    second = create_stage(
+        client, active_project.id, collaborator_token, name="Ejecutivo", order_index=1
+    )
+    assert second.status_code == 201
+    assert second.json()["status"] == "locked"
 
 
 @pytest.mark.asyncio

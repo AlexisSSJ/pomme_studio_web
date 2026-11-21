@@ -54,24 +54,29 @@ async def create_stage(
 ) -> ProjectStage:
     """Add a workflow stage (studio team, ACTIVE projects only).
 
-    The first stage of a project starts ACTIVE; every later stage is
-    LOCKED until the client approves its predecessor. A duplicate
-    order_index is rejected with 409.
+    A new stage starts ACTIVE when every earlier stage of the project is
+    already APPROVED (vacuously true for the project's first stage, which
+    has no predecessors); otherwise it is LOCKED until the client approves
+    its predecessor. A duplicate order_index is rejected with 409.
     """
     await require_active_project(project_id, db)
 
     result = await db.execute(
         select(ProjectStage.id)
-        .where(ProjectStage.project_id == project_id)
+        .where(
+            ProjectStage.project_id == project_id,
+            ProjectStage.order_index < payload.order_index,
+            ProjectStage.status != StageStatus.APPROVED,
+        )
         .limit(1)
     )
-    first_stage = result.scalar_one_or_none() is None
+    unapproved_predecessor = result.scalar_one_or_none() is not None
 
     stage = ProjectStage(
         project_id=project_id,
         name=payload.name,
         order_index=payload.order_index,
-        status=StageStatus.ACTIVE if first_stage else StageStatus.LOCKED,
+        status=StageStatus.LOCKED if unapproved_predecessor else StageStatus.ACTIVE,
     )
     db.add(stage)
     try:
