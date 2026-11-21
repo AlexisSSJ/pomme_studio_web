@@ -118,7 +118,9 @@ Las dependencias exactas se declaran en `backend/requirements.txt`.
 
 `ENVIRONMENT` ∈ `development | staging | production`. `DEBUG` debe ser `false`
 en producción. Las variables se documentan en `.env.example` y **nunca** se
-versionan secretos reales (`.env` está en `.gitignore`).
+versionan secretos reales (`.env` está en `.gitignore`). Sprint 4 añade
+`PROJECT_MEETING_MINUTES` (por defecto `60`), que fija la duración de las
+reuniones de proyecto (ver §5.2).
 
 ## 3. Roles y permisos (RBAC)
 
@@ -180,7 +182,6 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `leads` | Prospectos del front-office; origen de reuniones y propuestas. | **Sprint 2** |
 | `projects` | Proyecto de diseño con cliente, líder y miembros. | Sprint 1 + **Sprint 2** |
 | `project_members` | Membresía usuario↔proyecto (base del control de acceso). | Sprint 1 |
-| `deliverables` | Entregables versionados con pines/comentarios y aprobación. | Sprint 1 |
 | `ffe_items` | Especificaciones FF&E (ficha, acabado, proveedor sugerido, estado). | Sprint 1 |
 | `pricing_config` | Reglas de precios editables por `SUPER_ADMIN`. | Sprint 1 |
 | `payments` | Pagos y liquidaciones sujetos a validación. | Sprint 1 |
@@ -188,6 +189,9 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `brief_items` | Brief del proyecto: preguntas del cuestionario y referencias subidas. | **Sprint 3** |
 | `moodboard_items` | Piezas de inspiración del moodboard cargadas por el equipo. | **Sprint 3** |
 | `moodboard_reactions` | Reacciones (`like`/`dislike`/`comment`) de los clientes a las piezas. | **Sprint 3** |
+| `project_stages` | Fases secuenciales del flujo de trabajo, con candado y aprobación del cliente. | **Sprint 4** |
+| `deliverables` | Entregables versionados dentro de una etapa, con pines/comentarios y aprobación. | Sprint 1 → rediseñado en **Sprint 4** |
+| `deliverable_comments` | Pines de revisión anclados a un punto porcentual de un entregable. | **Sprint 4** |
 | `audit_logs` | Bitácora inmutable de acciones sensibles. | Sprint 1 |
 
 #### 4.3.1 `leads`
@@ -235,7 +239,7 @@ múltiples valores NULL).
 | `meet_link` | string(512) / null | URL de Google Meet generada por Google. |
 | `start_time` | timestamptz | Inicio en UTC. |
 | `end_time` | timestamptz | Fin en UTC. |
-| `meeting_type` | enum | `discovery` \| `proposal` \| `review` \| `follow_up`. |
+| `meeting_type` | enum | `discovery` \| `proposal` \| `review` \| `follow_up` \| `survey` (Sprint 4). |
 | `status` | enum | `scheduled` \| `confirmed` \| `cancelled` \| `completed` \| `no_show`. |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
@@ -302,6 +306,71 @@ Restricciones: `uq_moodboard_reaction_user` hace única la pareja
 `ck_reaction_comment_required` exige texto no vacío cuando
 `reaction = 'comment'`.
 
+#### 4.3.7 `project_stages`
+
+Fase ordenada del flujo de trabajo de un proyecto (migración `0005`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `name` | string(255) | Nombre de la etapa. |
+| `order_index` | int | Posición en el flujo (≥ 0). |
+| `status` | enum | `locked` \| `active` \| `approved`. |
+| `approved_by` | UUID / null | FK a `users.id` (cliente que aprobó). |
+| `approved_at` | timestamptz / null | Momento de la aprobación. |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `uq_project_stage_order` hace única la pareja
+`(project_id, order_index)`; `ck_stage_order_non_negative` exige
+`order_index >= 0`; `ck_stage_approval_shape` exige que una etapa
+`approved` tenga `approved_by` y `approved_at`.
+
+#### 4.3.8 `deliverables`
+
+Versión de un entregable dentro de una etapa (migración `0005`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `stage_id` | UUID | FK a `project_stages.id` (indexada). |
+| `title` | string(255) | Título de la versión. |
+| `version` | int | Número de versión dentro de la etapa (≥ 1, default 1). |
+| `file_name` | string(255) | Nombre original del archivo (metadato). |
+| `content_type` | string(100) | MIME (solo imágenes permitidas). |
+| `size_bytes` | int | Tamaño en bytes. |
+| `storage_key` | string(500) | Clave en el storage. |
+| `status` | enum | `in_review` \| `changes_requested` \| `approved`. |
+| `created_by` | UUID | FK a `users.id` (autor de la carga). |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `uq_deliverable_stage_version` hace única la pareja
+`(stage_id, version)` — backstop de la carrera de uploads concurrentes — y
+`ck_deliverable_version_positive` exige `version >= 1`.
+
+#### 4.3.9 `deliverable_comments`
+
+Pin de revisión anclado a un punto porcentual de un entregable
+(migración `0005`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `deliverable_id` | UUID | FK a `deliverables.id` (indexada). |
+| `created_by` | UUID | FK a `users.id` (autor del pin). |
+| `x_pct` / `y_pct` | float | Coordenadas del pin en porcentaje (0–100). |
+| `page_or_frame` | int | Página o frame del documento (≥ 1, default 1). |
+| `body` | text | Texto del pin (no puede estar en blanco). |
+| `round_number` | int | Ronda de cambios a la que pertenece (default 1). |
+| `consumes_round` | bool | `True` cuando la ronda del pin ya fue consumida. |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `ck_comment_x_pct` y `ck_comment_y_pct` fijan el rango
+0–100, `ck_comment_page` exige `page_or_frame >= 1` y `ck_comment_body`
+rechaza cuerpos whitespace-only a nivel de base (la capa de schema ya los
+rechaza con `422` antes de llegar aquí).
+
 ### 4.4 Auditoría
 
 Toda acción sensible implementada (cambios de rol, activación/desactivación de
@@ -315,6 +384,47 @@ En Sprint 3 se auditan además las acciones de brief y moodboard:
 `moodboard.item_create`, `moodboard.item_delete`, `moodboard.reaction` y
 `moodboard.reaction_delete`, con `entity_type` `brief_item`, `moodboard_item` o
 `moodboard_reaction` y `project_id` (como string) en los metadatos.
+
+En Sprint 4 se auditan las acciones del flujo de etapas, entregables y rondas:
+`stage.create`, `stage.approve` y `stage.unlock` (entidad `project_stage`),
+`deliverable.create`, `deliverable.approve` y `deliverable.changes_requested`
+(entidad `deliverable`), `deliverable.comment` (entidad `deliverable_comment`),
+`project.extra_round_granted` (entidad `project`) y `meeting.create` para las
+reuniones de proyecto, ahora con el **actor autenticado** (`actor_user_id`),
+a diferencia de las reuniones de lead de Sprint 2, cuyo actor es `NULL`.
+
+### 4.5 Etapas, entregables y rondas de cambio (Sprint 4)
+
+- **Regla de creación de etapas.** La primera etapa de un proyecto nace
+  `ACTIVE` (no tiene predecesores). Una etapa posterior nace `LOCKED` salvo
+  que **todas** las etapas con `order_index` menor estén `APPROVED`, en cuyo
+  caso nace `ACTIVE`. Consecuencia documentada: crear etapas fuera de orden
+  tras aprobaciones puede dejar varias etapas `ACTIVE` simultáneamente; el
+  spec no exige la invariante de una sola `ACTIVE`.
+- **Candado secuencial.** Solo el cliente asignado (rol `CLIENT` con
+  membresía `CLIENT`) aprueba una etapa `ACTIVE`. La aprobación desbloquea
+  la siguiente etapa `LOCKED` por `order_index` — la de menor índice mayor
+  que la aprobada, sin importar el orden de creación — y se auditan
+  `stage.create`, `stage.approve` y `stage.unlock`.
+- **Rondas de cambio.** `request-changes` decrementa `remaining_rounds`,
+  voltea la versión a `changes_requested` y marca `consumes_round = True`
+  los pines no consumidos del entregable, en una sola transacción. Con
+  `remaining_rounds = 0` → `409 "No remaining change rounds"`. La ronda
+  extra (`POST /admin/projects/{pid}/extra-round`) es auditada
+  (`project.extra_round_granted`) e incrementa `included_rounds` y
+  `remaining_rounds`. El `round_number` de un pin se fija al crearlo como
+  `included_rounds − remaining_rounds + 1`; el pin en sí no consume ronda.
+- **Entregables.** Solo imágenes este sprint; `page_or_frame` se persiste
+  (default 1) para el soporte multipágina futuro. El versionado por etapa
+  es `max+1` con `uq_deliverable_stage_version` de backstop; un conflicto
+  de versión (uploads concurrentes) → `409 "Deliverable version conflict"`
+  con limpieza del archivo ya guardado. Un body de pin whitespace-only →
+  `422` en la capa de schema.
+- **Reuniones de proyecto.** `meeting_type` añade `survey` (levantamiento en
+  sitio); el booking es por cualquier miembro con el proyecto `ACTIVE`, el
+  asistente de Google Meet es el cliente del proyecto y el actor
+  autenticado queda en `audit_logs` (`meeting.create`). Duración por
+  defecto: `PROJECT_MEETING_MINUTES` (§5.2).
 
 ## 5. Integración con Google Calendar
 
@@ -367,6 +477,7 @@ El horario de operación del estudio se configura con:
 | `STUDIO_BUSINESS_START` | `09:00` | Inicio de la jornada (`HH:MM`). |
 | `STUDIO_BUSINESS_END` | `18:00` | Fin de la jornada (`HH:MM`). |
 | `DISCOVERY_CALL_MINUTES` | `30` | Duración por defecto de una Discovery Call. |
+| `PROJECT_MEETING_MINUTES` | `60` | Duración por defecto de una reunión de proyecto (revisión o levantamiento). Sprint 4. |
 
 ### 5.3 Verificación final antes de confirmar
 
@@ -422,7 +533,7 @@ forma ambigua) y persiste:
 | `meet_link` | text | URL de Google Meet generada por Google. |
 | `start_time` | timestamptz | Inicio en UTC. |
 | `end_time` | timestamptz | Fin en UTC. |
-| `meeting_type` | enum/text | Tipo de reunión (p. ej. discovery, propuesta, revisión, seguimiento). |
+| `meeting_type` | enum/text | `discovery` \| `proposal` \| `review` \| `follow_up` \| `survey` (Sprint 4). Las reuniones de proyecto solo usan `review` y `survey`. |
 | `status` | enum/text | `scheduled`, `confirmed`, `cancelled`, `completed`, `no_show`. |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
@@ -430,12 +541,22 @@ Restricciones: `end_time > start_time`, exactamente un padre (`lead_id` o
 `project_id`), índices por `project_id`, `lead_id` y `start_time`, y el índice
 parcial único `ux_meetings_start_time_active` para inicios no cancelados.
 
+Las reuniones de proyecto (Sprint 4) las agenda cualquier miembro con el
+proyecto `ACTIVE` — con una `stage_id` opcional que viaja en los metadatos de
+la auditoría, no en la tabla — y el asistente de Google Meet es el cliente del
+proyecto (o el correo del actor si el proyecto no tiene cliente).
+
 ### 5.6 Registro en `audit_logs`
 
 En Sprint 2 la creación exitosa de una reunión se registra en `audit_logs` con
 actor público `NULL`, `meeting_id`, `google_event_id`, `lead_id` e inicio. La
 auditoría de reprogramación, cancelación, reconexión OAuth y fallos de
-sincronización es **comportamiento futuro**, no implementado en este sprint.
+sincronización es **comportamiento futuro**, no implementado en ese sprint.
+
+En Sprint 4, las reuniones de proyecto (revisión/levantamiento) también se
+registran con `meeting.create`, pero con el **actor autenticado**
+(`actor_user_id`) y `project_id` (más `stage_id` cuando se eligió etapa) en los
+metadatos; la acción queda listada en §4.4.
 
 ## 6. Seguridad de la API
 
@@ -560,6 +681,76 @@ Principios adicionales:
 - Secretos exclusivamente por variables de entorno; prohibido hardcodearlos.
 - CORS restringido a los orígenes del frontend (`localhost:3000` en desarrollo).
 
+### 6.5 Endpoints introducidos en Sprint 4
+
+Los siguientes contratos se implementaron durante el Sprint 4 (etapas,
+entregables versionados, pines, rondas de cambio y reuniones de proyecto).
+Todos los paths usan el prefijo `/api/v1`.
+
+| Método | Path | Roles permitidos | Propósito |
+|---|---|---|---|
+| `GET` | `/projects/{pid}/stages` | Cualquier miembro / `SUPER_ADMIN` | Listar las etapas del proyecto en orden de flujo (`order_index`), cualquier `status`. |
+| `POST` | `/projects/{pid}/stages` | Equipo (`require_team_member`) | Crear una etapa (proyecto `ACTIVE`): nace `ACTIVE` si todas las etapas de `order_index` menor están `APPROVED`; si no, `LOCKED`. Duplicado de `order_index` → `409 "Stage order already exists"`. |
+| `POST` | `/projects/{pid}/stages/{sid}/approve` | `CLIENT` con membresía `CLIENT` | Aprobar una etapa `ACTIVE` (proyecto `ACTIVE`) y desbloquear la siguiente `LOCKED` por `order_index`. |
+| `GET` | `/projects/{pid}/stages/{sid}/deliverables` | Cualquier miembro | Listar las versiones del entregable de la etapa (ascendente por versión), cualquier `status`. |
+| `POST` | `/projects/{pid}/stages/{sid}/deliverables` | Equipo | Subir una nueva versión (multipart: `file` imagen + `title`; proyecto y etapa `ACTIVE`). Versión = max+1 → conflicto `409 "Deliverable version conflict"` (con limpieza del archivo); `413` > 10 MiB; `422` tipo no soportado. |
+| `GET` | `/projects/{pid}/deliverables/{did}` | Cualquier miembro | Detalle de una versión (nunca expone `storage_key`). |
+| `GET` | `/projects/{pid}/deliverables/{did}/file` | Cualquier miembro | Descargar el archivo de la versión. |
+| `GET` | `/projects/{pid}/deliverables/{did}/comments` | Cualquier miembro | Listar los pines del entregable (orden de creación). |
+| `POST` | `/projects/{pid}/deliverables/{did}/comments` | `CLIENT` con membresía `CLIENT` | Crear un pin sobre una versión `IN_REVIEW` (proyecto y etapa `ACTIVE`): `round_number = included − remaining + 1`, `consumes_round = False`; body en blanco → `422`. |
+| `POST` | `/projects/{pid}/deliverables/{did}/approve` | `CLIENT` con membresía `CLIENT` | Aprobar una versión (proyecto y etapa `ACTIVE`); ya aprobada → `409 "Deliverable is already approved"`. |
+| `POST` | `/projects/{pid}/deliverables/{did}/request-changes` | `CLIENT` con membresía `CLIENT` | Solicitar cambios en una versión `IN_REVIEW` (proyecto y etapa `ACTIVE`): consume una ronda y marca los pines pendientes; sin rondas → `409 "No remaining change rounds"`. |
+| `GET` | `/projects/{pid}/meetings` | Cualquier miembro | Listar las reuniones del proyecto (por inicio). |
+| `GET` | `/projects/{pid}/meetings/availability?date=YYYY-MM-DD` | Cualquier miembro | Slots de revisión/levantamiento para una fecha (fecha pasada → `422`; calendario desconectado → `503`; Google caído → `502`). |
+| `POST` | `/projects/{pid}/meetings` | Cualquier miembro | Agendar una reunión de revisión o levantamiento (proyecto `ACTIVE`; `meeting_type` ∈ `review` \| `survey`; `stage_id` opcional; slot tomado → `409 "Slot no longer available"`). |
+| `POST` | `/admin/projects/{pid}/extra-round` | `SUPER_ADMIN`, `LEAD_DESIGNER` con acceso de equipo | Habilitar una ronda extra (proyecto `ACTIVE`): incrementa `included_rounds` y `remaining_rounds`. `COLLABORATOR` → `403 "Insufficient permissions"` (role gate). |
+
+Reglas de acceso específicas de Sprint 4:
+
+- **Lecturas** (etapas, versiones, pines, archivos y reuniones): cualquier
+  miembro del proyecto, con cualquier `status`; `SUPER_ADMIN` pasa siempre.
+- **Escrituras:** exigen `project.status == ACTIVE` (si no → `409 "Project is
+  not active"`). Las mutaciones de entregables y pines exigen además una etapa
+  `ACTIVE` (`409 "Stage is locked"` / `409 "Stage is already approved"`) y,
+  para pines y decisiones, una versión `IN_REVIEW` (`409 "Deliverable is not in
+  review"`).
+- **Equipo** (`require_team_member`): misma semántica que Sprint 3
+  (`SUPER_ADMIN` pasa; `LEAD_DESIGNER` con membresía o asignación;
+  `COLLABORATOR` con membresía).
+- **Acciones de cliente** (aprobar etapa, pinear, aprobar versión, solicitar
+  cambios): rol `CLIENT` más membresía `assigned_role=CLIENT`. La aprobación de
+  etapa es solo del cliente asignado.
+- **Extra-round:** role gate `SUPER_ADMIN`/`LEAD_DESIGNER` **más**
+  `require_team_member` (la dirección requiere membresía `LEAD_DESIGNER` o ser
+  el `lead_designer_id` del proyecto).
+- **Aislamiento por id:** toda consulta de etapa o entregable filtra por el
+  `project_id` del path; un id de otro proyecto responde `404`, sin fuga de
+  existencia.
+- **Reuniones de proyecto:** el booking lo hace cualquier miembro (incluido el
+  cliente) con el proyecto `ACTIVE`; el asistente del Meet es el cliente del
+  proyecto. La duración la fija `PROJECT_MEETING_MINUTES` (§5.2).
+
+Queda con **hardening pendiente** (documentado, no implementado en Sprint 4):
+
+- La carrera de decremento concurrente de `remaining_rounds`: el guard
+  secuencial (`remaining_rounds <= 0` → `409`) garantiza el piso 0, pero no hay
+  lock de fila ni `UPDATE` condicional, así que dos `request-changes`
+  concurrentes pueden decrementar desde el mismo valor leído.
+- La serialización de uploads concurrentes de versiones: la versión se calcula
+  como `max+1` sin lock; el único backstop es
+  `uq_deliverable_stage_version`, que convierte al perdedor en `409` (con
+  limpieza del archivo).
+- El soporte PDF/multipágina del visor: `page_or_frame` se persiste (default 1)
+  pero este sprint solo acepta imágenes.
+- El focus trap y el cierre con `Escape` en el visor de pines.
+- La creación de pines por teclado: hoy la colocación es pointer-only (los
+  marcadores existentes sí son activables con `Enter`/`Space`).
+- El quirk preexistente (Sprint 3) de whitespace en comentarios del moodboard:
+  `MoodboardReactionCreate` normaliza el comentario con `strip()` antes de
+  persistirlo (mutación silenciosa del texto del usuario), mientras que los
+  pines de entregables se guardan verbatim y solo se rechaza el body en blanco;
+  unificar el criterio queda pendiente.
+
 ## 7. UI / Diseño — *Tactile Brutalism*
 
 La interfaz sigue la estética **Tactile Brutalism**: retícula editorial inspirada
@@ -644,6 +835,28 @@ Prohibido: `box-shadow`, degradados y colores saturados innecesarios.
   `COLLABORATOR` cargan su lista de proyectos desde `GET /api/v1/projects`
   (endpoint de membresía) en lugar de `/api/v1/admin/projects`.
 - **Pendiente:** focus trap y cierre con `Escape` en el overlay del moodboard.
+
+### 7.7 Etapas, visor de pines y reuniones (Sprint 4)
+
+- **Portal `/portal`** (rol `CLIENT`): `/portal/projects/{id}/etapas` —
+  listado de etapas con estado, entregables por etapa y aprobación de etapa
+  con confirmación inline de dos pasos —, `/portal/projects/{id}/entregables/{did}`
+  — visor del entregable — y `/portal/projects/{id}/reuniones` — agenda de
+  revisiones y levantamientos.
+- **Gestión de equipo:** `/admin/projects/{id}/etapas` — crear etapas
+  (nombre + orden), subir versiones a etapas `ACTIVE` (multipart), consultar
+  pines en modo lectura, habilitar rondas extra con confirmación inline de
+  dos pasos (el servidor rechaza a `COLLABORATOR` con `403` y el error se
+  muestra al usuario) y agendar reuniones con el `MeetingScheduler` alimentado
+  por las etapas del proyecto. El listado de proyectos enlaza cada tarjeta a
+  Brief, Moodboard y Etapas.
+- **Visor de pines táctil:** la colocación de pines es por toque
+  (`pointerup` con tap-slop de 6 px), el zoom es de 1–4× por pinch o botones
+  `−`/`+` ≥ 44px, y el desplazamiento es con un dedo; ninguna acción crítica
+  depende de `hover`. Los marcadores existentes son activables por teclado
+  (`Enter`/`Space`); la creación de pines es pointer-only (hardening
+  pendiente, §6.5). Con `canReview = false` — el modo del equipo — los pines
+  son de solo lectura y solo queda la descarga.
 
 ## 8. Convenciones de contribución
 
