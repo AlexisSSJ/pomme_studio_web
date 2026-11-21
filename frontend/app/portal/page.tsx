@@ -92,6 +92,24 @@ export default function PortalProjectsPage() {
                     ↗
                   </span>
                 </Link>
+                <Link
+                  href={`/portal/projects/${project.id}/etapas`}
+                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                >
+                  Etapas
+                  <span className="btn-brutal__arrow" aria-hidden="true">
+                    ↗
+                  </span>
+                </Link>
+                <Link
+                  href={`/portal/projects/${project.id}/reuniones`}
+                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                >
+                  Reuniones
+                  <span className="btn-brutal__arrow" aria-hidden="true">
+                    ↗
+                  </span>
+                </Link>
               </div>
             </div>
           ))}
