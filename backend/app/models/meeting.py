@@ -18,6 +18,7 @@ class MeetingType(str, enum.Enum):
     PROPOSAL = "proposal"
     REVIEW = "review"
     FOLLOW_UP = "follow_up"
+    SURVEY = "survey"
 
 
 class MeetingStatus(str, enum.Enum):
