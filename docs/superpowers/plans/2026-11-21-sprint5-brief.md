@@ -56,8 +56,13 @@ brainstorming (aprobado con "Me parece bien"), sobre `AGENTS.md` y
 - **Publicación:** `POST /projects/{pid}/deliverables/{id}/publish` y
   `.../unpublish` (LEAD_DESIGNER/SUPER_ADMIN con acceso de equipo). Marcar
   `is_final_handover` también es decisión de publicación (solo LEAD/SUPER).
-- **Alcance:** solo backend + API + pytest este turno. La UI (páginas admin y
-  portal) queda para un sprint siguiente. Sin frontend en Sprint 5.
+- **Alcance (actualizado por el usuario tras aprobar el diseño):** backend + API
+  + pytest **y UI** (frontend Next.js) en este mismo sprint. La UI cubre:
+  gestión admin de visibilidad de entregables (publicar/despublicar/marcar
+  handover final), botón de validación de pago final (SUPER_ADMIN), catálogo
+  FF&E admin (CRUD) y portal cliente (entregables publicados con preview/marca
+  de agua y candado de descarga, catálogo FF&E de solo lectura). Estética
+  Tactile Brutalism mobile-first de `AGENTS.md` §4.
 
 ## Restricciones vinculantes (AGENTS.md / architecture.md)
 
