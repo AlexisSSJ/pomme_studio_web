@@ -78,7 +78,7 @@ def _render(data: bytes) -> bytes:
     try:
         with Image.open(io.BytesIO(data)) as image:
             frame = image.convert("RGB")
-    except (UnidentifiedImageError, OSError) as exc:
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise WatermarkError("Payload is not a decodable image") from exc
 
     watermarked = Image.alpha_composite(
