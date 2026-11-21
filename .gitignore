@@ -24,6 +24,9 @@ out/
 # Local uploaded media (default MEDIA_ROOT location)
 media/
 
+# Local demo database (SQLite)
+local_demo.db
+
 # IDE
 .vscode/
 .idea/
