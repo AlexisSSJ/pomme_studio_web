@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from backend.app.api.deps import get_storage
-from backend.app.core.config import ROOT_DIR, Settings
+from backend.app.core.config import ROOT_DIR, Settings, settings
 from backend.app.services.storage import (
     BRIEF_REFERENCE_CONTENT_TYPES,
     MAX_UPLOAD_BYTES,
@@ -111,4 +111,7 @@ def test_get_storage_returns_local_storage_at_media_root():
     service = get_storage()
 
     assert isinstance(service, LocalStorage)
-    assert service.root == Path(Settings(_env_file=None).MEDIA_ROOT)
+    # Assert against the same configured source get_storage() reads (the
+    # module-level settings, which layer .env over defaults) so the test
+    # tracks any MEDIA_ROOT set in .env instead of false-failing on it.
+    assert service.root == Path(settings.MEDIA_ROOT)
