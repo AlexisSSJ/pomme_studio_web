@@ -234,7 +234,8 @@ proyecto: la activación (`POST /admin/projects/{project_id}/activate`) establec
 estado del proyecto en `active`, pero conserva `balance_paid = False`. La bandera
 representa la liquidación o saldo final del proyecto, validada exclusivamente por
 `SUPER_ADMIN` mediante `POST /admin/projects/{project_id}/validate-final-payment`
-para desbloquear las descargas de entregables finales (`is_final_handover`).
+para desbloquear las descargas de los archivos originales de entregables finales
+(`is_final_handover` vía `/file`).
 
 #### 4.3.3 `meetings`
 
@@ -823,8 +824,8 @@ especificaciones FF&E para ejecución externa. Todos los paths operan bajo el pr
 | `POST` | `/projects/{project_id}/deliverables/{id}/publish` | `LEAD_DESIGNER`, `SUPER_ADMIN` con membresía/rol de equipo | Publicar un entregable hacia el portal del cliente (`is_client_visible = True`, `published_at = now()`, `published_by = actor_id`). Proyecto `ACTIVE`. Audita `deliverable.publish`. |
 | `POST` | `/projects/{project_id}/deliverables/{id}/unpublish` | `LEAD_DESIGNER`, `SUPER_ADMIN` con membresía/rol de equipo | Revertir un entregable a borrador interno (`is_client_visible = False`, `published_at = NULL`, `published_by = NULL`). Proyecto `ACTIVE`. Audita `deliverable.unpublish`. |
 | `POST` | `/projects/{project_id}/deliverables/{id}/final-handover` | `LEAD_DESIGNER`, `SUPER_ADMIN` con membresía/rol de equipo | Marcar un entregable como entrega final sujeta a validación de pago (`is_final_handover = True`). Proyecto `ACTIVE`. Audita `deliverable.final_handover`. |
-| `GET` | `/projects/{project_id}/deliverables/{id}/preview` | Cualquier miembro autorizado a ver el entregable | Previsualización de la imagen: si el entregable tiene `is_final_handover = True` y `balance_paid = False`, el cliente recibe la imagen con marca de agua diagonal semi-transparente. El equipo de diseño siempre la visualiza limpia sin marca de agua. |
-| `GET` | `/projects/{project_id}/deliverables/{id}/file` | Miembros del proyecto con visibilidad (sujeto a gate de liquidación) | Descarga del binario original. Gate: si `is_final_handover = True`, `balance_paid = False` y el solicitante es `CLIENT`, se bloquea con `403 Forbidden` (`"Final balance pending"`). El equipo del estudio siempre puede descargar el original. |
+| `GET` | `/projects/{project_id}/deliverables/{id}/preview` | Cualquier miembro autorizado a ver el entregable | Previsualización JPEG con marca de agua diagonal (`"POMME STUDIO · PREVIEW"`): endpoint de previsualización que siempre renderiza la imagen con marca de agua (independientemente de `balance_paid`). El archivo original sin marca de agua se sirve exclusivamente vía `/file`. |
+| `GET` | `/projects/{project_id}/deliverables/{id}/file` | Miembros del proyecto con visibilidad (sujeto a gate de liquidación) | Descarga del binario original sin marca de agua. Gate: si `is_final_handover = True`, `balance_paid = False` y el solicitante es `CLIENT`, se bloquea con `403 Forbidden` (`"Final balance pending"`). El equipo del estudio siempre puede descargar el original sin restricciones; una vez validado `balance_paid = True`, el cliente también puede descargarlo libremente. |
 | `GET` | `/projects/{project_id}/specifications` | Cualquier miembro del proyecto / `SUPER_ADMIN` | Listar especificaciones FF&E del proyecto ordenadas por `created_at` ascendente. |
 | `POST` | `/projects/{project_id}/specifications` | Equipo del proyecto (`require_team_member`, proyecto `ACTIVE`) | Crear especificación FF&E. Nombre no vacío (`ck_specification_name`). Audita `specification.create`. |
 | `GET` | `/projects/{project_id}/specifications/{id}` | Cualquier miembro del proyecto / `SUPER_ADMIN` | Consultar detalle de una especificación FF&E por ID. |
@@ -857,23 +858,27 @@ especificaciones FF&E para ejecución externa. Todos los paths operan bajo el pr
 - **Desacople de activación:** la activación del proyecto (`POST /admin/projects/{id}/activate`)
   habilita el proyecto como `ACTIVE`, pero no afecta `balance_paid` (permanece en `False`).
 - **Gate de entrega final:** cualquier entregable marcado como `is_final_handover = True`
-  permanece condicionado a que el proyecto tenga `balance_paid = True`.
-- **Comportamiento cuando `balance_paid = False`:**
-  - El cliente (`CLIENT`) tiene bloqueada la descarga del archivo original vía
-    `GET /deliverables/{id}/file`, recibiendo `403 Forbidden` con el mensaje
-    `"Final balance pending"`.
-  - El cliente puede acceder a una vista previa en `GET /deliverables/{id}/preview`,
-    la cual devuelve la imagen protegida con una marca de agua semi-transparente
-    diagonal ("FINAL HANDOVER - PENDING BALANCE VALIDATION"), generada en memoria con
-    Pillow (`PIL`).
-  - El equipo del estudio (`LEAD_DESIGNER`, `COLLABORATOR`, `SUPER_ADMIN`) puede
-    descargar el archivo original y acceder al preview limpio en todo momento para
-    control de calidad y revisión interna.
+  permanece condicionado a que el proyecto tenga `balance_paid = True` para la descarga del
+  archivo original por parte del cliente.
+- **Endpoint de preview (`GET /preview`):**
+  - Devuelve siempre una previsualización JPEG generada en memoria con Pillow (`PIL`),
+    superponiendo de forma diagonal y repetida el texto de marca de agua
+    `"POMME STUDIO · PREVIEW"` en gris semi-transparente (`(120, 120, 120, 140)` rotado 30°).
+  - Está disponible para cualquier miembro con acceso al entregable (cliente o equipo)
+    sin importar el estado de `balance_paid`. Permite al cliente inspeccionar visualmente
+    la entrega final mientras su saldo final está pendiente de liquidación.
+- **Endpoint de archivo original (`GET /file`):**
+  - Sirve el binario original íntegro y sin marca de agua.
+  - Si el entregable tiene `is_final_handover = True` y el proyecto tiene `balance_paid = False`:
+    - El cliente (`CLIENT`) tiene bloqueada la descarga, respondiendo con `403 Forbidden`
+      (`"Final balance pending"`).
+    - El equipo del estudio (`LEAD_DESIGNER`, `COLLABORATOR`, `SUPER_ADMIN`) puede descargar
+      el original sin restricciones en todo momento para control de calidad y revisión técnica.
 - **Liberación de descarga:** `SUPER_ADMIN` valida el pago final invocando
   `POST /admin/projects/{project_id}/validate-final-payment`, lo cual establece
   `balance_paid = True` y audita `project.final_payment_validated`. A partir de ese
-  momento, la descarga `/file` se desbloquea para el cliente y `/preview` devuelve la
-  imagen sin marca de agua.
+  momento, la descarga del archivo original sin marca de agua vía `GET /file` queda
+  completamente habilitada para el cliente.
 
 ## 7. UI / Diseño — *Tactile Brutalism*
 
