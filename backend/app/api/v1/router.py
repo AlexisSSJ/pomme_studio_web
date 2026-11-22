@@ -20,6 +20,16 @@ api_router.include_router(
     tags=["brief"],
 )
 api_router.include_router(
+    brief.client_brief_router,
+    prefix="/brief",
+    tags=["brief"],
+)
+api_router.include_router(
+    brief.client_brief_router,
+    prefix="/projects/brief",
+    tags=["brief"],
+)
+api_router.include_router(
     moodboard.router,
     prefix="/projects/{project_id}/moodboard",
     tags=["moodboard"],

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode/qwen4-max",
+  "small_model": "opencode/hy4-flash",
+  "agent": {
+    "plan": {
+      "model": "opencode/qwen4-max",
+      "fallback": ["google/gemini-4-argon", "google/gemini-3.1-pro"],
+      "temperature": 0.1,
+      "description": "Arquitecto y planificador. Diseña planes detallados sin ejecutar cambios hasta aprobación."
+    },
+    "build": {
+      "model": "opencode/glm-5.3",
+      "fallback": ["google/gemini-3.1-flash"],
+      "temperature": 0.1,
+      "description": "Subagente constructor para código, migraciones y pruebas."
+    },
+    "general": {
+      "model": "opencode/deepseek-v4.1-flash",
+      "fallback": ["google/gemini-3.1-flash"],
+      "temperature": 0.1,
+      "description": "Subagente general para refactorización, documentación y validación."
+    },
+    "explore": {
+      "model": "opencode/hy4-flash",
+      "fallback": ["google/gemini-3.1-flash-lite"],
+      "temperature": 0.1,
+      "description": "Subagente ligero para lectura de archivos y búsqueda de contexto."
+    }
+  }
+}

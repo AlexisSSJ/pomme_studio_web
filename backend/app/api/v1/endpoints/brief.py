@@ -1,4 +1,4 @@
-"""Project brief endpoints: questionnaire and reference uploads."""
+"""Project brief endpoints: questionnaire, multimodal responses, autosave and reference uploads."""
 
 from uuid import UUID
 
@@ -12,11 +12,13 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import (
+    get_current_active_user,
     get_membership,
+    get_project_or_404,
     get_storage,
     require_active_project,
     require_project_access_from_path,
@@ -24,19 +26,76 @@ from ....api.deps import (
     require_team_member,
 )
 from ....db.session import get_db
-from ....models.brief_item import BriefCategory, BriefItem, BriefItemType
-from ....models.project_member import ProjectRole
+from ....models.brief_item import BriefCategory, BriefItem, BriefItemType, BriefStatus
+from ....models.project import Project, ProjectStatus
+from ....models.project_member import ProjectMember, ProjectRole
 from ....models.user import User, UserRole
-from ....schemas.brief import BriefAnswerUpdate, BriefItemRead, BriefQuestionCreate
+from ....schemas.brief import (
+    BriefAnswerUpdate,
+    BriefAutosaveItem,
+    BriefAutosavePayload,
+    BriefAutosaveResponse,
+    BriefItemRead,
+    BriefPendingResponse,
+    BriefQuestionCreate,
+    PendingBriefProjectSummary,
+)
 from ....services.audit import log_audit
 from ....services.storage import (
     BRIEF_REFERENCE_CONTENT_TYPES,
+    BRIEF_RESPONSE_CONTENT_TYPES,
     LocalStorage,
     UploadTooLargeError,
     UploadValidationError,
 )
 
 router = APIRouter()
+client_brief_router = APIRouter()
+
+
+def is_question_answered(item: BriefItem) -> bool:
+    """Determine whether a brief question has been answered (multimodal or text)."""
+    if item.status == BriefStatus.COMPLETED:
+        return True
+    if item.answer and item.answer.strip():
+        return True
+    if item.image_url or item.image_storage_key:
+        return True
+    if item.audio_url or item.audio_storage_key:
+        return True
+    if (item.audio_transcription and item.audio_transcription.strip()) or (
+        item.transcription and item.transcription.strip()
+    ):
+        return True
+    return False
+
+
+async def compute_brief_progress(
+    project_id: UUID, db: AsyncSession
+) -> tuple[float, BriefStatus, int, int, list[BriefItem]]:
+    """Calculate the brief progress percentage, overall status, total questions, answered questions and questions."""
+    result = await db.execute(
+        select(BriefItem)
+        .where(
+            BriefItem.project_id == project_id,
+            BriefItem.item_type == BriefItemType.QUESTION,
+        )
+        .order_by(BriefItem.created_at.asc())
+    )
+    questions = list(result.scalars().all())
+    total = len(questions)
+    if total == 0:
+        return 100.0, BriefStatus.PENDING, 0, 0, questions
+
+    answered = sum(1 for q in questions if is_question_answered(q))
+    progress = round((answered / total) * 100.0, 2)
+    if answered == 0:
+        status_val = BriefStatus.PENDING
+    elif answered >= total:
+        status_val = BriefStatus.COMPLETED
+    else:
+        status_val = BriefStatus.IN_PROGRESS
+    return progress, status_val, total, answered, questions
 
 
 @router.get("", response_model=list[BriefItemRead])
@@ -73,6 +132,7 @@ async def create_question(
         item_type=BriefItemType.QUESTION,
         category=payload.category,
         prompt=payload.prompt,
+        status=BriefStatus.PENDING,
         created_by=current_user.id,
     )
     db.add(item)
@@ -130,9 +190,41 @@ async def answer_question(
             detail="Brief item not found",
         )
 
-    item.answer = payload.answer
+    if payload.answer is not None:
+        item.answer = payload.answer
+    if payload.image_url is not None:
+        item.image_url = payload.image_url
+    if payload.image_storage_key is not None:
+        item.image_storage_key = payload.image_storage_key
+    if payload.audio_url is not None:
+        item.audio_url = payload.audio_url
+    if payload.audio_storage_key is not None:
+        item.audio_storage_key = payload.audio_storage_key
+    if payload.audio_transcription is not None:
+        item.audio_transcription = payload.audio_transcription
+        if item.transcription is None:
+            item.transcription = payload.audio_transcription
+    if payload.transcription is not None:
+        item.transcription = payload.transcription
+        if item.audio_transcription is None:
+            item.audio_transcription = payload.transcription
+    if payload.response_type is not None:
+        item.response_type = payload.response_type
+
+    if payload.status is not None:
+        item.status = payload.status
+    else:
+        # Automatically update status if answered
+        if is_question_answered(item):
+            item.status = BriefStatus.COMPLETED
+        else:
+            item.status = BriefStatus.IN_PROGRESS
+
     await db.commit()
     await db.refresh(item)
+
+    progress, _, _, _, _ = await compute_brief_progress(project_id, db)
+    setattr(item, "progress", progress)
 
     await log_audit(
         db,
@@ -143,6 +235,446 @@ async def answer_question(
         metadata={"project_id": str(project_id)},
     )
     return item
+
+
+async def _apply_autosave(
+    project_id: UUID,
+    payload: BriefAutosavePayload,
+    current_user: User,
+    db: AsyncSession,
+) -> BriefAutosaveResponse:
+    """Internal helper to process brief autosave and compute overall progress."""
+    member = await get_membership(db, project_id, current_user.id)
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    if member.assigned_role != ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    await require_active_project(project_id, db)
+
+    items_to_update: list[BriefAutosaveItem] = []
+    if payload.items:
+        items_to_update.extend(payload.items)
+    if payload.item_id:
+        items_to_update.append(
+            BriefAutosaveItem(
+                item_id=payload.item_id,
+                answer=payload.answer,
+                status=payload.status,
+                response_type=payload.response_type,
+                image_url=payload.image_url,
+                image_storage_key=payload.image_storage_key,
+                audio_url=payload.audio_url,
+                audio_storage_key=payload.audio_storage_key,
+                audio_transcription=payload.audio_transcription,
+                transcription=payload.transcription,
+            )
+        )
+
+    updated_brief_items: list[BriefItem] = []
+    for update in items_to_update:
+        res = await db.execute(
+            select(BriefItem).where(
+                BriefItem.id == update.item_id,
+                BriefItem.project_id == project_id,
+                BriefItem.item_type == BriefItemType.QUESTION,
+            )
+        )
+        item = res.scalar_one_or_none()
+        if item is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Brief item not found: {update.item_id}",
+            )
+
+        if update.answer is not None:
+            item.answer = update.answer
+        if update.image_url is not None:
+            item.image_url = update.image_url
+        if update.image_storage_key is not None:
+            item.image_storage_key = update.image_storage_key
+        if update.audio_url is not None:
+            item.audio_url = update.audio_url
+        if update.audio_storage_key is not None:
+            item.audio_storage_key = update.audio_storage_key
+        if update.audio_transcription is not None:
+            item.audio_transcription = update.audio_transcription
+            if item.transcription is None:
+                item.transcription = update.audio_transcription
+        if update.transcription is not None:
+            item.transcription = update.transcription
+            if item.audio_transcription is None:
+                item.audio_transcription = update.transcription
+        if update.response_type is not None:
+            item.response_type = update.response_type
+
+        if update.status is not None:
+            item.status = update.status
+        else:
+            if is_question_answered(item):
+                item.status = BriefStatus.COMPLETED
+            else:
+                item.status = BriefStatus.IN_PROGRESS
+
+        updated_brief_items.append(item)
+
+    await db.commit()
+
+    for item in updated_brief_items:
+        await db.refresh(item)
+
+    progress, overall_status, total, answered, all_questions = await compute_brief_progress(
+        project_id, db
+    )
+
+    primary_item = updated_brief_items[0] if updated_brief_items else None
+    if primary_item:
+        setattr(primary_item, "progress", progress)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.autosave",
+        entity_type="brief_item",
+        entity_id=primary_item.id if primary_item else project_id,
+        metadata={
+            "project_id": str(project_id),
+            "progress": progress,
+            "status": overall_status.value,
+        },
+    )
+
+    return BriefAutosaveResponse(
+        project_id=project_id,
+        progress=progress,
+        progress_percentage=progress,
+        status=overall_status,
+        total_questions=total,
+        answered_questions=answered,
+        pending_questions=max(0, total - answered),
+        item=BriefItemRead.model_validate(primary_item) if primary_item else None,
+        items=[BriefItemRead.model_validate(q) for q in all_questions],
+    )
+
+
+@router.patch("/autosave", response_model=BriefAutosaveResponse)
+async def autosave_brief(
+    project_id: UUID,
+    payload: BriefAutosavePayload,
+    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    db: AsyncSession = Depends(get_db),
+) -> BriefAutosaveResponse:
+    """Autosave one or multiple questions in the brief with real-time progress calculation."""
+    return await _apply_autosave(project_id, payload, current_user, db)
+
+
+@router.patch("/items/{item_id}/autosave", response_model=BriefAutosaveResponse)
+async def autosave_brief_item(
+    project_id: UUID,
+    item_id: UUID,
+    payload: BriefAnswerUpdate,
+    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    db: AsyncSession = Depends(get_db),
+) -> BriefAutosaveResponse:
+    """Autosave a single brief question by item_id with progress calculation."""
+    autosave_payload = BriefAutosavePayload(
+        item_id=item_id,
+        answer=payload.answer,
+        status=payload.status,
+        response_type=payload.response_type,
+        image_url=payload.image_url,
+        image_storage_key=payload.image_storage_key,
+        audio_url=payload.audio_url,
+        audio_storage_key=payload.audio_storage_key,
+        audio_transcription=payload.audio_transcription,
+        transcription=payload.transcription,
+    )
+    return await _apply_autosave(project_id, autosave_payload, current_user, db)
+
+
+@router.get("/pending", response_model=BriefPendingResponse)
+@router.get("/status", response_model=BriefPendingResponse)
+async def get_project_brief_status(
+    project_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+) -> BriefPendingResponse:
+    """Consult the brief progress and pending status for this project."""
+    project = await get_project_or_404(project_id, db)
+    progress, status_val, total, answered, questions = await compute_brief_progress(
+        project_id, db
+    )
+    pending_count = max(0, total - answered)
+    is_pending = total > 0 and answered < total and project.status == ProjectStatus.ACTIVE
+
+    item_reads = [BriefItemRead.model_validate(q) for q in questions]
+    summary = PendingBriefProjectSummary(
+        project_id=project.id,
+        project_title=project.title,
+        status=status_val,
+        progress=progress,
+        total_questions=total,
+        answered_questions=answered,
+        pending_questions=pending_count,
+    )
+
+    return BriefPendingResponse(
+        has_pending_brief=is_pending,
+        project_id=project.id,
+        project_title=project.title,
+        status=status_val,
+        progress=progress,
+        total_questions=total,
+        answered_questions=answered,
+        pending_questions=pending_count,
+        items=item_reads,
+        pending_briefs=[summary] if is_pending else [],
+    )
+
+
+@client_brief_router.get("/pending", response_model=BriefPendingResponse)
+@client_brief_router.get("/status", response_model=BriefPendingResponse)
+async def get_client_pending_brief(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> BriefPendingResponse:
+    """Consult the pending brief for the logged-in client (for the pending brief indicator)."""
+    # Active projects where the caller is client or project member
+    if current_user.role == UserRole.SUPER_ADMIN:
+        proj_result = await db.execute(
+            select(Project)
+            .where(Project.status == ProjectStatus.ACTIVE)
+            .order_by(desc(Project.created_at))
+        )
+    else:
+        proj_result = await db.execute(
+            select(Project)
+            .where(
+                Project.status == ProjectStatus.ACTIVE,
+                (Project.client_id == current_user.id)
+                | (
+                    Project.id.in_(
+                        select(ProjectMember.project_id).where(
+                            ProjectMember.user_id == current_user.id,
+                            ProjectMember.assigned_role == ProjectRole.CLIENT,
+                        )
+                    )
+                ),
+            )
+            .order_by(desc(Project.created_at))
+        )
+    projects = list(proj_result.scalars().all())
+
+    pending_summaries: list[PendingBriefProjectSummary] = []
+    primary_project: Project | None = None
+    primary_progress: float = 0.0
+    primary_status: BriefStatus = BriefStatus.PENDING
+    primary_total: int = 0
+    primary_answered: int = 0
+    primary_questions: list[BriefItem] = []
+
+    for proj in projects:
+        prog, stat, tot, ans, q_list = await compute_brief_progress(proj.id, db)
+        p_count = max(0, tot - ans)
+        if tot > 0 and ans < tot:
+            summary = PendingBriefProjectSummary(
+                project_id=proj.id,
+                project_title=proj.title,
+                status=stat,
+                progress=prog,
+                total_questions=tot,
+                answered_questions=ans,
+                pending_questions=p_count,
+            )
+            pending_summaries.append(summary)
+            if primary_project is None:
+                primary_project = proj
+                primary_progress = prog
+                primary_status = stat
+                primary_total = tot
+                primary_answered = ans
+                primary_questions = q_list
+
+    if primary_project is not None:
+        return BriefPendingResponse(
+            has_pending_brief=True,
+            project_id=primary_project.id,
+            project_title=primary_project.title,
+            status=primary_status,
+            progress=primary_progress,
+            total_questions=primary_total,
+            answered_questions=primary_answered,
+            pending_questions=max(0, primary_total - primary_answered),
+            items=[BriefItemRead.model_validate(q) for q in primary_questions],
+            pending_briefs=pending_summaries,
+        )
+
+    return BriefPendingResponse(
+        has_pending_brief=False,
+        project_id=None,
+        project_title=None,
+        status=None,
+        progress=100.0 if projects else 0.0,
+        total_questions=0,
+        answered_questions=0,
+        pending_questions=0,
+        items=[],
+        pending_briefs=[],
+    )
+
+
+@router.post(
+    "/items/{item_id}/response-file",
+    response_model=BriefItemRead,
+    status_code=status.HTTP_200_OK,
+)
+@router.post(
+    "/items/{item_id}/upload",
+    response_model=BriefItemRead,
+    status_code=status.HTTP_200_OK,
+)
+async def upload_response_file(
+    project_id: UUID,
+    item_id: UUID,
+    file: UploadFile = File(...),
+    transcription: str | None = Form(None),
+    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> BriefItem:
+    """Upload multimodal media (image or audio) answering a brief question."""
+    member = await get_membership(db, project_id, current_user.id)
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    if member.assigned_role != ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    await require_active_project(project_id, db)
+
+    result = await db.execute(
+        select(BriefItem).where(
+            BriefItem.id == item_id,
+            BriefItem.project_id == project_id,
+            BriefItem.item_type == BriefItemType.QUESTION,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brief item not found",
+        )
+
+    data = await file.read()
+    try:
+        storage_key = await storage.save(
+            project_id, data, file.content_type, BRIEF_RESPONSE_CONTENT_TYPES
+        )
+    except UploadTooLargeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="File exceeds the 10 MiB limit",
+        ) from exc
+    except UploadValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Unsupported file type",
+        ) from exc
+
+    is_audio = file.content_type.startswith("audio/")
+    media_url = f"/api/v1/projects/{project_id}/brief/items/{item.id}/media"
+
+    if is_audio:
+        item.audio_storage_key = storage_key
+        item.audio_url = media_url
+        item.response_type = "audio"
+        if transcription:
+            item.audio_transcription = transcription
+            item.transcription = transcription
+    else:
+        item.image_storage_key = storage_key
+        item.image_url = media_url
+        item.response_type = "image"
+
+    item.status = BriefStatus.COMPLETED
+    await db.commit()
+    await db.refresh(item)
+
+    progress, _, _, _, _ = await compute_brief_progress(project_id, db)
+    setattr(item, "progress", progress)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.response_upload",
+        entity_type="brief_item",
+        entity_id=item.id,
+        metadata={
+            "project_id": str(project_id),
+            "content_type": file.content_type,
+            "response_type": item.response_type,
+        },
+    )
+    return item
+
+
+@router.get("/items/{item_id}/media")
+async def download_response_media(
+    project_id: UUID,
+    item_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> FileResponse:
+    """Download the media uploaded as an answer to a question."""
+    result = await db.execute(
+        select(BriefItem).where(
+            BriefItem.id == item_id,
+            BriefItem.project_id == project_id,
+            BriefItem.item_type == BriefItemType.QUESTION,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brief item not found",
+        )
+
+    storage_key = item.image_storage_key or item.audio_storage_key
+    if storage_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        )
+
+    try:
+        path = storage.resolve(storage_key)
+    except UploadValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        ) from exc
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        )
+
+    media_type = "audio/mpeg" if item.audio_storage_key else "image/png"
+    return FileResponse(path, media_type=media_type)
 
 
 @router.post(
@@ -188,6 +720,7 @@ async def upload_reference(
         project_id=project_id,
         item_type=BriefItemType.REFERENCE,
         category=category,
+        status=BriefStatus.COMPLETED,
         note=note,
         file_name=(file.filename or "reference")[:255],
         content_type=file.content_type,

@@ -8,9 +8,12 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.app.core.security import get_password_hash
 from backend.app.models import (
+    Brief,
     BriefCategory,
     BriefItem,
+    BriefItemStatus,
     BriefItemType,
+    BriefStatus,
     MoodboardItem,
     MoodboardReaction,
     Project,
@@ -236,3 +239,74 @@ async def test_enum_values_are_lowercase(db_session):
 
     reaction = await db_session.execute(sa.text("SELECT reaction FROM moodboard_reactions"))
     assert reaction.scalar_one() == "like"
+
+
+@pytest.mark.asyncio
+async def test_brief_multimodal_model_fields_and_status(db_session):
+    """Verify Brief/BriefItem supports multimodal responses and PENDING, IN_PROGRESS, COMPLETED statuses."""
+    user = await _create_user(db_session, "sprint3-multimodal@example.com")
+    project = await _create_project(db_session, user)
+
+    # 1. Brief alias works identically to BriefItem
+    assert Brief is BriefItem
+    assert BriefItemStatus is BriefStatus
+    assert BriefStatus("PENDING") == BriefStatus.PENDING
+    assert BriefStatus("in_progress") == BriefStatus.IN_PROGRESS
+    assert BriefStatus("completed") == BriefStatus.COMPLETED
+
+    # 2. Text question with PENDING status
+    q1 = Brief(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        item_type=BriefItemType.QUESTION,
+        category=BriefCategory.BRANDING,
+        prompt="¿Cuáles son tus valores de marca?",
+        status=BriefStatus.PENDING,
+        created_by=user.id,
+    )
+    # 3. Image response with IN_PROGRESS status
+    q2 = BriefItem(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        item_type=BriefItemType.QUESTION,
+        category=BriefCategory.INTERIOR,
+        prompt="Sube una foto de tu espacio actual.",
+        status=BriefStatus.IN_PROGRESS,
+        response_type="image",
+        image_url="/api/v1/projects/brief/items/1/media",
+        image_storage_key=f"{project.id}/space.jpg",
+        created_by=user.id,
+    )
+    # 4. Audio response with transcription and COMPLETED status
+    q3 = BriefItem(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        item_type=BriefItemType.QUESTION,
+        category=BriefCategory.GENERAL,
+        prompt="Cuéntanos en una nota de voz tu visión general.",
+        status=BriefStatus.COMPLETED,
+        response_type="audio",
+        audio_url="/api/v1/projects/brief/items/2/media",
+        audio_storage_key=f"{project.id}/voice.mp3",
+        audio_transcription="Queremos un diseño moderno y acogedor con iluminación cálida.",
+        transcription="Queremos un diseño moderno y acogedor con iluminación cálida.",
+        created_by=user.id,
+    )
+
+    db_session.add_all([q1, q2, q3])
+    await db_session.commit()
+    await db_session.refresh(q1)
+    await db_session.refresh(q2)
+    await db_session.refresh(q3)
+
+    assert q1.status == BriefStatus.PENDING
+    assert q2.status == BriefStatus.IN_PROGRESS
+    assert q2.image_url == "/api/v1/projects/brief/items/1/media"
+    assert q2.image_storage_key == f"{project.id}/space.jpg"
+
+    assert q3.status == BriefStatus.COMPLETED
+    assert q3.audio_url == "/api/v1/projects/brief/items/2/media"
+    assert q3.audio_storage_key == f"{project.id}/voice.mp3"
+    assert "iluminación cálida" in q3.audio_transcription
+    assert q3.transcription == q3.audio_transcription
+

@@ -18,9 +18,12 @@ from .meeting import (
     MeetingType,
 )
 from .brief_item import (
+    Brief,
     BriefCategory,
     BriefItem,
+    BriefItemStatus,
     BriefItemType,
+    BriefStatus,
 )
 from .moodboard_item import MoodboardItem
 from .moodboard_reaction import (
@@ -58,9 +61,12 @@ __all__ = [
     "Meeting",
     "MeetingStatus",
     "MeetingType",
+    "Brief",
     "BriefCategory",
     "BriefItem",
+    "BriefItemStatus",
     "BriefItemType",
+    "BriefStatus",
     "MoodboardItem",
     "MoodboardReaction",
     "ReactionType",

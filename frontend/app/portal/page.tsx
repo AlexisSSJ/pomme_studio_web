@@ -18,20 +18,38 @@ interface Project {
   created_at: string;
 }
 
+interface PendingBriefInfo {
+  has_pending: boolean;
+  total_questions: number;
+  answered_questions: number;
+  progress: number;
+  status: string;
+  pending_briefs?: Array<{ project_id: string; project_title: string; progress: number }>;
+}
+
 export default function PortalProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [pendingBrief, setPendingBrief] = useState<PendingBriefInfo | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const loadProjects = useCallback(async () => {
+  const loadPortalData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch("/api/v1/projects");
-      if (res.ok) {
-        setProjects(await res.json());
+      const [projectsRes, pendingRes] = await Promise.all([
+        apiFetch("/api/v1/projects"),
+        apiFetch("/api/v1/brief/pending").catch(() => null),
+      ]);
+
+      if (projectsRes.ok) {
+        setProjects(await projectsRes.json());
       } else {
-        const data: unknown = await res.json().catch(() => ({}));
+        const data: unknown = await projectsRes.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al cargar proyectos"));
+      }
+
+      if (pendingRes && pendingRes.ok) {
+        setPendingBrief(await pendingRes.json());
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -41,18 +59,44 @@ export default function PortalProjectsPage() {
   }, []);
 
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    loadPortalData();
+  }, [loadPortalData]);
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Mis proyectos</h1>
+      <h1 className="text-xl tracking-tightest">Portal de Clientes</h1>
+
+      {/* Indicador de Brief Pendiente */}
+      {pendingBrief && pendingBrief.has_pending && (
+        <div className="mt-4 border border-border bg-surface p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <p className="label-mono">⚠️ Atención requerida</p>
+            <p className="text-sm font-semibold mt-1">
+              Tienes un brief pendiente de completar ({pendingBrief.progress}% completado).
+            </p>
+            <p className="text-xs text-muted mt-0.5">
+              {pendingBrief.answered_questions} de {pendingBrief.total_questions} preguntas respondidas.
+            </p>
+          </div>
+          {pendingBrief.pending_briefs && pendingBrief.pending_briefs.length > 0 && (
+            <Link
+              href={`/portal/projects/${pendingBrief.pending_briefs[0].project_id}/brief`}
+              className="btn-brutal min-h-[44px] px-4 text-xs bg-foreground text-background inline-flex items-center justify-center gap-2"
+            >
+              <span>Continuar Brief</span>
+              <span aria-hidden="true">↗</span>
+            </Link>
+          )}
+        </div>
+      )}
 
       {message && (
         <p className="mt-4 border border-border bg-surface p-3 text-sm">
           {message}
         </p>
       )}
+
+      <h2 className="text-lg tracking-tightest mt-8">Mis proyectos</h2>
 
       {loading && projects.length === 0 ? (
         <p className="mt-4 text-sm">Cargando…</p>

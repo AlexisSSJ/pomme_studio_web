@@ -19,6 +19,23 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 BRIEF_REFERENCE_CONTENT_TYPES = frozenset(
     {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
 )
+# Content types accepted for brief question multimodal responses (images + audio).
+BRIEF_RESPONSE_CONTENT_TYPES = frozenset(
+    {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/webm",
+        "audio/ogg",
+        "audio/mp4",
+        "audio/x-m4a",
+    }
+)
 # Content types accepted for moodboard pins (images only).
 MOODBOARD_CONTENT_TYPES = frozenset(
     {"image/jpeg", "image/png", "image/webp", "image/gif"}
@@ -30,6 +47,14 @@ CONTENT_TYPE_EXTENSIONS = {
     "image/webp": ".webp",
     "image/gif": ".gif",
     "application/pdf": ".pdf",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/webm": ".webm",
+    "audio/ogg": ".ogg",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
 }
 
 

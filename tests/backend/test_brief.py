@@ -16,6 +16,7 @@ from backend.app.models import (
     BriefCategory,
     BriefItem,
     BriefItemType,
+    BriefStatus,
     Project,
     ProjectMember,
     ProjectRole,
@@ -534,3 +535,318 @@ async def test_cross_project_item_id_404(
     # The foreign question was not modified through the other project's path.
     await db_session.refresh(foreign_question)
     assert foreign_question.answer is None
+
+
+@pytest.mark.asyncio
+async def test_brief_multimodal_answer_patch_200(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """Client can answer with multimodal responses (image, audio with transcription) and custom status."""
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Qué referencias visuales y de audio tienes?", "category": "general"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    patch_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}",
+        json={
+            "answer": "Queremos un estilo nórdico minimalista.",
+            "response_type": "multimodal",
+            "image_url": "https://cdn.example.com/mood1.png",
+            "audio_url": "https://cdn.example.com/audio1.mp3",
+            "audio_transcription": "Nota de voz describiendo el concepto de calidez con iluminación indirecta.",
+            "status": "completed",
+        },
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert patch_res.status_code == 200
+    data = patch_res.json()
+    assert data["answer"] == "Queremos un estilo nórdico minimalista."
+    assert data["image_url"] == "https://cdn.example.com/mood1.png"
+    assert data["audio_url"] == "https://cdn.example.com/audio1.mp3"
+    assert data["audio_transcription"] == "Nota de voz describiendo el concepto de calidez con iluminación indirecta."
+    assert data["transcription"] == data["audio_transcription"]
+    assert data["status"] == "completed"
+    assert data["progress"] == 100.0
+
+    result = await db_session.execute(
+        select(BriefItem).where(BriefItem.id == uuid.UUID(item_id))
+    )
+    item = result.scalar_one()
+    assert item.status == BriefStatus.COMPLETED
+    assert item.image_url == "https://cdn.example.com/mood1.png"
+    assert item.audio_url == "https://cdn.example.com/audio1.mp3"
+    assert item.audio_transcription is not None
+
+
+@pytest.mark.asyncio
+async def test_brief_autosave_calculates_progress(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """Autosave endpoint calculates real-time progress and overall brief status."""
+    # Create 3 questions
+    q_ids = []
+    for prompt, cat in [
+        ("¿Nombre del proyecto?", "branding"),
+        ("¿Metros cuadrados aproximados?", "interior"),
+        ("¿Presupuesto de referencia?", "general"),
+    ]:
+        res = client.post(
+            f"/api/v1/projects/{active_project.id}/brief/questions",
+            json={"prompt": prompt, "category": cat},
+            headers={"Authorization": f"Bearer {collaborator_token}"},
+        )
+        assert res.status_code == 201
+        q_ids.append(res.json()["id"])
+
+    # 1. Autosave question 1 (1 of 3 -> 33.33% progress, in_progress status)
+    auto_res1 = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/autosave",
+        json={"item_id": q_ids[0], "answer": "Pomme Cafe", "status": "in_progress"},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert auto_res1.status_code == 200
+    d1 = auto_res1.json()
+    assert d1["total_questions"] == 3
+    assert d1["answered_questions"] == 1
+    assert d1["pending_questions"] == 2
+    assert d1["progress"] == 33.33
+    assert d1["status"] == "in_progress"
+
+    # Verify audit log was created for autosave
+    audit_res = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "brief.autosave",
+            AuditLog.entity_id == uuid.UUID(q_ids[0]),
+        )
+    )
+    assert audit_res.scalar_one() is not None
+
+    # 2. Autosave question 2 with image (2 of 3 -> 66.67% progress)
+    auto_res2 = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/autosave",
+        json={
+            "item_id": q_ids[1],
+            "image_url": "https://cdn.example.com/plan.png",
+            "status": "completed",
+        },
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert auto_res2.status_code == 200
+    d2 = auto_res2.json()
+    assert d2["answered_questions"] == 2
+    assert d2["progress"] == 66.67
+    assert d2["status"] == "in_progress"
+
+    # 3. Autosave question 3 with audio & transcription (3 of 3 -> 100.0% progress, completed status)
+    auto_res3 = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/autosave",
+        json={
+            "item_id": q_ids[2],
+            "audio_url": "https://cdn.example.com/presupuesto.mp3",
+            "audio_transcription": "Aproximadamente 20,000 USD para la fase de diseño.",
+            "status": "completed",
+        },
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert auto_res3.status_code == 200
+    d3 = auto_res3.json()
+    assert d3["answered_questions"] == 3
+    assert d3["pending_questions"] == 0
+    assert d3["progress"] == 100.0
+    assert d3["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_brief_autosave_item_id_route(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """Autosave route via /items/{item_id}/autosave works and calculates progress."""
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Estilo deseado?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/autosave",
+        json={"answer": "Madera y microcemento."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["project_id"] == str(active_project.id)
+    assert body["progress"] == 100.0
+    assert body["status"] == "completed"
+    assert body["answered_questions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_client_pending_brief_indicator_endpoint(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """Client can query pending brief status globally and per project for the indicator."""
+    # Initially without questions, has_pending_brief is False
+    res_init = client.get(
+        "/api/v1/brief/pending",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res_init.status_code == 200
+    assert res_init.json()["has_pending_brief"] is False
+
+    # Add 2 questions
+    q1 = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Pregunta 1?", "category": "branding"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    ).json()
+    q2 = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Pregunta 2?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    ).json()
+
+    # Client now has a pending brief with 0% progress
+    res_pending = client.get(
+        "/api/v1/brief/pending",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res_pending.status_code == 200
+    data = res_pending.json()
+    assert data["has_pending_brief"] is True
+    assert data["project_id"] == str(active_project.id)
+    assert data["progress"] == 0.0
+    assert data["status"] == "pending"
+    assert data["total_questions"] == 2
+    assert data["pending_questions"] == 2
+
+    # Also verify the /projects/brief/pending route
+    res_alias = client.get(
+        "/api/v1/projects/brief/pending",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res_alias.status_code == 200
+    assert res_alias.json()["has_pending_brief"] is True
+
+    # Answer 1 question -> in_progress, 50%
+    client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{q1['id']}",
+        json={"answer": "Respuesta 1"},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    res_half = client.get(
+        "/api/v1/brief/pending",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res_half.json()["has_pending_brief"] is True
+    assert res_half.json()["progress"] == 50.0
+    assert res_half.json()["status"] == "in_progress"
+    assert res_half.json()["pending_questions"] == 1
+
+    # Project-specific pending endpoint
+    proj_pending = client.get(
+        f"/api/v1/projects/{active_project.id}/brief/pending",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert proj_pending.status_code == 200
+    assert proj_pending.json()["has_pending_brief"] is True
+    assert proj_pending.json()["progress"] == 50.0
+
+    # Answer remaining question -> 100%, no longer pending
+    client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{q2['id']}",
+        json={"answer": "Respuesta 2"},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    res_done = client.get(
+        "/api/v1/brief/pending",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res_done.json()["has_pending_brief"] is False
+    assert res_done.json()["progress"] == 100.0
+
+
+@pytest.mark.asyncio
+async def test_brief_multimodal_upload_response_media_and_download(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """Client can upload audio response with transcription and download the media."""
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "Describe tu concepto en audio", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    audio_bytes = b"ID3fake-mp3-audio-data"
+    upload_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("recording.mp3", audio_bytes, "audio/mpeg")},
+        data={"transcription": "Espacio abierto con acabados cálidos."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert upload_res.status_code == 200
+    data = upload_res.json()
+    assert data["response_type"] == "audio"
+    assert data["audio_url"] is not None
+    assert data["transcription"] == "Espacio abierto con acabados cálidos."
+    assert data["status"] == "completed"
+
+    # Download uploaded media
+    dl_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/media",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert dl_res.status_code == 200
+    assert dl_res.content == audio_bytes
+
+
+@pytest.mark.asyncio
+async def test_brief_autosave_permissions_and_checks(
+    client: TestClient,
+    active_project: Project,
+    other_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """Autosave rejects non-clients, unauthorized projects and non-active projects."""
+    # 1. Non-client (collaborator) forbidden (403)
+    res_collab = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/autosave",
+        json={"answer": "intruso"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert res_collab.status_code == 403
+
+    # 2. Client on other project forbidden (403)
+    res_other = client.patch(
+        f"/api/v1/projects/{other_project.id}/brief/autosave",
+        json={"answer": "intruso"},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res_other.status_code == 403
+

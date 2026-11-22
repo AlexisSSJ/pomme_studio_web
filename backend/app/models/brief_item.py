@@ -34,6 +34,26 @@ class BriefCategory(str, enum.Enum):
     GENERAL = "general"
 
 
+class BriefStatus(str, enum.Enum):
+    """Lifecycle status of a brief item or overall project brief."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
+
+
+BriefItemStatus = BriefStatus
+
+
 class BriefItem(Base):
     __tablename__ = "brief_items"
     __table_args__ = (
@@ -72,6 +92,17 @@ class BriefItem(Base):
         ),
         nullable=False,
     )
+    status: Mapped[BriefStatus] = mapped_column(
+        SAEnum(
+            BriefStatus,
+            name="brief_status",
+            native_enum=False,
+            values_callable=lambda members: [member.value for member in members],
+        ),
+        default=BriefStatus.PENDING,
+        server_default="pending",
+        nullable=False,
+    )
     prompt: Mapped[str | None] = mapped_column(String(500), nullable=True)
     answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
@@ -79,6 +110,16 @@ class BriefItem(Base):
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Multimodal response fields (text, image, audio with transcription)
+    response_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    audio_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    audio_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    audio_transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id"),
@@ -98,3 +139,7 @@ class BriefItem(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<BriefItem {self.item_type.value} project={self.project_id}>"
+
+
+Brief = BriefItem
+
