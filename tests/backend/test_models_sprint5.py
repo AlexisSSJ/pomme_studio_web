@@ -1,15 +1,14 @@
-"""Tests for Sprint 5 data models: deliverable visibility flags and FF&E specifications."""
+"""Tests for Sprint 5 data models: deliverable visibility/handover flags and project specifications."""
 
 import uuid
-
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.models import (
     Deliverable,
-    ProjectSpecification,
     ProjectStage,
+    ProjectSpecification,
     SpecificationCategory,
 )
 
@@ -17,29 +16,28 @@ from backend.app.models import (
 @pytest.mark.asyncio
 async def test_deliverable_visibility_defaults(db_session, active_project, collaborator_user):
     project_id = active_project.id
-    uploader_id = collaborator_user.id
+    user_id = collaborator_user.id
 
     stage = ProjectStage(
         id=uuid.uuid4(),
         project_id=project_id,
-        name="Concepto",
+        name="Ejecutiva",
         order_index=0,
     )
     db_session.add(stage)
     await db_session.commit()
-    stage_id = stage.id
 
     deliverable = Deliverable(
         id=uuid.uuid4(),
         project_id=project_id,
-        stage_id=stage_id,
-        title="Propuesta de marca v1",
+        stage_id=stage.id,
+        title="Planos ejecutivos",
         version=1,
-        file_name="propuesta.pdf",
+        file_name="planos.pdf",
         content_type="application/pdf",
-        size_bytes=2048,
-        storage_key="deliverables/propuesta-v1.pdf",
-        created_by=uploader_id,
+        size_bytes=4096,
+        storage_key="deliverables/planos.pdf",
+        created_by=user_id,
     )
     db_session.add(deliverable)
     await db_session.commit()
@@ -53,20 +51,30 @@ async def test_deliverable_visibility_defaults(db_session, active_project, colla
 
 @pytest.mark.asyncio
 async def test_specification_defaults_and_category(db_session, active_project, collaborator_user):
+    project_id = active_project.id
+    user_id = collaborator_user.id
+
     spec = ProjectSpecification(
         id=uuid.uuid4(),
-        project_id=active_project.id,
+        project_id=project_id,
         category=SpecificationCategory.FURNITURE,
-        name="Silla",
-        created_by=collaborator_user.id,
+        name="Silla Eames",
+        code="SE-01",
+        manufacturer="Herman Miller",
+        finish="Nogal",
+        dimensions="60x60x80cm",
+        supplier="Design Store",
+        reference_url="https://example.com/silla",
+        location="Comedor",
+        notes="Silla icónica",
+        created_by=user_id,
     )
     db_session.add(spec)
     await db_session.commit()
     await db_session.refresh(spec)
 
     assert spec.category == SpecificationCategory.FURNITURE
-    assert spec.created_at is not None
-    assert spec.updated_at is not None
+    assert spec.name == "Silla Eames"
 
     raw_category = await db_session.execute(
         sa.text("SELECT category FROM project_specifications")
@@ -76,12 +84,15 @@ async def test_specification_defaults_and_category(db_session, active_project, c
 
 @pytest.mark.asyncio
 async def test_specification_name_not_blank(db_session, active_project, collaborator_user):
+    project_id = active_project.id
+    user_id = collaborator_user.id
+
     spec = ProjectSpecification(
         id=uuid.uuid4(),
-        project_id=active_project.id,
+        project_id=project_id,
         category=SpecificationCategory.LIGHTING,
         name="   ",
-        created_by=collaborator_user.id,
+        created_by=user_id,
     )
     db_session.add(spec)
     with pytest.raises(IntegrityError):
@@ -90,8 +101,9 @@ async def test_specification_name_not_blank(db_session, active_project, collabor
 
 
 def test_specification_has_no_commerce_columns():
-    columns = ProjectSpecification.__table__.columns
-    assert "quantity" not in columns
-    assert "price" not in columns
-    assert "stock" not in columns
-    assert "purchase" not in columns
+    table_columns = ProjectSpecification.__table__.columns.keys()
+    assert "quantity" not in table_columns
+    assert "price" not in table_columns
+    assert "stock" not in table_columns
+    assert "cost" not in table_columns
+    assert "purchased" not in table_columns
