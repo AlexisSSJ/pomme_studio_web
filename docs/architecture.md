@@ -987,6 +987,14 @@ Prohibido: `box-shadow`, degradados y colores saturados innecesarios.
   pendiente, §6.5). Con `canReview = false` — el modo del equipo — los pines
   son de solo lectura y solo queda la descarga.
 
+### 7.8 Sprint 5 — UI de borradores, FF&E y liberación por pago
+
+- **Admin visibilidad de entregables:** en `/admin/projects/{id}/etapas`, los entregables muestran badges `BORRADOR`/`PUBLICADO` y `ENTREGA FINAL`; disponen de botones de acción para publicar, despublicar (con confirmación de 2 pasos) y marcar/desmarcar entrega final, restringidos a `LEAD_DESIGNER` y `SUPER_ADMIN` (`COLLABORATOR` ve solo badges).
+- **Validación de pago final:** en `/admin/projects`, se añade el botón "Validar pago final" (restringido a `SUPER_ADMIN` cuando `!project.balance_paid`) que invoca `POST /admin/projects/{id}/validate-final-payment`.
+- **Catálogo FF&E Admin (CRUD):** nueva ruta `/admin/projects/{id}/especificaciones` con listado, creación, edición en línea y eliminación (confirmación de 2 pasos) de especificaciones FF&E categorizadas (`furniture`, `lighting`, `finishes`, `equipment`, `other`) y enlace a URL externa (`reference_url`).
+- **Portal Cliente FF&E (solo lectura):** nueva ruta `/portal/projects/{id}/especificaciones` con catálogo de solo lectura sin controles de escritura; enlace "Catálogo FF&E" desde `/portal`.
+- **Visor Cliente con previsualización y candado de descarga:** `DeliverableViewer` conmuta la fuente de imagen a `/preview` (con marca de agua diagonal `"POMME STUDIO · PREVIEW"`) y oculta/bloquea el botón de descarga mostrando el aviso `"PAGO FINAL PENDIENTE · PREVISUALIZACIÓN"` cuando el entregable es `is_final_handover` y `balance_paid == False`. En `/portal/.../etapas`, los entregables muestran los badges `"ENTREGA FINAL"` y `"PAGO PENDIENTE"`.
+
 ## 8. Convenciones de contribución
 
 - Un sprint por turno: migraciones, tipado, manejo de errores y pruebas en el
