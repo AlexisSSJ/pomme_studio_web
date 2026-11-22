@@ -13,6 +13,10 @@ interface Deliverable {
   content_type: string;
   size_bytes: number;
   status: "in_review" | "changes_requested" | "approved";
+  is_client_visible: boolean;
+  is_final_handover: boolean;
+  published_at: string | null;
+  published_by: string | null;
   created_by: string;
   created_at: string;
 }
@@ -33,6 +37,7 @@ interface DeliverableComment {
 interface ProjectDetail {
   id: string;
   remaining_rounds: number;
+  balance_paid: boolean;
 }
 
 interface PendingPin {
@@ -82,6 +87,7 @@ export default function DeliverableViewer({
   const [deliverable, setDeliverable] = useState<Deliverable | null>(null);
   const [comments, setComments] = useState<DeliverableComment[]>([]);
   const [remainingRounds, setRemainingRounds] = useState<number | null>(null);
+  const [balancePaid, setBalancePaid] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -125,6 +131,13 @@ export default function DeliverableViewer({
   } | null>(null);
 
   const filePath = `/api/v1/projects/${projectId}/deliverables/${deliverableId}/file`;
+  const previewPath = `/api/v1/projects/${projectId}/deliverables/${deliverableId}/preview`;
+  const locked =
+    canReview &&
+    deliverable !== null &&
+    deliverable.is_final_handover &&
+    !balancePaid;
+  const imagePath = locked ? previewPath : filePath;
   const isInReview = deliverable !== null && deliverable.status === "in_review";
 
   const load = useCallback(async () => {
@@ -157,6 +170,7 @@ export default function DeliverableViewer({
       if (projectRes.ok) {
         const project = (await projectRes.json()) as ProjectDetail;
         setRemainingRounds(project.remaining_rounds);
+        setBalancePaid(project.balance_paid);
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -172,8 +186,9 @@ export default function DeliverableViewer({
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
+    setImageError("");
 
-    apiFetchBlobUrl(filePath)
+    apiFetchBlobUrl(imagePath)
       .then((created) => {
         if (!active) {
           URL.revokeObjectURL(created);
@@ -198,7 +213,7 @@ export default function DeliverableViewer({
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [filePath]);
+  }, [imagePath]);
 
   // Gestures can end outside the transformed surface (finger dragged off,
   // mouse released elsewhere); release stray pointers so the next gesture
@@ -419,7 +434,7 @@ export default function DeliverableViewer({
   }
 
   async function download() {
-    if (downloading || !deliverable) return;
+    if (downloading || !deliverable || locked) return;
     setDownloading(true);
     setActionFeedback("");
     try {
@@ -464,6 +479,7 @@ export default function DeliverableViewer({
               VERSIÓN {deliverable.version} ·{" "}
               {deliverableStatusLabel(deliverable.status)} ·{" "}
               {formatBytes(deliverable.size_bytes)}
+              {deliverable.is_final_handover && " · ENTREGA FINAL"}
             </p>
             {remainingRounds !== null && (
               <p className="label-mono mt-1">
@@ -593,17 +609,23 @@ export default function DeliverableViewer({
                   </span>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={download}
-                disabled={downloading}
-                className="btn-brutal min-h-[44px] px-3 text-xs"
-              >
-                {downloading ? "Descargando…" : "Descargar"}
-                <span className="btn-brutal__arrow" aria-hidden="true">
-                  ↗
-                </span>
-              </button>
+              {locked ? (
+                <p className="label-mono border border-border bg-surface p-3">
+                  PAGO FINAL PENDIENTE · PREVISUALIZACIÓN
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={download}
+                  disabled={downloading}
+                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                >
+                  {downloading ? "Descargando…" : "Descargar"}
+                  <span className="btn-brutal__arrow" aria-hidden="true">
+                    ↗
+                  </span>
+                </button>
+              )}
             </div>
           )}
 
