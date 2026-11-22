@@ -193,6 +193,13 @@ export default function ProjectsPage() {
                   Etapas
                   <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
                 </Link>
+                <Link
+                  href={`/admin/projects/${project.id}/especificaciones`}
+                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                >
+                  Especificaciones
+                  <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                </Link>
               </div>
             </div>
           ))}
