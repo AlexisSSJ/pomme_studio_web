@@ -35,6 +35,7 @@ export default function ProjectsPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [validatingId, setValidatingId] = useState<string | null>(null);
 
   const loadProjects = useCallback(async (path: string) => {
     setLoading(true);
@@ -98,6 +99,27 @@ export default function ProjectsPage() {
     }
   }
 
+  async function validateFinalPayment(projectId: string) {
+    setValidatingId(projectId);
+    setMessage("");
+    try {
+      const res = await apiFetch(`/api/v1/admin/projects/${projectId}/validate-final-payment`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        setMessage("Pago final validado");
+        loadProjects("/api/v1/admin/projects");
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al validar pago final"));
+      }
+    } catch {
+      setMessage("Error de conexión con el servidor");
+    } finally {
+      setValidatingId(null);
+    }
+  }
+
   return (
     <section>
       <h1 className="text-xl tracking-tightest">Proyectos</h1>
@@ -130,11 +152,23 @@ export default function ProjectsPage() {
               <div className="flex flex-wrap gap-2">
                 {me?.role === "SUPER_ADMIN" && project.status === "draft" && (
                   <button
+                    type="button"
                     onClick={() => activateProject(project.id)}
                     disabled={activatingId === project.id}
                     className="btn-brutal min-h-[44px] px-3 text-xs"
                   >
                     {activatingId === project.id ? "Activando…" : "Activar proyecto"}
+                    <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                  </button>
+                )}
+                {me?.role === "SUPER_ADMIN" && project.status !== "draft" && !project.balance_paid && (
+                  <button
+                    type="button"
+                    onClick={() => validateFinalPayment(project.id)}
+                    disabled={validatingId === project.id}
+                    className="btn-brutal min-h-[44px] px-3 text-xs"
+                  >
+                    {validatingId === project.id ? "Validando…" : "Validar pago final"}
                     <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
                   </button>
                 )}

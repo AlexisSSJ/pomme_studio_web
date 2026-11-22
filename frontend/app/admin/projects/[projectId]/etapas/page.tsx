@@ -37,8 +37,23 @@ interface Deliverable {
   content_type: string;
   size_bytes: number;
   status: "in_review" | "changes_requested" | "approved";
+  is_client_visible: boolean;
+  is_final_handover: boolean;
+  published_at: string | null;
+  published_by: string | null;
   created_by: string;
   created_at: string;
+}
+
+interface Me {
+  id: string;
+  email: string;
+  full_name: string | null;
+  specialty: string | null;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 interface StageRow {
@@ -57,12 +72,14 @@ function StageCard({
   number,
   stage,
   deliverables,
+  me,
   onChanged,
 }: {
   projectId: string;
   number: number;
   stage: Stage;
   deliverables: Deliverable[];
+  me: Me | null;
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState("");
@@ -73,6 +90,99 @@ function StageCard({
     string | null
   >(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [unpublishingConfirmId, setUnpublishingConfirmId] = useState<string | null>(null);
+  const [handoverTogglingId, setHandoverTogglingId] = useState<string | null>(null);
+  const [deliverableMessages, setDeliverableMessages] = useState<Record<string, string>>({});
+
+  async function handlePublish(deliverable: Deliverable) {
+    setPublishingId(deliverable.id);
+    setDeliverableMessages((prev) => ({ ...prev, [deliverable.id]: "" }));
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/deliverables/${deliverable.id}/publish`,
+        {
+          method: "POST",
+          body: JSON.stringify({ is_final_handover: deliverable.is_final_handover }),
+        }
+      );
+      if (res.ok) {
+        onChanged();
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setDeliverableMessages((prev) => ({
+          ...prev,
+          [deliverable.id]: extractDetail(data, "Error al publicar entregable"),
+        }));
+      }
+    } catch {
+      setDeliverableMessages((prev) => ({
+        ...prev,
+        [deliverable.id]: "Error de conexión con el servidor",
+      }));
+    } finally {
+      setPublishingId(null);
+    }
+  }
+
+  async function handleUnpublish(deliverableId: string) {
+    setPublishingId(deliverableId);
+    setUnpublishingConfirmId(null);
+    setDeliverableMessages((prev) => ({ ...prev, [deliverableId]: "" }));
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/deliverables/${deliverableId}/unpublish`,
+        { method: "POST" }
+      );
+      if (res.ok) {
+        onChanged();
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setDeliverableMessages((prev) => ({
+          ...prev,
+          [deliverableId]: extractDetail(data, "Error al despublicar entregable"),
+        }));
+      }
+    } catch {
+      setDeliverableMessages((prev) => ({
+        ...prev,
+        [deliverableId]: "Error de conexión con el servidor",
+      }));
+    } finally {
+      setPublishingId(null);
+    }
+  }
+
+  async function handleToggleHandover(deliverable: Deliverable) {
+    setHandoverTogglingId(deliverable.id);
+    setDeliverableMessages((prev) => ({ ...prev, [deliverable.id]: "" }));
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/deliverables/${deliverable.id}/final-handover`,
+        {
+          method: "POST",
+          body: JSON.stringify({ is_final_handover: !deliverable.is_final_handover }),
+        }
+      );
+      if (res.ok) {
+        onChanged();
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setDeliverableMessages((prev) => ({
+          ...prev,
+          [deliverable.id]: extractDetail(data, "Error al actualizar entrega final"),
+        }));
+      }
+    } catch {
+      setDeliverableMessages((prev) => ({
+        ...prev,
+        [deliverable.id]: "Error de conexión con el servidor",
+      }));
+    } finally {
+      setHandoverTogglingId(null);
+    }
+  }
 
   async function uploadDeliverable(event: React.FormEvent) {
     event.preventDefault();
@@ -131,30 +241,93 @@ function StageCard({
         <div className="flex flex-col gap-2">
           {deliverables.map((deliverable) => {
             const viewerOpen = viewerDeliverableId === deliverable.id;
+            const isBusy = publishingId === deliverable.id || handoverTogglingId === deliverable.id;
+            const msg = deliverableMessages[deliverable.id];
+            const canManage = me?.role === "LEAD_DESIGNER" || me?.role === "SUPER_ADMIN";
+            const confirmingUnpublish = unpublishingConfirmId === deliverable.id;
+
             return (
-              <div key={deliverable.id} className="flex flex-col gap-2">
+              <div key={deliverable.id} className="flex flex-col gap-2 border border-border bg-background p-3">
                 <p className="text-sm font-semibold">{deliverable.title}</p>
                 <p className="label-mono">
                   V{deliverable.version} ·{" "}
                   {deliverableStatusLabel(deliverable.status)}
+                  {deliverable.is_client_visible ? " · PUBLICADO" : " · BORRADOR"}
+                  {deliverable.is_final_handover ? " · ENTREGA FINAL" : ""}
                 </p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setViewerDeliverableId((prev) =>
-                      prev === deliverable.id ? null : deliverable.id
-                    )
-                  }
-                  aria-expanded={viewerOpen}
-                  className="btn-brutal min-h-[44px] self-start px-3 text-xs"
-                >
-                  {viewerOpen ? "Ocultar pines" : "Ver pines"}
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
-                </button>
+
+                {msg && <p className="text-sm text-red-600">{msg}</p>}
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewerDeliverableId((prev) =>
+                        prev === deliverable.id ? null : deliverable.id
+                      )
+                    }
+                    aria-expanded={viewerOpen}
+                    className="btn-brutal min-h-[44px] self-start px-3 text-xs"
+                  >
+                    {viewerOpen ? "Ocultar pines" : "Ver pines"}
+                    <span className="btn-brutal__arrow" aria-hidden="true">
+                      ↗
+                    </span>
+                  </button>
+
+                  {canManage && (
+                    <>
+                      {!deliverable.is_client_visible ? (
+                        <button
+                          type="button"
+                          onClick={() => handlePublish(deliverable)}
+                          disabled={isBusy}
+                          className="btn-brutal min-h-[44px] self-start px-3 text-xs"
+                        >
+                          {publishingId === deliverable.id ? "Publicando…" : "Publicar"}
+                          <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                        </button>
+                      ) : confirmingUnpublish ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUnpublish(deliverable.id)}
+                          disabled={isBusy}
+                          className="btn-brutal min-h-[44px] self-start px-3 text-xs border-red-500 bg-red-50"
+                        >
+                          {publishingId === deliverable.id ? "Despublicando…" : "Confirmar despublicación"}
+                          <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setUnpublishingConfirmId(deliverable.id)}
+                          disabled={isBusy}
+                          className="btn-brutal min-h-[44px] self-start px-3 text-xs"
+                        >
+                          Despublicar
+                          <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleToggleHandover(deliverable)}
+                        disabled={isBusy}
+                        className="btn-brutal min-h-[44px] self-start px-3 text-xs"
+                      >
+                        {handoverTogglingId === deliverable.id
+                          ? "Actualizando…"
+                          : deliverable.is_final_handover
+                          ? "Desmarcar entrega final"
+                          : "Marcar entrega final"}
+                        <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+
                 {viewerOpen && (
-                  <div className="border border-border bg-surface p-3">
+                  <div className="border border-border bg-surface p-3 mt-2">
                     <DeliverableViewer
                       projectId={projectId}
                       deliverableId={deliverable.id}
@@ -219,6 +392,7 @@ export default function AdminEtapasPage() {
 
   const [project, setProject] = useState<Project | null>(null);
   const [rows, setRows] = useState<StageRow[]>([]);
+  const [me, setMe] = useState<Me | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -234,6 +408,11 @@ export default function AdminEtapasPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      try {
+        const meRes = await apiFetch("/api/v1/auth/me");
+        if (meRes.ok) setMe(await meRes.json());
+      } catch {}
+
       const [projectRes, stagesRes] = await Promise.all([
         apiFetch(`/api/v1/projects/${projectId}`),
         apiFetch(`/api/v1/projects/${projectId}/stages`),
@@ -463,6 +642,7 @@ export default function AdminEtapasPage() {
               number={index + 1}
               stage={stage}
               deliverables={deliverables}
+              me={me}
               onChanged={load}
             />
           ))}
