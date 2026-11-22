@@ -31,21 +31,29 @@ interface Me {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [clients, setClients] = useState<Array<{ id: string; email: string; full_name: string | null }>>([]);
   const [me, setMe] = useState<Me | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [validatingId, setValidatingId] = useState<string | null>(null);
+  const [assigningClientId, setAssigningClientId] = useState<string | null>(null);
 
   const loadProjects = useCallback(async (path: string) => {
     setLoading(true);
     try {
-      const res = await apiFetch(path);
-      if (res.ok) {
-        setProjects(await res.json());
+      const [resProj, resClients] = await Promise.all([
+        apiFetch(path),
+        apiFetch("/api/v1/admin/clients").catch(() => null),
+      ]);
+      if (resProj.ok) {
+        setProjects(await resProj.json());
       } else {
-        const data: unknown = await res.json().catch(() => ({}));
+        const data: unknown = await resProj.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al cargar proyectos"));
+      }
+      if (resClients && resClients.ok) {
+        setClients(await resClients.json());
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -120,6 +128,28 @@ export default function ProjectsPage() {
     }
   }
 
+  async function assignClient(projectId: string, clientId: string) {
+    setAssigningClientId(projectId);
+    setMessage("");
+    try {
+      const res = await apiFetch(`/api/v1/admin/projects/${projectId}/client`, {
+        method: "PATCH",
+        body: JSON.stringify({ client_id: clientId || null }),
+      });
+      if (res.ok) {
+        setMessage("Cliente asignado correctamente");
+        loadProjects("/api/v1/admin/projects");
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al asignar cliente"));
+      }
+    } catch {
+      setMessage("Error de conexión con el servidor");
+    } finally {
+      setAssigningClientId(null);
+    }
+  }
+
   return (
     <section>
       <h1 className="text-xl tracking-tightest">Proyectos</h1>
@@ -148,6 +178,22 @@ export default function ProjectsPage() {
                   Rondas {project.remaining_rounds}/{project.included_rounds} ·{" "}
                   {project.balance_paid ? "PAGADO" : "PENDIENTE"}
                 </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="label-mono">Cliente:</span>
+                  <select
+                    value={project.client_id || ""}
+                    onChange={(e) => assignClient(project.id, e.target.value)}
+                    disabled={assigningClientId === project.id}
+                    className="border border-border bg-background px-2 py-1 text-xs min-h-[36px]"
+                  >
+                    <option value="">-- Sin cliente asignado --</option>
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.full_name ? `${c.full_name} (${c.email})` : c.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {me?.role === "SUPER_ADMIN" && project.status === "draft" && (

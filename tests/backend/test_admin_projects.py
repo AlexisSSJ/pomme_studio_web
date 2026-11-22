@@ -111,6 +111,49 @@ async def test_activate_ok(
 
 
 @pytest.mark.asyncio
+async def test_assign_client_and_list_clients(
+    client: TestClient,
+    super_admin_token: str,
+    lead_designer_token: str,
+    draft_project_no_client: Project,
+    db_session: AsyncSession,
+):
+    # 1. Create a new client user
+    new_client = User(
+        id=uuid.uuid4(),
+        email="new_client_test@pomme.com",
+        hashed_password="fake",
+        full_name="New Client Test",
+        role=UserRole.CLIENT,
+        is_active=True,
+    )
+    db_session.add(new_client)
+    await db_session.commit()
+
+    # 2. List clients as lead designer
+    res_clients = client.get(
+        "/api/v1/admin/clients",
+        headers={"Authorization": f"Bearer {lead_designer_token}"},
+    )
+    assert res_clients.status_code == 200
+    clients_list = res_clients.json()
+    assert any(c["id"] == str(new_client.id) for c in clients_list)
+
+    # 3. Assign client to project as lead designer
+    res_assign = client.patch(
+        f"/api/v1/admin/projects/{draft_project_no_client.id}/client",
+        headers={"Authorization": f"Bearer {lead_designer_token}"},
+        json={"client_id": str(new_client.id)},
+    )
+    assert res_assign.status_code == 200
+    assert res_assign.json()["client_id"] == str(new_client.id)
+
+    # 4. Verify in DB
+    await db_session.refresh(draft_project_no_client)
+    assert draft_project_no_client.client_id == new_client.id
+
+
+@pytest.mark.asyncio
 async def test_activate_without_client(
     client: TestClient,
     super_admin_token: str,

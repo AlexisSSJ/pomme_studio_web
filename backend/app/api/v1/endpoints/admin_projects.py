@@ -173,7 +173,93 @@ async def validate_final_payment(
     return project
 
 
-@router.post("/projects/{project_id}/extra-round", response_model=ProjectRead)
+@router.patch("/projects/{project_id}/client", response_model=ProjectRead)
+async def assign_project_client(
+    project_id: UUID,
+    payload: dict,
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Project:
+    """Assign or change the client of a project.
+
+    SUPER_ADMIN or LEAD_DESIGNER (assigned lead or project member).
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    client_id_str = payload.get("client_id")
+    client_id = UUID(client_id_str) if client_id_str else None
+
+    if client_id is not None:
+        client_user = await db.get(User, client_id)
+        if client_user is None or client_user.role != UserRole.CLIENT:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User not found or is not a client",
+            )
+
+    project.client_id = client_id
+
+    # Ensure client membership in project_members if client_id is set
+    if client_id is not None:
+        existing_member = await db.execute(
+            select(ProjectMember).where(
+                ProjectMember.project_id == project.id,
+                ProjectMember.user_id == client_id,
+            )
+        )
+        if not existing_member.scalar_one_or_none():
+            db.add(
+                ProjectMember(
+                    project_id=project.id,
+                    user_id=client_id,
+                    assigned_role=ProjectRole.CLIENT,
+                )
+            )
+
+    await db.commit()
+    await db.refresh(project)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.client_assigned",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={"client_id": str(client_id) if client_id else None},
+    )
+
+    return project
+
+
+@router.get("/clients", response_model=list[dict])
+async def list_clients(
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """List all users with role CLIENT for project assignment."""
+    result = await db.execute(
+        select(User).where(User.role == UserRole.CLIENT).order_by(User.email)
+    )
+    clients = result.scalars().all()
+    return [
+        {
+            "id": str(c.id),
+            "email": c.email,
+            "full_name": c.full_name,
+            "role": c.role.value,
+        }
+        for c in clients
+    ]
 async def grant_extra_round(
     project_id: UUID,
     current_user: User = Depends(
