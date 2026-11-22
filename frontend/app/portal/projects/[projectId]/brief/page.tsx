@@ -82,11 +82,11 @@ export default function BriefPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [projectsRes, briefRes, pendingRes] = await Promise.all([
+      const [projectsRes, briefRes] = await Promise.all([
         apiFetch("/api/v1/projects"),
         apiFetch(`/api/v1/projects/${projectId}/brief`),
-        apiFetch(`/api/v1/projects/${projectId}/brief/pending`),
       ]);
+      const pendingRes = await apiFetch(`/api/v1/projects/${projectId}/brief/pending`).catch(() => null);
 
       if (projectsRes.ok) {
         const projects: Project[] = await projectsRes.json();
@@ -113,7 +113,7 @@ export default function BriefPage() {
         setMessage(extractDetail(data, "Error al cargar el brief"));
       }
 
-      if (pendingRes.ok) {
+      if (pendingRes && pendingRes.ok) {
         const pData = await pendingRes.json();
         setProgressData(pData);
       }
