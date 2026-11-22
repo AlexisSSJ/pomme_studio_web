@@ -92,13 +92,22 @@ export default function PortalEspecificacionesPage() {
           <h1 className="text-xl tracking-tightest">Catálogo FF&E</h1>
           {project && <p className="label-mono mt-1">{project.title}</p>}
         </div>
-        <Link
-          href={`/portal/projects/${projectId}/etapas`}
-          className="btn-brutal min-h-[44px] px-3 text-xs"
-        >
-          Volver a etapas
-          <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/portal/projects/${projectId}/etapas`}
+            className="btn-brutal min-h-[44px] px-3 text-xs"
+          >
+            Volver a etapas
+            <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+          </Link>
+          <Link
+            href="/portal"
+            className="btn-brutal min-h-[44px] px-3 text-xs"
+          >
+            Volver a portal
+            <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+          </Link>
+        </div>
       </div>
 
       {message && (

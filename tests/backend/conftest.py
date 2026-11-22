@@ -227,6 +227,7 @@ async def active_project(
 ) -> Project:
     """The shared test project, activated, with a CLIENT membership for its client."""
     test_project.status = ProjectStatus.ACTIVE
+    test_project.balance_paid = False
     member = ProjectMember(
         id=uuid.uuid4(),
         project_id=test_project.id,

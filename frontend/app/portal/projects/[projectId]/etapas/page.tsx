@@ -33,7 +33,7 @@ interface Deliverable {
   title: string;
   version: number;
   status: "in_review" | "changes_requested" | "approved";
-  is_final_handover?: boolean;
+  is_final_handover: boolean;
 }
 
 interface StageRow {
