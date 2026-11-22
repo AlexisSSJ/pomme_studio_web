@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....api.deps import require_roles
+from ....api.deps import require_active_project, require_roles, require_team_member
 from ....db.session import get_db
 from ....models.project import Project, ProjectStatus
 from ....models.project_member import ProjectMember, ProjectRole
@@ -56,10 +56,11 @@ async def activate_project(
 ) -> Project:
     """Activate a DRAFT project after the down payment is received.
 
-    Sets the project status to ACTIVE, marks the balance as paid and creates
-    CLIENT / LEAD_DESIGNER memberships from the project's client_id and
-    lead_designer_id when present, skipping users that already have a
-    membership for the project.
+    Sets the project status to ACTIVE and creates CLIENT / LEAD_DESIGNER
+    memberships from the project's client_id and lead_designer_id when
+    present, skipping users that already have a membership for the project.
+    The final balance is NOT marked as paid here; a SUPER_ADMIN validates it
+    separately via `validate_final_payment`.
     """
     project = await db.get(Project, project_id)
     if project is None:
@@ -74,7 +75,6 @@ async def activate_project(
             detail="Project is not in draft status",
         )
 
-    project.balance_paid = True
     project.status = ProjectStatus.ACTIVE
 
     desired_members: list[tuple[UUID, ProjectRole]] = []
@@ -122,9 +122,90 @@ async def activate_project(
         entity_type="project",
         entity_id=project.id,
         metadata={
-            "balance_paid": True,
             "members_added": members_added,
         },
     )
 
+    return project
+
+
+@router.post("/projects/{project_id}/validate-final-payment", response_model=ProjectRead)
+async def validate_final_payment(
+    project_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    db: AsyncSession = Depends(get_db),
+) -> Project:
+    """Validate that the final balance of a project has been paid.
+
+    SUPER_ADMIN-only. Marks `balance_paid` on the project and records an
+    audit entry; activating a project no longer sets this flag, so the
+    download gate (final deliverable handover) stays closed until this
+    endpoint is called.
+    """
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    if project.balance_paid:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Final balance already validated",
+        )
+
+    project.balance_paid = True
+    await db.commit()
+    await db.refresh(project)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.final_payment_validated",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={
+            "project_id": str(project_id),
+            "balance_paid": True,
+        },
+    )
+    return project
+
+
+@router.post("/projects/{project_id}/extra-round", response_model=ProjectRead)
+async def grant_extra_round(
+    project_id: UUID,
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Project:
+    """Grant one extra change round on an ACTIVE project (studio leadership).
+
+    Only SUPER_ADMIN or the project's lead designer (LEAD_DESIGNER membership
+    or assignment) may grant rounds; collaborators and clients are rejected
+    by the role gate. Both counters increment, keeping remaining rounds at
+    most the included ones.
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    project = await require_active_project(project_id, db)
+
+    project.included_rounds += 1
+    project.remaining_rounds += 1
+    await db.commit()
+    await db.refresh(project)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.extra_round_granted",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={
+            "project_id": str(project_id),
+            "included_rounds": project.included_rounds,
+            "remaining_rounds": project.remaining_rounds,
+        },
+    )
     return project

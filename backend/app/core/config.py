@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     STUDIO_BUSINESS_END: str = "18:00"
     # Default length of a discovery / intro call (minutes).
     DISCOVERY_CALL_MINUTES: int = 30
+    # Default length of an in-project review or survey meeting (minutes).
+    PROJECT_MEETING_MINUTES: int = 60
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
@@ -119,6 +121,13 @@ class Settings(BaseSettings):
     def _validate_discovery_call_minutes(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("DISCOVERY_CALL_MINUTES must be greater than zero")
+        return value
+
+    @field_validator("PROJECT_MEETING_MINUTES")
+    @classmethod
+    def _validate_project_meeting_minutes(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("PROJECT_MEETING_MINUTES must be greater than zero")
         return value
 
     @field_validator("STUDIO_BUSINESS_START", "STUDIO_BUSINESS_END")

@@ -27,6 +27,19 @@ from .moodboard_reaction import (
     MoodboardReaction,
     ReactionType,
 )
+from .project_stage import (
+    ProjectStage,
+    StageStatus,
+)
+from .deliverable import (
+    Deliverable,
+    DeliverableStatus,
+)
+from .deliverable_comment import DeliverableComment
+from .project_specification import (
+    ProjectSpecification,
+    SpecificationCategory,
+)
 
 __all__ = [
     "User",
@@ -51,4 +64,11 @@ __all__ = [
     "MoodboardItem",
     "MoodboardReaction",
     "ReactionType",
+    "ProjectStage",
+    "StageStatus",
+    "Deliverable",
+    "DeliverableStatus",
+    "DeliverableComment",
+    "ProjectSpecification",
+    "SpecificationCategory",
 ]

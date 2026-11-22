@@ -17,8 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import API_V1_PREFIX, settings
 from ..core.security import decode_access_token
 from ..db.session import get_db
+from ..models.deliverable import Deliverable
 from ..models.project import Project, ProjectStatus
 from ..models.project_member import ProjectMember, ProjectRole
+from ..models.project_specification import ProjectSpecification
+from ..models.project_stage import ProjectStage, StageStatus
 from ..models.user import User, UserRole
 from ..services.google_calendar import GoogleCalendarClient
 from ..services.storage import LocalStorage
@@ -228,6 +231,125 @@ async def require_team_member(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Insufficient permissions",
     )
+
+
+async def get_stage_or_404(
+    db: AsyncSession, project_id: UUID, stage_id: UUID
+) -> ProjectStage:
+    """Return the stage for `stage_id` within `project_id` or raise 404.
+
+    The lookup filters on both the stage id and the path project id, so
+    cross-project stage ids are indistinguishable from missing ones.
+    """
+    result = await db.execute(
+        select(ProjectStage).where(
+            ProjectStage.id == stage_id,
+            ProjectStage.project_id == project_id,
+        )
+    )
+    stage = result.scalar_one_or_none()
+    if stage is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stage not found",
+        )
+    return stage
+
+
+def require_active_stage(stage: ProjectStage) -> None:
+    """Allow stage mutations only on a stage that is currently ACTIVE.
+
+    Raises 409 ("Stage is locked") for LOCKED stages and 409 ("Stage is
+    already approved") for APPROVED ones.
+    """
+    if stage.status == StageStatus.LOCKED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Stage is locked",
+        )
+    if stage.status == StageStatus.APPROVED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Stage is already approved",
+        )
+
+
+async def get_deliverable_or_404(
+    db: AsyncSession, project_id: UUID, deliverable_id: UUID
+) -> Deliverable:
+    """Return the deliverable for `deliverable_id` within `project_id` or 404.
+
+    The lookup filters on both the deliverable id and the path project id,
+    so cross-project ids are indistinguishable from missing ones.
+    """
+    result = await db.execute(
+        select(Deliverable).where(
+            Deliverable.id == deliverable_id,
+            Deliverable.project_id == project_id,
+        )
+    )
+    deliverable = result.scalar_one_or_none()
+    if deliverable is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deliverable not found",
+        )
+    return deliverable
+
+
+async def get_specification_or_404(
+    db: AsyncSession, project_id: UUID, specification_id: UUID
+) -> ProjectSpecification:
+    """Return the specification for `specification_id` within `project_id` or 404.
+
+    The lookup filters on both the specification id and the path project id,
+    so cross-project ids are indistinguishable from missing ones.
+    """
+    result = await db.execute(
+        select(ProjectSpecification).where(
+            ProjectSpecification.id == specification_id,
+            ProjectSpecification.project_id == project_id,
+        )
+    )
+    specification = result.scalar_one_or_none()
+    if specification is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Specification not found",
+        )
+    return specification
+
+
+def require_deliverable_visible(deliverable: Deliverable, current_user: User) -> None:
+    """Gate deliverable reads on the published flag for CLIENT callers.
+
+    Team roles (SUPER_ADMIN, LEAD_DESIGNER, COLLABORATOR) always pass and
+    can inspect drafts. A CLIENT only sees deliverables whose
+    `is_client_visible` flag is set; unpublished drafts read as missing
+    (404 "Deliverable not found") rather than forbidden.
+    """
+    if current_user.role == UserRole.CLIENT and not deliverable.is_client_visible:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deliverable not found",
+        )
+
+
+async def require_client_member(
+    db: AsyncSession, project_id: UUID, current_user: User
+) -> None:
+    """Require a CLIENT membership on the project (client-only actions)."""
+    member = await get_membership(db, project_id, current_user.id)
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    if member.assigned_role != ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
 
 
 def get_calendar_client() -> GoogleCalendarClient:

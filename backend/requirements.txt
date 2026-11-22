@@ -31,6 +31,9 @@ bcrypt>=4.0.1,<4.1
 # S3/R2-compatible object storage
 boto3>=1.35.0
 
+# Image processing (server-side watermarked previews)
+Pillow>=11.0
+
 # HTTP client (also required by fastapi.testclient)
 httpx>=0.27.0
 

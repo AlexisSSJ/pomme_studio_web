@@ -118,7 +118,9 @@ Las dependencias exactas se declaran en `backend/requirements.txt`.
 
 `ENVIRONMENT` ∈ `development | staging | production`. `DEBUG` debe ser `false`
 en producción. Las variables se documentan en `.env.example` y **nunca** se
-versionan secretos reales (`.env` está en `.gitignore`).
+versionan secretos reales (`.env` está en `.gitignore`). Sprint 4 añade
+`PROJECT_MEETING_MINUTES` (por defecto `60`), que fija la duración de las
+reuniones de proyecto (ver §5.2).
 
 ## 3. Roles y permisos (RBAC)
 
@@ -178,9 +180,8 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 |---|---|---|
 | `users` | Cuentas con rol, `is_active` y credenciales. | Sprint 1 |
 | `leads` | Prospectos del front-office; origen de reuniones y propuestas. | **Sprint 2** |
-| `projects` | Proyecto de diseño con cliente, líder y miembros. | Sprint 1 + **Sprint 2** |
+| `projects` | Proyecto de diseño con cliente, líder y miembros; liquidación final desacoplada. | Sprint 1 + Sprint 2 + **Sprint 5** |
 | `project_members` | Membresía usuario↔proyecto (base del control de acceso). | Sprint 1 |
-| `deliverables` | Entregables versionados con pines/comentarios y aprobación. | Sprint 1 |
 | `ffe_items` | Especificaciones FF&E (ficha, acabado, proveedor sugerido, estado). | Sprint 1 |
 | `pricing_config` | Reglas de precios editables por `SUPER_ADMIN`. | Sprint 1 |
 | `payments` | Pagos y liquidaciones sujetos a validación. | Sprint 1 |
@@ -188,6 +189,10 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `brief_items` | Brief del proyecto: preguntas del cuestionario y referencias subidas. | **Sprint 3** |
 | `moodboard_items` | Piezas de inspiración del moodboard cargadas por el equipo. | **Sprint 3** |
 | `moodboard_reactions` | Reacciones (`like`/`dislike`/`comment`) de los clientes a las piezas. | **Sprint 3** |
+| `project_stages` | Fases secuenciales del flujo de trabajo, con candado y aprobación del cliente. | **Sprint 4** |
+| `deliverables` | Entregables versionados dentro de una etapa, con pines/comentarios, drafts y handover final. | Sprint 1 → Sprint 4 → **Sprint 5** |
+| `deliverable_comments` | Pines de revisión anclados a un punto porcentual de un entregable. | **Sprint 4** |
+| `project_specifications` | Especificaciones FF&E (mobiliario, luminarias, recubrimientos) para ejecución externa sin inventario ni compras. | **Sprint 5** |
 | `audit_logs` | Bitácora inmutable de acciones sensibles. | Sprint 1 |
 
 #### 4.3.1 `leads`
@@ -217,12 +222,20 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `status` | enum | `draft` \| `active` \| `on_hold` \| `completed` \| `cancelled`. |
 | `included_rounds` | int | Rondas de cambio incluidas en la propuesta. |
 | `remaining_rounds` | int | Rondas de cambio aún disponibles. |
-| `balance_paid` | bool | Indica si el anticipo fue recibido. |
+| `balance_paid` | bool | Indica si la liquidación final fue pagada y validada por `SUPER_ADMIN` (Sprint 5). La activación del proyecto no marca esta bandera (`False` por defecto). |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
 `lead_id` tiene la restricción única `uq_projects_lead_id` para impedir conversiones
 duplicadas; los proyectos legados pueden conservar `lead_id = NULL` (se permiten
 múltiples valores NULL).
+
+En Sprint 5, `balance_paid` queda formalmente desacoplado de la activación del
+proyecto: la activación (`POST /admin/projects/{project_id}/activate`) establece el
+estado del proyecto en `active`, pero conserva `balance_paid = False`. La bandera
+representa la liquidación o saldo final del proyecto, validada exclusivamente por
+`SUPER_ADMIN` mediante `POST /admin/projects/{project_id}/validate-final-payment`
+para desbloquear las descargas de los archivos originales de entregables finales
+(`is_final_handover` vía `/file`).
 
 #### 4.3.3 `meetings`
 
@@ -235,7 +248,7 @@ múltiples valores NULL).
 | `meet_link` | string(512) / null | URL de Google Meet generada por Google. |
 | `start_time` | timestamptz | Inicio en UTC. |
 | `end_time` | timestamptz | Fin en UTC. |
-| `meeting_type` | enum | `discovery` \| `proposal` \| `review` \| `follow_up`. |
+| `meeting_type` | enum | `discovery` \| `proposal` \| `review` \| `follow_up` \| `survey` (Sprint 4). |
 | `status` | enum | `scheduled` \| `confirmed` \| `cancelled` \| `completed` \| `no_show`. |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
@@ -302,6 +315,108 @@ Restricciones: `uq_moodboard_reaction_user` hace única la pareja
 `ck_reaction_comment_required` exige texto no vacío cuando
 `reaction = 'comment'`.
 
+#### 4.3.7 `project_stages`
+
+Fase ordenada del flujo de trabajo de un proyecto (migración `0005`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `name` | string(255) | Nombre de la etapa. |
+| `order_index` | int | Posición en el flujo (≥ 0). |
+| `status` | enum | `locked` \| `active` \| `approved`. |
+| `approved_by` | UUID / null | FK a `users.id` (cliente que aprobó). |
+| `approved_at` | timestamptz / null | Momento de la aprobación. |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `uq_project_stage_order` hace única la pareja
+`(project_id, order_index)`; `ck_stage_order_non_negative` exige
+`order_index >= 0`; `ck_stage_approval_shape` exige que una etapa
+`approved` tenga `approved_by` y `approved_at`.
+
+#### 4.3.8 `deliverables`
+
+Versión de un entregable dentro de una etapa (migraciones `0005` y `0006`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `stage_id` | UUID | FK a `project_stages.id` (indexada). |
+| `title` | string(255) | Título de la versión. |
+| `version` | int | Número de versión dentro de la etapa (≥ 1, default 1). |
+| `file_name` | string(255) | Nombre original del archivo (metadato). |
+| `content_type` | string(100) | MIME (solo imágenes permitidas). |
+| `size_bytes` | int | Tamaño en bytes. |
+| `storage_key` | string(500) | Clave en el storage. |
+| `status` | enum | `in_review` \| `changes_requested` \| `approved`. |
+| `is_client_visible` | bool | Visibilidad en portal de clientes (`False` = borrador interno, `True` = publicado; default `False`, migración `0006`). |
+| `is_final_handover` | bool | Marca de entrega final protegida por liquidación `balance_paid` (default `False`, migración `0006`). |
+| `published_at` | timestamptz / null | Momento UTC en que fue publicado al cliente (migración `0006`). |
+| `published_by` | UUID / null | FK a `users.id` (miembro del equipo que publicó la versión; migración `0006`). |
+| `created_by` | UUID | FK a `users.id` (autor de la carga). |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `uq_deliverable_stage_version` hace única la pareja
+`(stage_id, version)` — backstop de la carrera de uploads concurrentes —,
+`ck_deliverable_version_positive` exige `version >= 1`, y
+`fk_deliverables_published_by` enlaza `published_by` con `users.id`.
+
+#### 4.3.9 `deliverable_comments`
+
+Pin de revisión anclado a un punto porcentual de un entregable
+(migración `0005`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `deliverable_id` | UUID | FK a `deliverables.id` (indexada). |
+| `created_by` | UUID | FK a `users.id` (autor del pin). |
+| `x_pct` / `y_pct` | float | Coordenadas del pin en porcentaje (0–100). |
+| `page_or_frame` | int | Página o frame del documento (≥ 1, default 1). |
+| `body` | text | Texto del pin (no puede estar en blanco). |
+| `round_number` | int | Ronda de cambios a la que pertenece (default 1). |
+| `consumes_round` | bool | `True` cuando la ronda del pin ya fue consumida. |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `ck_comment_x_pct` y `ck_comment_y_pct` fijan el rango
+0–100, `ck_comment_page` exige `page_or_frame >= 1` y `ck_comment_body`
+rechaza cuerpos whitespace-only a nivel de base (la capa de schema ya los
+rechaza con `422` antes de llegar aquí).
+
+#### 4.3.10 `project_specifications`
+
+Especificaciones de catálogo FF&E (mobiliario, luminarias, acabados, equipamiento)
+asociadas a un proyecto para ejecución externa sin inventario ni compras
+(migración `0006`, Sprint 5).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `category` | enum | `furniture` \| `lighting` \| `finishes` \| `equipment` \| `other`. |
+| `name` | string(255) | Nombre descriptivo del elemento o especificación. |
+| `code` | string(120) / null | Código interno de referencia o clave de plano. |
+| `manufacturer` | string(255) / null | Fabricante o marca. |
+| `finish` | string(255) / null | Acabado, color o material especificado. |
+| `dimensions` | string(255) / null | Dimensiones o medidas especificadas. |
+| `supplier` | string(255) / null | Proveedor o distribuidor sugerido. |
+| `reference_url` | string(500) / null | Enlace a ficha técnica o catálogo del fabricante/proveedor. |
+| `location` | string(255) / null | Ubicación sugerida o espacio dentro del proyecto. |
+| `notes` | text / null | Notas técnicas o recomendaciones de instalación/ejecución. |
+| `created_by` | UUID | FK a `users.id` (autor del registro). |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+Restricciones: `ck_specification_name` exige `length(trim(name)) > 0` (el nombre no
+puede ser vacío ni componerse exclusivamente de espacios en blanco).
+
+**Exclusión estricta (§4.2 Non-goals):** la entidad está diseñada exclusivamente
+para documentación ejecutiva y especificación técnica de diseño para ejecución
+externa. Queda estrictamente prohibido incluir columnas o flujos para cantidades,
+precios unitarios, costos totales, inventario, control de existencias, compras de
+obra o contratistas.
+
 ### 4.4 Auditoría
 
 Toda acción sensible implementada (cambios de rol, activación/desactivación de
@@ -315,6 +430,59 @@ En Sprint 3 se auditan además las acciones de brief y moodboard:
 `moodboard.item_create`, `moodboard.item_delete`, `moodboard.reaction` y
 `moodboard.reaction_delete`, con `entity_type` `brief_item`, `moodboard_item` o
 `moodboard_reaction` y `project_id` (como string) en los metadatos.
+
+En Sprint 4 se auditan las acciones del flujo de etapas, entregables y rondas:
+`stage.create`, `stage.approve` y `stage.unlock` (entidad `project_stage`),
+`deliverable.create`, `deliverable.approve` y `deliverable.changes_requested`
+(entidad `deliverable`), `deliverable.comment` (entidad `deliverable_comment`),
+`project.extra_round_granted` (entidad `project`) y `meeting.create` para las
+reuniones de proyecto, ahora con el **actor autenticado** (`actor_user_id`),
+a diferencia de las reuniones de lead de Sprint 2, cuyo actor es `NULL`.
+
+En Sprint 5 se auditan las acciones de validación de liquidación final, publicación
+de entregables y catálogo de especificaciones FF&E:
+- `project.final_payment_validated` (entidad `project`): validación de la
+  liquidación o saldo final del proyecto ejecutada por `SUPER_ADMIN`.
+- `deliverable.publish`, `deliverable.unpublish` y `deliverable.final_handover`
+  (entidad `deliverable`): publicación hacia el portal de clientes, reversión a
+  borrador interno y marcado de entrega final protegida por gate de balance,
+  ejecutados por `LEAD_DESIGNER` o `SUPER_ADMIN` con membresía/rol de equipo.
+- `specification.create`, `specification.update` y `specification.delete`
+  (entidad `project_specification`): creación, edición y eliminación de ítems de
+  especificación FF&E realizadas por el equipo asignado al proyecto.
+
+### 4.5 Etapas, entregables y rondas de cambio (Sprint 4)
+
+- **Regla de creación de etapas.** La primera etapa de un proyecto nace
+  `ACTIVE` (no tiene predecesores). Una etapa posterior nace `LOCKED` salvo
+  que **todas** las etapas con `order_index` menor estén `APPROVED`, en cuyo
+  caso nace `ACTIVE`. Consecuencia documentada: crear etapas fuera de orden
+  tras aprobaciones puede dejar varias etapas `ACTIVE` simultáneamente; el
+  spec no exige la invariante de una sola `ACTIVE`.
+- **Candado secuencial.** Solo el cliente asignado (rol `CLIENT` con
+  membresía `CLIENT`) aprueba una etapa `ACTIVE`. La aprobación desbloquea
+  la siguiente etapa `LOCKED` por `order_index` — la de menor índice mayor
+  que la aprobada, sin importar el orden de creación — y se auditan
+  `stage.create`, `stage.approve` y `stage.unlock`.
+- **Rondas de cambio.** `request-changes` decrementa `remaining_rounds`,
+  voltea la versión a `changes_requested` y marca `consumes_round = True`
+  los pines no consumidos del entregable, en una sola transacción. Con
+  `remaining_rounds = 0` → `409 "No remaining change rounds"`. La ronda
+  extra (`POST /admin/projects/{pid}/extra-round`) es auditada
+  (`project.extra_round_granted`) e incrementa `included_rounds` y
+  `remaining_rounds`. El `round_number` de un pin se fija al crearlo como
+  `included_rounds − remaining_rounds + 1`; el pin en sí no consume ronda.
+- **Entregables.** Solo imágenes este sprint; `page_or_frame` se persiste
+  (default 1) para el soporte multipágina futuro. El versionado por etapa
+  es `max+1` con `uq_deliverable_stage_version` de backstop; un conflicto
+  de versión (uploads concurrentes) → `409 "Deliverable version conflict"`
+  con limpieza del archivo ya guardado. Un body de pin whitespace-only →
+  `422` en la capa de schema.
+- **Reuniones de proyecto.** `meeting_type` añade `survey` (levantamiento en
+  sitio); el booking es por cualquier miembro con el proyecto `ACTIVE`, el
+  asistente de Google Meet es el cliente del proyecto y el actor
+  autenticado queda en `audit_logs` (`meeting.create`). Duración por
+  defecto: `PROJECT_MEETING_MINUTES` (§5.2).
 
 ## 5. Integración con Google Calendar
 
@@ -367,6 +535,7 @@ El horario de operación del estudio se configura con:
 | `STUDIO_BUSINESS_START` | `09:00` | Inicio de la jornada (`HH:MM`). |
 | `STUDIO_BUSINESS_END` | `18:00` | Fin de la jornada (`HH:MM`). |
 | `DISCOVERY_CALL_MINUTES` | `30` | Duración por defecto de una Discovery Call. |
+| `PROJECT_MEETING_MINUTES` | `60` | Duración por defecto de una reunión de proyecto (revisión o levantamiento). Sprint 4. |
 
 ### 5.3 Verificación final antes de confirmar
 
@@ -422,7 +591,7 @@ forma ambigua) y persiste:
 | `meet_link` | text | URL de Google Meet generada por Google. |
 | `start_time` | timestamptz | Inicio en UTC. |
 | `end_time` | timestamptz | Fin en UTC. |
-| `meeting_type` | enum/text | Tipo de reunión (p. ej. discovery, propuesta, revisión, seguimiento). |
+| `meeting_type` | enum/text | `discovery` \| `proposal` \| `review` \| `follow_up` \| `survey` (Sprint 4). Las reuniones de proyecto solo usan `review` y `survey`. |
 | `status` | enum/text | `scheduled`, `confirmed`, `cancelled`, `completed`, `no_show`. |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
@@ -430,12 +599,22 @@ Restricciones: `end_time > start_time`, exactamente un padre (`lead_id` o
 `project_id`), índices por `project_id`, `lead_id` y `start_time`, y el índice
 parcial único `ux_meetings_start_time_active` para inicios no cancelados.
 
+Las reuniones de proyecto (Sprint 4) las agenda cualquier miembro con el
+proyecto `ACTIVE` — con una `stage_id` opcional que viaja en los metadatos de
+la auditoría, no en la tabla — y el asistente de Google Meet es el cliente del
+proyecto (o el correo del actor si el proyecto no tiene cliente).
+
 ### 5.6 Registro en `audit_logs`
 
 En Sprint 2 la creación exitosa de una reunión se registra en `audit_logs` con
 actor público `NULL`, `meeting_id`, `google_event_id`, `lead_id` e inicio. La
 auditoría de reprogramación, cancelación, reconexión OAuth y fallos de
-sincronización es **comportamiento futuro**, no implementado en este sprint.
+sincronización es **comportamiento futuro**, no implementado en ese sprint.
+
+En Sprint 4, las reuniones de proyecto (revisión/levantamiento) también se
+registran con `meeting.create`, pero con el **actor autenticado**
+(`actor_user_id`) y `project_id` (más `stage_id` cuando se eligió etapa) en los
+metadatos; la acción queda listada en §4.4.
 
 ## 6. Seguridad de la API
 
@@ -560,6 +739,147 @@ Principios adicionales:
 - Secretos exclusivamente por variables de entorno; prohibido hardcodearlos.
 - CORS restringido a los orígenes del frontend (`localhost:3000` en desarrollo).
 
+### 6.5 Endpoints introducidos en Sprint 4
+
+Los siguientes contratos se implementaron durante el Sprint 4 (etapas,
+entregables versionados, pines, rondas de cambio y reuniones de proyecto).
+Todos los paths usan el prefijo `/api/v1`.
+
+| Método | Path | Roles permitidos | Propósito |
+|---|---|---|---|
+| `GET` | `/projects/{pid}/stages` | Cualquier miembro / `SUPER_ADMIN` | Listar las etapas del proyecto en orden de flujo (`order_index`), cualquier `status`. |
+| `POST` | `/projects/{pid}/stages` | Equipo (`require_team_member`) | Crear una etapa (proyecto `ACTIVE`): nace `ACTIVE` si todas las etapas de `order_index` menor están `APPROVED`; si no, `LOCKED`. Duplicado de `order_index` → `409 "Stage order already exists"`. |
+| `POST` | `/projects/{pid}/stages/{sid}/approve` | `CLIENT` con membresía `CLIENT` | Aprobar una etapa `ACTIVE` (proyecto `ACTIVE`) y desbloquear la siguiente `LOCKED` por `order_index`. |
+| `GET` | `/projects/{pid}/stages/{sid}/deliverables` | Cualquier miembro | Listar las versiones del entregable de la etapa (ascendente por versión), cualquier `status`. |
+| `POST` | `/projects/{pid}/stages/{sid}/deliverables` | Equipo | Subir una nueva versión (multipart: `file` imagen + `title`; proyecto y etapa `ACTIVE`). Versión = max+1 → conflicto `409 "Deliverable version conflict"` (con limpieza del archivo); `413` > 10 MiB; `422` tipo no soportado. |
+| `GET` | `/projects/{pid}/deliverables/{did}` | Cualquier miembro | Detalle de una versión (nunca expone `storage_key`). |
+| `GET` | `/projects/{pid}/deliverables/{did}/file` | Cualquier miembro | Descargar el archivo de la versión. |
+| `GET` | `/projects/{pid}/deliverables/{did}/comments` | Cualquier miembro | Listar los pines del entregable (orden de creación). |
+| `POST` | `/projects/{pid}/deliverables/{did}/comments` | `CLIENT` con membresía `CLIENT` | Crear un pin sobre una versión `IN_REVIEW` (proyecto y etapa `ACTIVE`): `round_number = included − remaining + 1`, `consumes_round = False`; body en blanco → `422`. |
+| `POST` | `/projects/{pid}/deliverables/{did}/approve` | `CLIENT` con membresía `CLIENT` | Aprobar una versión (proyecto y etapa `ACTIVE`); ya aprobada → `409 "Deliverable is already approved"`. |
+| `POST` | `/projects/{pid}/deliverables/{did}/request-changes` | `CLIENT` con membresía `CLIENT` | Solicitar cambios en una versión `IN_REVIEW` (proyecto y etapa `ACTIVE`): consume una ronda y marca los pines pendientes; sin rondas → `409 "No remaining change rounds"`. |
+| `GET` | `/projects/{pid}/meetings` | Cualquier miembro | Listar las reuniones del proyecto (por inicio). |
+| `GET` | `/projects/{pid}/meetings/availability?date=YYYY-MM-DD` | Cualquier miembro | Slots de revisión/levantamiento para una fecha (fecha pasada → `422`; calendario desconectado → `503`; Google caído → `502`). |
+| `POST` | `/projects/{pid}/meetings` | Cualquier miembro | Agendar una reunión de revisión o levantamiento (proyecto `ACTIVE`; `meeting_type` ∈ `review` \| `survey`; `stage_id` opcional; slot tomado → `409 "Slot no longer available"`). |
+| `POST` | `/admin/projects/{pid}/extra-round` | `SUPER_ADMIN`, `LEAD_DESIGNER` con acceso de equipo | Habilitar una ronda extra (proyecto `ACTIVE`): incrementa `included_rounds` y `remaining_rounds`. `COLLABORATOR` → `403 "Insufficient permissions"` (role gate). |
+
+Reglas de acceso específicas de Sprint 4:
+
+- **Lecturas** (etapas, versiones, pines, archivos y reuniones): cualquier
+  miembro del proyecto, con cualquier `status`; `SUPER_ADMIN` pasa siempre.
+- **Escrituras:** exigen `project.status == ACTIVE` (si no → `409 "Project is
+  not active"`). Las mutaciones de entregables y pines exigen además una etapa
+  `ACTIVE` (`409 "Stage is locked"` / `409 "Stage is already approved"`) y,
+  para pines y solicitar cambios, una versión `IN_REVIEW` (`409 "Deliverable
+  is not in review"`); aprobar solo exige una versión no aprobada (`409
+  "Deliverable is already approved"`).
+- **Equipo** (`require_team_member`): misma semántica que Sprint 3
+  (`SUPER_ADMIN` pasa; `LEAD_DESIGNER` con membresía o asignación;
+  `COLLABORATOR` con membresía).
+- **Acciones de cliente** (aprobar etapa, pinear, aprobar versión, solicitar
+  cambios): rol `CLIENT` más membresía `assigned_role=CLIENT`. La aprobación de
+  etapa es solo del cliente asignado.
+- **Extra-round:** role gate `SUPER_ADMIN`/`LEAD_DESIGNER` **más**
+  `require_team_member` (la dirección requiere membresía `LEAD_DESIGNER` o ser
+  el `lead_designer_id` del proyecto).
+- **Aislamiento por id:** toda consulta de etapa o entregable filtra por el
+  `project_id` del path; un id de otro proyecto responde `404`, sin fuga de
+  existencia.
+- **Reuniones de proyecto:** el booking lo hace cualquier miembro (incluido el
+  cliente) con el proyecto `ACTIVE`; el asistente del Meet es el cliente del
+  proyecto. La duración la fija `PROJECT_MEETING_MINUTES` (§5.2).
+
+Queda con **hardening pendiente** (documentado, no implementado en Sprint 4):
+
+- La carrera de decremento concurrente de `remaining_rounds`: el guard
+  secuencial (`remaining_rounds <= 0` → `409`) garantiza el piso 0, pero no hay
+  lock de fila ni `UPDATE` condicional, así que dos `request-changes`
+  concurrentes pueden decrementar desde el mismo valor leído.
+- La serialización de uploads concurrentes de versiones: la versión se calcula
+  como `max+1` sin lock; el único backstop es
+  `uq_deliverable_stage_version`, que convierte al perdedor en `409` (con
+  limpieza del archivo).
+- El soporte PDF/multipágina del visor: `page_or_frame` se persiste (default 1)
+  pero este sprint solo acepta imágenes.
+- El focus trap y el cierre con `Escape` en el visor de pines.
+- La creación de pines por teclado: hoy la colocación es pointer-only (los
+  marcadores existentes sí son activables con `Enter`/`Space`).
+- El quirk preexistente (Sprint 3) de whitespace en comentarios del moodboard:
+  `MoodboardReactionCreate` normaliza el comentario con `strip()` antes de
+  persistirlo (mutación silenciosa del texto del usuario), mientras que los
+  pines de entregables se guardan verbatim y solo se rechaza el body en blanco;
+  unificar el criterio queda pendiente.
+
+### 6.6 Endpoints introducidos en Sprint 5
+
+Durante el Sprint 5 se introdujeron los endpoints de publicación de entregables,
+control de borradores, marcas de agua y descarga restringida para entrega final
+(*final handover*), validación de liquidación final del proyecto y el catálogo de
+especificaciones FF&E para ejecución externa. Todos los paths operan bajo el prefijo
+`/api/v1`.
+
+| Método | Path | Roles permitidos | Propósito |
+|---|---|---|---|
+| `POST` | `/admin/projects/{project_id}/validate-final-payment` | `SUPER_ADMIN` | Validar el pago final o liquidación del proyecto (`balance_paid = True`). Audita `project.final_payment_validated`. |
+| `POST` | `/projects/{project_id}/deliverables/{id}/publish` | `LEAD_DESIGNER`, `SUPER_ADMIN` con membresía/rol de equipo | Publicar un entregable hacia el portal del cliente (`is_client_visible = True`, `published_at = now()`, `published_by = actor_id`). Proyecto `ACTIVE`. Audita `deliverable.publish`. |
+| `POST` | `/projects/{project_id}/deliverables/{id}/unpublish` | `LEAD_DESIGNER`, `SUPER_ADMIN` con membresía/rol de equipo | Revertir un entregable a borrador interno (`is_client_visible = False`, `published_at = NULL`, `published_by = NULL`). Proyecto `ACTIVE`. Audita `deliverable.unpublish`. |
+| `POST` | `/projects/{project_id}/deliverables/{id}/final-handover` | `LEAD_DESIGNER`, `SUPER_ADMIN` con membresía/rol de equipo | Marcar un entregable como entrega final sujeta a validación de pago (`is_final_handover = True`). Proyecto `ACTIVE`. Audita `deliverable.final_handover`. |
+| `GET` | `/projects/{project_id}/deliverables/{id}/preview` | Cualquier miembro autorizado a ver el entregable | Previsualización JPEG con marca de agua diagonal (`"POMME STUDIO · PREVIEW"`): endpoint de previsualización que siempre renderiza la imagen con marca de agua (independientemente de `balance_paid`). El archivo original sin marca de agua se sirve exclusivamente vía `/file`. |
+| `GET` | `/projects/{project_id}/deliverables/{id}/file` | Miembros del proyecto con visibilidad (sujeto a gate de liquidación) | Descarga del binario original sin marca de agua. Gate: si `is_final_handover = True`, `balance_paid = False` y el solicitante es `CLIENT`, se bloquea con `403 Forbidden` (`"Final balance pending"`). El equipo del estudio siempre puede descargar el original sin restricciones; una vez validado `balance_paid = True`, el cliente también puede descargarlo libremente. |
+| `GET` | `/projects/{project_id}/specifications` | Cualquier miembro del proyecto / `SUPER_ADMIN` | Listar especificaciones FF&E del proyecto ordenadas por `created_at` ascendente. |
+| `POST` | `/projects/{project_id}/specifications` | Equipo del proyecto (`require_team_member`, proyecto `ACTIVE`) | Crear especificación FF&E. Nombre no vacío (`ck_specification_name`). Audita `specification.create`. |
+| `GET` | `/projects/{project_id}/specifications/{id}` | Cualquier miembro del proyecto / `SUPER_ADMIN` | Consultar detalle de una especificación FF&E por ID. |
+| `PATCH` | `/projects/{project_id}/specifications/{id}` | Equipo del proyecto (`require_team_member`, proyecto `ACTIVE`) | Actualizar campos de una especificación FF&E. Audita `specification.update`. |
+| `DELETE` | `/projects/{project_id}/specifications/{id}` | Equipo del proyecto (`require_team_member`, proyecto `ACTIVE`) | Eliminar una especificación FF&E. Audita `specification.delete`. |
+
+#### Reglas de visibilidad y borradores (*Draft / Publish gates*)
+
+- **Creación según rol:** cuando un miembro con rol `COLLABORATOR` sube una versión de
+  entregable (`POST /projects/{pid}/stages/{sid}/deliverables`), nace automáticamente
+  como borrador interno (`is_client_visible = False`, `published_at = NULL`,
+  `published_by = NULL`). Cuando quien sube es `LEAD_DESIGNER` o `SUPER_ADMIN`, nace
+  inmediatamente publicada (`is_client_visible = True`, `published_at = now()`,
+  `published_by = actor_id`).
+- **Aislamiento en portal de cliente:** los usuarios con rol `CLIENT` únicamente
+  tienen visibilidad de versiones publicadas (`is_client_visible = True`). En listados
+  (`/stages/{sid}/deliverables`), los borradores son omitidos silenciosamente. En
+  endpoints directos (`/deliverables/{id}`, `/deliverables/{id}/file`,
+  `/deliverables/{id}/preview`, `/comments`), si un cliente consulta una versión en
+  borrador se responde `404 Not Found`, sin filtrar su existencia.
+- **Acceso del equipo:** `SUPER_ADMIN`, `LEAD_DESIGNER` y `COLLABORATOR` asignados al
+  proyecto tienen acceso irrestricto tanto a borradores como a entregables publicados.
+- **Permisos de publicación:** únicamente `LEAD_DESIGNER` (del proyecto) o
+  `SUPER_ADMIN` (con acceso de equipo) pueden publicar (`/publish`), despublicar
+  (`/unpublish`) o marcar entrega final (`/final-handover`). Un `COLLABORATOR` recibe
+  `403 Forbidden` (`"Insufficient permissions"`).
+
+#### Regla de entrega final y gate de pago (*Final Handover & Balance Gate*)
+
+- **Desacople de activación:** la activación del proyecto (`POST /admin/projects/{id}/activate`)
+  habilita el proyecto como `ACTIVE`, pero no afecta `balance_paid` (permanece en `False`).
+- **Gate de entrega final:** cualquier entregable marcado como `is_final_handover = True`
+  permanece condicionado a que el proyecto tenga `balance_paid = True` para la descarga del
+  archivo original por parte del cliente.
+- **Endpoint de preview (`GET /preview`):**
+  - Devuelve siempre una previsualización JPEG generada en memoria con Pillow (`PIL`),
+    superponiendo de forma diagonal y repetida el texto de marca de agua
+    `"POMME STUDIO · PREVIEW"` en gris semi-transparente (`(120, 120, 120, 140)` rotado 30°).
+  - Está disponible para cualquier miembro con acceso al entregable (cliente o equipo)
+    sin importar el estado de `balance_paid`. Permite al cliente inspeccionar visualmente
+    la entrega final mientras su saldo final está pendiente de liquidación.
+- **Endpoint de archivo original (`GET /file`):**
+  - Sirve el binario original íntegro y sin marca de agua.
+  - Si el entregable tiene `is_final_handover = True` y el proyecto tiene `balance_paid = False`:
+    - El cliente (`CLIENT`) tiene bloqueada la descarga, respondiendo con `403 Forbidden`
+      (`"Final balance pending"`).
+    - El equipo del estudio (`LEAD_DESIGNER`, `COLLABORATOR`, `SUPER_ADMIN`) puede descargar
+      el original sin restricciones en todo momento para control de calidad y revisión técnica.
+- **Liberación de descarga:** `SUPER_ADMIN` valida el pago final invocando
+  `POST /admin/projects/{project_id}/validate-final-payment`, lo cual establece
+  `balance_paid = True` y audita `project.final_payment_validated`. A partir de ese
+  momento, la descarga del archivo original sin marca de agua vía `GET /file` queda
+  completamente habilitada para el cliente.
+
 ## 7. UI / Diseño — *Tactile Brutalism*
 
 La interfaz sigue la estética **Tactile Brutalism**: retícula editorial inspirada
@@ -644,6 +964,36 @@ Prohibido: `box-shadow`, degradados y colores saturados innecesarios.
   `COLLABORATOR` cargan su lista de proyectos desde `GET /api/v1/projects`
   (endpoint de membresía) en lugar de `/api/v1/admin/projects`.
 - **Pendiente:** focus trap y cierre con `Escape` en el overlay del moodboard.
+
+### 7.7 Etapas, visor de pines y reuniones (Sprint 4)
+
+- **Portal `/portal`** (rol `CLIENT`): `/portal/projects/{id}/etapas` —
+  listado de etapas con estado, entregables por etapa y aprobación de etapa
+  con confirmación inline de dos pasos —, `/portal/projects/{id}/entregables/{did}`
+  — visor del entregable — y `/portal/projects/{id}/reuniones` — agenda de
+  revisiones y levantamientos.
+- **Gestión de equipo:** `/admin/projects/{id}/etapas` — crear etapas
+  (nombre + orden), subir versiones a etapas `ACTIVE` (multipart), consultar
+  pines en modo lectura, habilitar rondas extra con confirmación inline de
+  dos pasos (el servidor rechaza a `COLLABORATOR` con `403` y el error se
+  muestra al usuario) y agendar reuniones con el `MeetingScheduler` alimentado
+  por las etapas del proyecto. El listado de proyectos enlaza cada tarjeta a
+  Brief, Moodboard y Etapas.
+- **Visor de pines táctil:** la colocación de pines es por toque
+  (`pointerup` con tap-slop de 6 px), el zoom es de 1–4× por pinch o botones
+  `−`/`+` ≥ 44px, y el desplazamiento es con un dedo; ninguna acción crítica
+  depende de `hover`. Los marcadores existentes son activables por teclado
+  (`Enter`/`Space`); la creación de pines es pointer-only (hardening
+  pendiente, §6.5). Con `canReview = false` — el modo del equipo — los pines
+  son de solo lectura y solo queda la descarga.
+
+### 7.8 Sprint 5 — UI de borradores, FF&E y liberación por pago
+
+- **Admin visibilidad de entregables:** en `/admin/projects/{id}/etapas`, los entregables muestran badges `BORRADOR`/`PUBLICADO` y `ENTREGA FINAL`; disponen de botones de acción para publicar, despublicar (con confirmación de 2 pasos) y marcar/desmarcar entrega final, restringidos a `LEAD_DESIGNER` y `SUPER_ADMIN` (`COLLABORATOR` ve solo badges).
+- **Validación de pago final:** en `/admin/projects`, se añade el botón "Validar pago final" (restringido a `SUPER_ADMIN` cuando `!project.balance_paid`) que invoca `POST /admin/projects/{id}/validate-final-payment`.
+- **Catálogo FF&E Admin (CRUD):** nueva ruta `/admin/projects/{id}/especificaciones` con listado, creación, edición en línea y eliminación (confirmación de 2 pasos) de especificaciones FF&E categorizadas (`furniture`, `lighting`, `finishes`, `equipment`, `other`) y enlace a URL externa (`reference_url`).
+- **Portal Cliente FF&E (solo lectura):** nueva ruta `/portal/projects/{id}/especificaciones` con catálogo de solo lectura sin controles de escritura; enlace "Catálogo FF&E" desde `/portal`.
+- **Visor Cliente con previsualización y candado de descarga:** `DeliverableViewer` conmuta la fuente de imagen a `/preview` (con marca de agua diagonal `"POMME STUDIO · PREVIEW"`) y oculta/bloquea el botón de descarga mostrando el aviso `"PAGO FINAL PENDIENTE · PREVISUALIZACIÓN"` cuando el entregable es `is_final_handover` y `balance_paid == False`. En `/portal/.../etapas`, los entregables muestran los badges `"ENTREGA FINAL"` y `"PAGO PENDIENTE"`.
 
 ## 8. Convenciones de contribución
 
