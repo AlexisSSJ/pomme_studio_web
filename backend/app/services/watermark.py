@@ -1,103 +1,66 @@
-"""Server-side watermarked preview rendering for project deliverables.
-
-While a project's final balance is unpaid, clients are shown a
-watermarked preview instead of the original file: ``render_preview``
-decodes the image bytes with Pillow, overlays repeated diagonal
-"``POMME STUDIO · PREVIEW``" text across the whole frame, and re-encodes
-the result as JPEG bytes at the original dimensions (no downscale). The
-CPU-bound Pillow pipeline runs in a worker thread via
-``anyio.to_thread.run_sync`` so the event loop is never blocked.
-"""
-
 import io
-import math
-
 import anyio
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
-# Text overlaid diagonally on every rendered preview.
-WATERMARK_TEXT = "POMME STUDIO · PREVIEW"
-
-# Rotation applied to the tiled watermark layer (degrees).
-WATERMARK_ANGLE_DEGREES = 30
-
-# Semi-transparent gray that stays visible on both light and dark images.
-WATERMARK_FILL = (120, 120, 120, 140)
-
-# JPEG re-encode quality for rendered previews.
-PREVIEW_JPEG_QUALITY = 85
-
-
 class WatermarkError(ValueError):
-    """Raised when the payload cannot be decoded as an image."""
+    """Raised when the input data cannot be parsed as a valid image."""
+    pass
 
-
-def _tile_watermark(width: int, height: int) -> Image.Image:
-    """Build a frame-sized transparent layer of repeated diagonal text."""
-    font = ImageFont.load_default(size=max(12, min(width, height) // 6))
-
-    # Tile the text on an oversized layer so that, once rotated, the grid
-    # still covers every corner of the frame.
-    radians = math.radians(WATERMARK_ANGLE_DEGREES)
-    cos_a = abs(math.cos(radians))
-    sin_a = abs(math.sin(radians))
-    layer_width = math.ceil(width * cos_a + height * sin_a)
-    layer_height = math.ceil(width * sin_a + height * cos_a)
-
-    layer = Image.new("RGBA", (layer_width, layer_height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-    x0, y0, x1, y1 = draw.textbbox((0, 0), WATERMARK_TEXT, font=font)
-    text_width = x1 - x0
-    text_height = y1 - y0
-
-    step_x = text_width + max(1, text_width // 3)
-    step_y = max(1, text_height) * 3
-
-    row = 0
-    while row * step_y < layer_height:
-        column = 0
-        while column * step_x < layer_width:
-            draw.text(
-                (column * step_x - x0, row * step_y - y0),
-                WATERMARK_TEXT,
-                font=font,
-                fill=WATERMARK_FILL,
-            )
-            column += 1
-        row += 1
-
-    layer = layer.rotate(WATERMARK_ANGLE_DEGREES, fillcolor=(0, 0, 0, 0))
-    # Crop the rotated layer back to the frame, centered.
-    offset_x = (layer.width - width) // 2
-    offset_y = (layer.height - height) // 2
-    return layer.crop((offset_x, offset_y, offset_x + width, offset_y + height))
-
-
-def _render(data: bytes) -> bytes:
-    """Synchronous Pillow pipeline; runs inside a worker thread."""
+def _apply_watermark(data: bytes) -> bytes:
     try:
-        with Image.open(io.BytesIO(data)) as image:
-            frame = image.convert("RGB")
-    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-        raise WatermarkError("Payload is not a decodable image") from exc
+        with Image.open(io.BytesIO(data)) as img:
+            img = img.convert("RGB")
+            width, height = img.size
 
-    watermarked = Image.alpha_composite(
-        frame.convert("RGBA"), _tile_watermark(*frame.size)
-    ).convert("RGB")
+            # Create a transparent overlay for the watermark text
+            txt_layer = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(txt_layer)
 
-    buffer = io.BytesIO()
-    watermarked.save(buffer, format="JPEG", quality=PREVIEW_JPEG_QUALITY)
-    return buffer.getvalue()
+            # Choose a font size relative to image dimensions
+            font_size = max(12, int(min(width, height) / 15))
+            try:
+                # Try to load a standard sans font if available, otherwise default
+                font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+            except IOError:
+                try:
+                    font = ImageFont.truetype("Arial.ttf", font_size)
+                except IOError:
+                    font = ImageFont.load_default()
 
+            watermark_text = "POMME STUDIO · PREVIEW"
+            
+            # Draw diagonal repeating pattern across the image
+            # We rotate a separate large layer or draw multiple lines diagonally
+            # Let's rotate the txt_layer or draw text across
+            step_y = max(40, font_size * 3)
+            step_x = max(150, font_size * 12)
+
+            for y in range(-height, height * 2, step_y):
+                for x in range(-width, width * 2, step_x):
+                    draw.text((x, y), watermark_text, fill=(120, 120, 120, 70), font=font)
+
+            # Rotate the whole text layer slightly for a professional diagonal look (-30 degrees)
+            rotated_txt = txt_layer.rotate(30, expand=1)
+            
+            # Paste rotated text onto the image centered or composite
+            # To keep original dimensions, we can crop/resize or paste centered
+            # Actually, simplest robust way without changing dimensions or complex bounds:
+            # Let's paste it by centering the rotated layer onto the original image
+            ox = (rotated_txt.width - width) // 2
+            oy = (rotated_txt.height - height) // 2
+            cropped_txt = rotated_txt.crop((ox, oy, ox + width, oy + height))
+
+            watermarked = Image.alpha_composite(img.convert("RGBA"), cropped_txt).convert("RGB")
+
+            output = io.BytesIO()
+            watermarked.save(output, format="JPEG", quality=85)
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError, SyntaxError) as e:
+        raise WatermarkError(f"Invalid image data: {e}") from e
 
 async def render_preview(data: bytes, content_type: str) -> bytes:
-    """Render a watermarked JPEG preview of ``data`` and return its bytes.
-
-    The image is decoded from the bytes themselves: ``content_type`` is
-    part of the endpoint interface but is never trusted for decoding —
-    Pillow sniffs the actual format. The original dimensions are
-    preserved (no downscale).
-
-    Raises ``WatermarkError`` when the payload is not a valid image.
     """
-    return await anyio.to_thread.run_sync(_render, data)
+    Opens an image, superposes diagonal repeated watermark text, and returns JPEG bytes.
+    Runs CPU-bound operations in anyio.to_thread.run_sync.
+    """
+    return await anyio.to_thread.run_sync(_apply_watermark, data)
