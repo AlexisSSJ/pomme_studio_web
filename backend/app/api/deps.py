@@ -20,6 +20,7 @@ from ..db.session import get_db
 from ..models.deliverable import Deliverable
 from ..models.project import Project, ProjectStatus
 from ..models.project_member import ProjectMember, ProjectRole
+from ..models.project_specification import ProjectSpecification
 from ..models.project_stage import ProjectStage, StageStatus
 from ..models.user import User, UserRole
 from ..services.google_calendar import GoogleCalendarClient
@@ -294,6 +295,29 @@ async def get_deliverable_or_404(
             detail="Deliverable not found",
         )
     return deliverable
+
+
+async def get_specification_or_404(
+    db: AsyncSession, project_id: UUID, specification_id: UUID
+) -> ProjectSpecification:
+    """Return the specification for `specification_id` within `project_id` or 404.
+
+    The lookup filters on both the specification id and the path project id,
+    so cross-project ids are indistinguishable from missing ones.
+    """
+    result = await db.execute(
+        select(ProjectSpecification).where(
+            ProjectSpecification.id == specification_id,
+            ProjectSpecification.project_id == project_id,
+        )
+    )
+    specification = result.scalar_one_or_none()
+    if specification is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Specification not found",
+        )
+    return specification
 
 
 def require_deliverable_visible(deliverable: Deliverable, current_user: User) -> None:
