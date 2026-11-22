@@ -12,6 +12,7 @@ interface Project {
   status: string;
   included_rounds: number;
   remaining_rounds: number;
+  balance_paid: boolean;
 }
 
 interface Stage {
@@ -32,6 +33,7 @@ interface Deliverable {
   title: string;
   version: number;
   status: "in_review" | "changes_requested" | "approved";
+  is_final_handover?: boolean;
 }
 
 interface StageRow {
@@ -195,6 +197,8 @@ export default function EtapasPage() {
                       <span className="truncate">
                         {deliverable.title} · V{deliverable.version} ·{" "}
                         {deliverableStatusLabel(deliverable.status)}
+                        {deliverable.is_final_handover ? " · ENTREGA FINAL" : ""}
+                        {deliverable.is_final_handover && project && !project.balance_paid ? " · PAGO PENDIENTE" : ""}
                       </span>
                       <span className="btn-brutal__arrow" aria-hidden="true">
                         ↗
