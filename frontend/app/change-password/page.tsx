@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, extractDetail } from "@/lib/api";
-import { isAuthenticated } from "@/lib/auth";
+import { getToken, isAuthenticated } from "@/lib/auth";
+
+// Same-origin by default (Next.js rewrites proxy /api/v1/* to the backend).
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
@@ -42,8 +45,21 @@ export default function ChangePasswordPage() {
     setLoading(true);
 
     try {
-      const res = await apiFetch("/api/v1/auth/change-password", {
+      const token = getToken();
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+
+      // Raw fetch on purpose: the endpoint answers 401 for a wrong current
+      // password, and apiFetch would clear the token and leave the page on
+      // any 401. Here the session stays valid and the detail renders inline.
+      const res = await fetch(`${API_BASE}/api/v1/auth/change-password`, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           current_password: currentPassword,
           new_password: newPassword,
@@ -51,8 +67,6 @@ export default function ChangePasswordPage() {
       });
 
       if (!res.ok) {
-        // A 403 ("password_change_required") is flag-tolerant here: show the
-        // message in place. apiFetch only leaves the page on a 401.
         const data = await res.json().catch(() => ({}));
         setError(extractDetail(data, "No se pudo cambiar la contraseña"));
         return;
