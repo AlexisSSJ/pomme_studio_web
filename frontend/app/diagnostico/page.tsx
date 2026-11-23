@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { apiFetch, extractDetail } from "@/lib/api";
+import SiteNav from "@/components/SiteNav";
 
 type Phase = "form" | "schedule" | "confirmed";
 
@@ -257,16 +258,8 @@ export default function DiagnosticoPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-2 sm:px-6">
-      <header className="flex min-h-[56px] flex-wrap items-center justify-between gap-2 border-b border-border py-3">
-        <a
-          href="/"
-          className="text-[15px] font-semibold tracking-tightest"
-        >
-          Pomme Studio
-        </a>
-        <span className="label-mono">Diagnóstico de proyecto</span>
-      </header>
+    <main className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-20 sm:px-6 md:mx-0 md:ml-[15rem] md:pt-2">
+      <SiteNav />
 
       <section aria-labelledby="diagnostico-title" className="mt-8">
         <p className="label-mono">Discovery Call</p>

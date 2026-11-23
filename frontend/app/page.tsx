@@ -1,24 +1,30 @@
+import SiteNav from '@/components/SiteNav';
+
 const services = [
   {
     index: '01',
+    anchor: 'servicio-branding',
     title: 'Branding',
     description:
       'Identidad, naming, sistema visual y manuales de marca listos para operar.',
   },
   {
     index: '02',
+    anchor: 'servicio-direccion',
     title: 'Dirección creativa',
     description:
       'Concepto, narrativa y criterio estético para cada punto de contacto.',
   },
   {
     index: '03',
+    anchor: 'servicio-documentacion',
     title: 'Documentación ejecutiva',
     description:
       'Planos, detalles, fichas técnicas y alcances preparados para construir.',
   },
   {
     index: '04',
+    anchor: 'servicio-ffe',
     title: 'Especificaciones FF&E',
     description:
       'Selección de mobiliario, materiales e iluminación, con fichas y partidas.',
@@ -27,16 +33,12 @@ const services = [
 
 export default function HomePage() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-2 sm:px-6">
-      <header className="flex min-h-[56px] flex-wrap items-center justify-between gap-2 border-b border-border py-3">
-        <span className="text-[15px] font-semibold tracking-tightest">
-          Pomme Studio
-        </span>
-        <span className="label-mono">Estudio de branding &amp; interiores</span>
-      </header>
+    <main className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-20 sm:px-6 md:mx-0 md:ml-[15rem] md:pt-2">
+      <SiteNav />
 
       {/* Hero: retícula de 1px sobre tinta. */}
       <section
+        id="estudio"
         aria-labelledby="hero-title"
         className="grid-brutal grid-brutal--2 mt-8"
       >
@@ -111,6 +113,7 @@ export default function HomePage() {
           {services.map((service) => (
             <article
               key={service.index}
+              id={service.anchor}
               className="flex min-h-[220px] flex-col justify-between gap-6 p-5"
             >
               <p className="label-mono">{service.index}</p>
