@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch, apiFetchBlobUrl, extractDetail } from "@/lib/api";
 import { useProtectedMediaUrl } from "@/lib/useProtectedMediaUrl";
+import VoiceNotePlayer from "@/components/VoiceNotePlayer";
 
 interface Project {
   id: string;
@@ -109,17 +110,6 @@ function ImagePreview({
         </button>
       </div>
     </div>
-  );
-}
-
-function AudioPlayer({ url }: { url: string }) {
-  const src = useProtectedMediaUrl(url);
-  return src ? (
-    <audio controls src={src} className="mt-1 w-full" />
-  ) : (
-    <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
-      Cargando audio…
-    </p>
   );
 }
 
@@ -805,7 +795,9 @@ export default function BriefPage() {
                                 disabled={!isActive}
                                 className="min-h-[44px] rounded-lg border border-stone-900/20 px-3 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Grabar audio
+                                {item.audio_url
+                                  ? "Regrabar nota de voz"
+                                  : "Grabar audio"}
                               </button>
                             )}
 
@@ -839,9 +831,14 @@ export default function BriefPage() {
                               {item.audio_url && (
                                 <>
                                   <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
-                                    Audio adjunto
+                                    Nota de voz
                                   </p>
-                                  <AudioPlayer url={item.audio_url} />
+                                  {/* key forces a remount (fresh blob fetch) after re-recording:
+                                      the /media URL is stable across uploads. */}
+                                  <VoiceNotePlayer
+                                    key={item.updated_at ?? item.id}
+                                    url={item.audio_url}
+                                  />
                                 </>
                               )}
                               <div className="flex flex-col gap-2 border-t border-stone-900/10 pt-3">

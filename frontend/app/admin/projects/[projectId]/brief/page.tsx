@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch, apiFetchBlobUrl, extractDetail } from "@/lib/api";
 import { useProtectedMediaUrl } from "@/lib/useProtectedMediaUrl";
+import VoiceNotePlayer from "@/components/VoiceNotePlayer";
 
 interface Project {
   id: string;
@@ -35,6 +36,7 @@ interface BriefItem {
   transcription?: string | null;
   status: string;
   created_at: string;
+  updated_at?: string;
 }
 
 interface BriefProgress {
@@ -94,17 +96,6 @@ function AdminImagePreview({
         </span>
       </div>
     </div>
-  );
-}
-
-function AdminAudioPlayer({ url }: { url: string }) {
-  const src = useProtectedMediaUrl(url);
-  return src ? (
-    <audio controls src={src} className="mt-1 w-full" />
-  ) : (
-    <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
-      Cargando audio…
-    </p>
   );
 }
 
@@ -490,9 +481,14 @@ export default function AdminBriefPage() {
                           {item?.audio_url && (
                             <div className="flex flex-col gap-1 rounded-xl border border-stone-900/15 bg-[#F4F1EA]/50 p-4">
                               <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
-                                Audio adjunto
+                                Nota de voz
                               </p>
-                              <AdminAudioPlayer url={item.audio_url} />
+                              {/* key forces a remount (fresh blob fetch) after the client
+                                  re-records: the /media URL is stable across uploads. */}
+                              <VoiceNotePlayer
+                                key={item.updated_at ?? item.id}
+                                url={item.audio_url}
+                              />
                             </div>
                           )}
 

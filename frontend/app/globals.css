@@ -148,6 +148,51 @@
     box-shadow: 0 6px 24px -12px rgba(28, 25, 23, 0.12) !important;
   }
 
+  /* Seek de la nota de voz: línea fina piedra con punto de posición. */
+  .brief-editorial .voice-note-seek {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 24px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .brief-editorial .voice-note-seek::-webkit-slider-runnable-track {
+    height: 2px;
+    background: linear-gradient(
+      to right,
+      #292524 var(--seek-progress, 0%),
+      #e7e5e4 var(--seek-progress, 0%)
+    );
+  }
+
+  .brief-editorial .voice-note-seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    margin-top: -5px;
+    height: 12px;
+    width: 12px;
+    border-radius: 9999px !important;
+    background: #292524;
+  }
+
+  .brief-editorial .voice-note-seek::-moz-range-track {
+    height: 2px;
+    background: linear-gradient(
+      to right,
+      #292524 var(--seek-progress, 0%),
+      #e7e5e4 var(--seek-progress, 0%)
+    );
+  }
+
+  .brief-editorial .voice-note-seek::-moz-range-thumb {
+    height: 12px;
+    width: 12px;
+    border: none;
+    border-radius: 9999px !important;
+    background: #292524;
+  }
+
   .rule {
     border-top: 1px solid var(--border);
   }
