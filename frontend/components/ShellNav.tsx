@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -20,7 +20,7 @@ interface ShellNavProps {
 }
 
 const BASE_LINK =
-  "flex w-fit items-baseline gap-2 transition-[opacity,transform] duration-[250ms] ease hover:translate-x-1 focus-visible:!opacity-100";
+  "flex w-fit items-baseline gap-2 transition-[opacity,transform] duration-[250ms] hover:translate-x-1 focus-visible:!opacity-100";
 
 /* Reposo atenuado; el grupo sube a 0.75; el enlace apuntado usa !important
  * para vencer de forma determinista al group-hover. */
@@ -37,9 +37,19 @@ function linkClass(active: boolean): string {
  * de una columna de 220px se saldría del lienzo. Lo reanclamos a la izquierda
  * sin tocar el interior del componente. */
 const FOOTER_BASE =
-  "group flex flex-col items-start gap-2 [&_#notifications-panel]:left-0 [&_#notifications-panel]:right-auto";
+  "flex flex-col items-start gap-2 [&_#notifications-panel]:left-0 [&_#notifications-panel]:right-auto";
 
-const FOOTER_DESKTOP = `${FOOTER_BASE} mt-8 opacity-40 transition-[opacity,transform] duration-[250ms] hover:opacity-75 focus-within:!opacity-100`;
+/* El pie no atenúa su propio contenedor: el panel de notificaciones vive
+ * dentro y heredaría la opacidad (ilegible al salir con el puntero). Sólo se
+ * atenúan los disparadores, elegidos por posición: `Salir` es el `>button`
+ * directo y la campana es el `>button` del `div.relative` del componente. El
+ * panel (#notifications-panel) queda fuera de todos estos selectores, así que
+ * nunca se desvanece; sube con el hover de la columna (`group/nav`) igual que
+ * los enlaces del índice. */
+const FOOTER_TRIGGERS =
+  "[&>button]:opacity-40 [&>div>button]:opacity-40 group-hover/nav:[&>button]:opacity-75 group-hover/nav:[&>div>button]:opacity-75 [&>button:hover]:!opacity-100 [&>div>button:hover]:!opacity-100 [&>button:focus-visible]:!opacity-100 [&>div>button:focus-visible]:!opacity-100 [&>button]:transition-[opacity,transform] [&>div>button]:transition-[opacity,transform] [&>button]:duration-[250ms] [&>div>button]:duration-[250ms]";
+
+const FOOTER_DESKTOP = `${FOOTER_BASE} ${FOOTER_TRIGGERS} mt-8`;
 
 const FOOTER_MOBILE = `${FOOTER_BASE} mt-8`;
 
@@ -51,6 +61,14 @@ export default function ShellNav({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  /* Cerrar siempre devuelve el foco al disparador MENÚ (CERRAR, Escape y
+   * enlaces del overlay), que queda montado tanto en móvil como en desktop. */
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    menuButtonRef.current?.focus();
+  }, []);
 
   // La raíz del shell ("/admin", "/portal") solo se activa por coincidencia
   // exacta; el resto de rutas también se activan en sus subrutas.
@@ -65,19 +83,26 @@ export default function ShellNav({
   useEffect(() => {
     if (!open) return;
 
+    // Bloqueo de scroll del fondo; guardamos el valor previo para no pisarlo.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closeMenu();
     }
 
     document.addEventListener("keydown", onKeyDown);
     closeButtonRef.current?.focus();
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, closeMenu]);
 
   return (
     <>
       {/* Columna editorial fija (desktop). Sin fondo, sin bordes. */}
-      <div className="group fixed left-8 top-8 z-50 hidden max-w-[220px] text-left md:block">
+      <div className="group/nav group fixed left-8 top-8 z-50 hidden max-w-[220px] text-left md:block">
         <Link
           href={rootHref}
           className="block w-fit text-[15px] font-semibold tracking-tightest opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75"
@@ -109,16 +134,17 @@ export default function ShellNav({
       <div className="group fixed left-4 top-4 z-50 flex items-center gap-4 md:hidden">
         <Link
           href={rootHref}
-          className="text-[15px] font-semibold tracking-tightest opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75"
+          className="text-[15px] font-semibold tracking-tightest opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75 [@media(hover:none)]:opacity-70"
         >
           POMME STUDIO
         </Link>
         <button
+          ref={menuButtonRef}
           type="button"
           onClick={() => setOpen(true)}
           aria-expanded={open}
           aria-controls="shell-nav-mobile"
-          className="label-mono min-h-[44px] min-w-[44px] px-2 opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75"
+          className="label-mono min-h-[44px] min-w-[44px] px-2 opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75 [@media(hover:none)]:opacity-70"
         >
           MENÚ
         </button>
@@ -143,7 +169,7 @@ export default function ShellNav({
             <button
               ref={closeButtonRef}
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={closeMenu}
               className="label-mono min-h-[44px] min-w-[44px] px-2 text-right"
             >
               CERRAR
@@ -155,7 +181,7 @@ export default function ShellNav({
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setOpen(false)}
+                onClick={closeMenu}
                 aria-current={isActive(item.href) ? "page" : undefined}
                 className={`flex min-h-[44px] items-baseline gap-3 py-3 ${
                   isActive(item.href)

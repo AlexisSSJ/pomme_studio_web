@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -34,7 +34,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const BASE_LINK =
-  "flex w-fit items-baseline gap-2 transition-[opacity,transform] duration-[250ms] ease hover:translate-x-1 focus-visible:!opacity-100";
+  "flex w-fit items-baseline gap-2 transition-[opacity,transform] duration-[250ms] hover:translate-x-1 focus-visible:!opacity-100";
 
 /* Reposo atenuado; el grupo sube a 0.75; el enlace apuntado usa !important
  * para vencer de forma determinista al group-hover. */
@@ -51,6 +51,14 @@ export default function SiteNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  /* Cerrar siempre devuelve el foco al disparador MENÚ (CERRAR, Escape y
+   * enlaces del overlay), que queda montado tanto en móvil como en desktop. */
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    menuButtonRef.current?.focus();
+  }, []);
 
   const activeHref =
     pathname === "/"
@@ -62,14 +70,21 @@ export default function SiteNav() {
   useEffect(() => {
     if (!open) return;
 
+    // Bloqueo de scroll del fondo; guardamos el valor previo para no pisarlo.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closeMenu();
     }
 
     document.addEventListener("keydown", onKeyDown);
     closeButtonRef.current?.focus();
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, closeMenu]);
 
   return (
     <>
@@ -116,16 +131,17 @@ export default function SiteNav() {
       <div className="group fixed left-4 top-4 z-50 flex items-center gap-4 md:hidden">
         <Link
           href="/"
-          className="text-[15px] font-semibold tracking-tightest opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75"
+          className="text-[15px] font-semibold tracking-tightest opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75 [@media(hover:none)]:opacity-70"
         >
           POMME STUDIO
         </Link>
         <button
+          ref={menuButtonRef}
           type="button"
           onClick={() => setOpen(true)}
           aria-expanded={open}
           aria-controls="site-nav-mobile"
-          className="label-mono min-h-[44px] min-w-[44px] px-2 opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75"
+          className="label-mono min-h-[44px] min-w-[44px] px-2 opacity-40 transition-[opacity] duration-[250ms] group-hover:opacity-75 [@media(hover:none)]:opacity-70"
         >
           MENÚ
         </button>
@@ -147,7 +163,7 @@ export default function SiteNav() {
             <button
               ref={closeButtonRef}
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={closeMenu}
               className="label-mono min-h-[44px] min-w-[44px] px-2 text-right"
             >
               CERRAR
@@ -159,7 +175,7 @@ export default function SiteNav() {
               <div key={item.href}>
                 <Link
                   href={item.href}
-                  onClick={() => setOpen(false)}
+                  onClick={closeMenu}
                   aria-current={activeHref === item.href ? "page" : undefined}
                   className={`flex min-h-[44px] items-baseline gap-3 py-3 ${
                     activeHref === item.href
@@ -177,7 +193,7 @@ export default function SiteNav() {
                       <Link
                         key={child.href}
                         href={child.href}
-                        onClick={() => setOpen(false)}
+                        onClick={closeMenu}
                         className="type-editorial flex min-h-[44px] items-center py-2 pl-4 text-sm"
                       >
                         {child.label}

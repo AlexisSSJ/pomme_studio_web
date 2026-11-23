@@ -40,7 +40,7 @@ export default function HomePage() {
       <section
         id="estudio"
         aria-labelledby="hero-title"
-        className="grid-brutal grid-brutal--2 mt-8"
+        className="grid-brutal grid-brutal--2 mt-8 scroll-mt-20 md:scroll-mt-8"
       >
         <div className="flex flex-col justify-between gap-8 p-5 sm:p-8">
           <p className="label-mono">01 / Estudio</p>
@@ -101,7 +101,7 @@ export default function HomePage() {
       </section>
 
       {/* Servicios: grid de 1px, colapsa a 1fr en móvil. */}
-      <section id="servicios" aria-labelledby="servicios-title" className="mt-12">
+      <section id="servicios" aria-labelledby="servicios-title" className="mt-12 scroll-mt-20 md:scroll-mt-8">
         <div className="flex items-baseline justify-between gap-4 border-b border-border pb-2">
           <h2 id="servicios-title" className="type-subtitle-caps text-xl">
             Servicios
@@ -114,7 +114,7 @@ export default function HomePage() {
             <article
               key={service.index}
               id={service.anchor}
-              className="flex min-h-[220px] flex-col justify-between gap-6 p-5"
+              className="flex min-h-[220px] flex-col justify-between gap-6 p-5 scroll-mt-20 md:scroll-mt-8"
             >
               <p className="label-mono">{service.index}</p>
               <div className="flex flex-col gap-3">
@@ -133,7 +133,7 @@ export default function HomePage() {
       <section
         id="contacto"
         aria-labelledby="contacto-title"
-        className="mt-12 border border-border bg-surface p-5 sm:p-8"
+        className="mt-12 border border-border bg-surface p-5 sm:p-8 scroll-mt-20 md:scroll-mt-8"
       >
         <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-3">
