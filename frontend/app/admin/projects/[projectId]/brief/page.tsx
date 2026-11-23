@@ -66,13 +66,13 @@ function AdminImagePreview({
   const alt = `Imagen de respuesta ${label}`;
 
   return (
-    <div className="flex flex-col bg-[#F7F7F5]">
+    <div className="flex flex-col bg-background">
       <button
         type="button"
         onClick={() => src && onZoom(src, alt)}
         disabled={!src}
         aria-label={`Ampliar imagen ${label}`}
-        className="flex min-h-[160px] w-full items-center justify-center border-b border-[#111111] bg-[#F7F7F5] p-2"
+        className="flex min-h-[160px] w-full items-center justify-center border-b border-[#111111] bg-background p-2"
       >
         {src ? (
           <img src={src} alt={alt} className="max-h-48 w-full object-contain" />
@@ -400,14 +400,14 @@ export default function AdminBriefPage() {
                       )}
 
                       {item?.audio_url && (
-                        <div className="flex flex-col gap-1 border border-[#111111] bg-[#F7F7F5] p-3">
+                        <div className="flex flex-col gap-1 border border-[#111111] bg-background p-3">
                           <p className="label-mono">AUDIO ADJUNTO</p>
                           <AdminAudioPlayer url={item.audio_url} />
                         </div>
                       )}
 
                       {transcription && (
-                        <div className="flex flex-col gap-1 border border-[#111111] bg-[#F7F7F5] p-3">
+                        <div className="flex flex-col gap-1 border border-[#111111] bg-background p-3">
                           <p className="label-mono">TRANSCRIPCIÓN</p>
                           <p className="text-sm">{transcription}</p>
                         </div>
@@ -474,7 +474,7 @@ export default function AdminBriefPage() {
           }}
           className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-[#111111] p-4"
         >
-          <div className="max-h-full max-w-full border border-[#F7F7F5] bg-[#F7F7F5] p-2">
+          <div className="max-h-full max-w-full border border-background bg-background p-2">
             <img
               src={zoomedImage.src}
               alt={zoomedImage.alt}

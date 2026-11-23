@@ -75,13 +75,13 @@ function ImagePreview({
   const label = `${String(index + 1).padStart(2, "0")}/02`;
 
   return (
-    <div className="flex flex-col bg-[#F7F7F5]">
+    <div className="flex flex-col bg-background">
       <button
         type="button"
         onClick={() => src && onZoom(src, `Imagen de respuesta ${label}`)}
         disabled={!src}
         aria-label={`Ampliar imagen ${label}`}
-        className="flex min-h-[160px] w-full items-center justify-center border-b border-[#111111] bg-[#F7F7F5] p-2"
+        className="flex min-h-[160px] w-full items-center justify-center border-b border-[#111111] bg-background p-2"
       >
         {src ? (
           <img
@@ -627,7 +627,7 @@ export default function BriefPage() {
                     </div>
 
                     {(item.audio_url || hasTranscription) && (
-                      <div className="flex flex-col gap-2 p-3 border border-[#111111] bg-[#F7F7F5] text-xs">
+                      <div className="flex flex-col gap-2 p-3 border border-[#111111] bg-background text-xs">
                         {item.audio_url && (
                           <>
                             <p className="label-mono">AUDIO ADJUNTO</p>
@@ -790,7 +790,7 @@ export default function BriefPage() {
           }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-[#111111] p-4 cursor-zoom-out"
         >
-          <div className="max-h-full max-w-full border border-[#F7F7F5] bg-[#F7F7F5] p-2">
+          <div className="max-h-full max-w-full border border-background bg-background p-2">
             <img
               src={zoomedImage.src}
               alt={zoomedImage.alt}

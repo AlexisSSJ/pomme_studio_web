@@ -9,7 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: '#F7F7F5',
+        background: '#FAF8F5',
         foreground: '#111111',
         surface: '#EFECE6',
         border: '#111111',
@@ -29,6 +29,7 @@ const config: Config = {
           'Menlo',
           'monospace',
         ],
+        serif: ['var(--font-serif)', 'Georgia', 'serif'],
       },
       letterSpacing: {
         tightest: '-0.03em',

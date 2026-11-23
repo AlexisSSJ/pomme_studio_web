@@ -24,48 +24,71 @@ export default function ProjectSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="sm:w-[220px] sm:shrink-0">
-      <div className="flex flex-col gap-px border border-border bg-border">
-        <div className="bg-surface p-3">
-          <p className="label-mono">Proyecto</p>
-          <p className="mt-1 text-sm font-semibold leading-snug">{title}</p>
-          {status && <p className="label-mono mt-1">{status}</p>}
+    <aside className="md:w-64 md:shrink-0 md:pr-8">
+      {/* Ficha de estudio: micro-tipografía a los extremos + título serif. */}
+      <div className="mb-6 border-b border-stone-900/15 pb-6">
+        <div className="flex items-center justify-between gap-4 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+          <span>Proyecto</span>
+          {status && (
+            <span className="flex items-center gap-2">
+              <span
+                aria-hidden="true"
+                className="dot-organic h-1.5 w-1.5 shrink-0 bg-stone-800/70"
+              />
+              {status}
+            </span>
+          )}
         </div>
-
-        <nav
-          aria-label="Secciones del proyecto"
-          className="flex gap-px overflow-x-auto bg-border sm:flex-col sm:overflow-visible"
-        >
-          {items.map((item, index) => {
-            const active =
-              item.href === basePath
-                ? pathname === basePath
-                : pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex min-h-[44px] shrink-0 items-center gap-2 whitespace-nowrap px-3 text-sm sm:shrink ${
-                  active
-                    ? "bg-foreground text-background"
-                    : "bg-background hover:bg-surface"
-                }`}
-              >
-                <span className="label-mono">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <span>{item.label}</span>
-                {active && !item.label.includes("↗") && (
-                  <span aria-hidden="true" className="ml-auto hidden sm:inline">
-                    ↗
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+        <h2 className="mt-3 font-serif text-2xl font-normal leading-snug tracking-tight text-stone-900">
+          {title}
+        </h2>
       </div>
+
+      {/* Índice de catálogo: abierto, sin cajas ni divisores entre ítems. */}
+      <nav
+        aria-label="Secciones del proyecto"
+        className="flex gap-6 overflow-x-auto md:flex-col md:gap-1 md:overflow-visible"
+      >
+        {items.map((item, index) => {
+          const active =
+            item.href === basePath
+              ? pathname === basePath
+              : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={`flex min-h-[44px] shrink-0 items-center gap-3 whitespace-nowrap transition-all duration-300 md:shrink ${
+                active
+                  ? "translate-x-1.5"
+                  : "text-[15px] text-stone-500 hover:translate-x-1 hover:text-stone-900"
+              }`}
+            >
+              <span className="font-mono text-[11px] tabular-nums text-stone-400">
+                1.{index + 1}
+              </span>
+              <span
+                className={
+                  active
+                    ? "font-serif text-[16px] italic text-stone-950 underline decoration-stone-900/40 underline-offset-[6px]"
+                    : undefined
+                }
+              >
+                {item.label}
+              </span>
+              {active && (
+                <span
+                  aria-hidden="true"
+                  className="ml-auto hidden text-stone-950 md:inline"
+                >
+                  —
+                </span>
+              )}
+            </Link>
+          );
+        })}
+      </nav>
     </aside>
   );
 }

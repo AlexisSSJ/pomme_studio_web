@@ -1,5 +1,14 @@
 import type { Metadata, Viewport } from 'next';
+import { Newsreader } from 'next/font/google';
 import './globals.css';
+
+const newsreader = Newsreader({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  style: ['normal', 'italic'],
+  variable: '--font-serif',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Pomme Studio — Branding y Diseño de Interiores',
@@ -34,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" className={newsreader.variable}>
       <body className="min-h-screen bg-background text-foreground antialiased">
         {children}
       </body>

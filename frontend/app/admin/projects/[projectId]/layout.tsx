@@ -39,14 +39,14 @@ export default function AdminProjectLayout({
   const base = `/admin/projects/${projectId}`;
   const items = [
     { href: base, label: "Resumen" },
-    { href: `${base}/brief`, label: "BRIEF ↗" },
+    { href: `${base}/brief`, label: "Brief" },
     { href: `${base}/moodboard`, label: "Moodboard" },
     { href: `${base}/etapas`, label: "Etapas" },
     { href: `${base}/especificaciones`, label: "Especificaciones" },
   ];
 
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:gap-6">
+    <div className="flex flex-col gap-6 md:flex-row md:gap-8">
       <ProjectSidebar
         basePath={base}
         title={project?.title ?? "Proyecto"}
