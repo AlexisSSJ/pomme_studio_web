@@ -119,55 +119,10 @@ export default function PortalProjectsPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Link
-                  href={`/portal/projects/${project.id}/brief`}
+                  href={`/portal/projects/${project.id}`}
                   className="btn-brutal min-h-[44px] px-3 text-xs"
                 >
-                  Brief
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
-                </Link>
-                <Link
-                  href={`/portal/projects/${project.id}/moodboard`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Moodboard
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
-                </Link>
-                <Link
-                  href={`/portal/projects/${project.id}/etapas`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Etapas
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
-                </Link>
-                <Link
-                  href={`/portal/projects/${project.id}/especificaciones`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Catálogo FF&E
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
-                </Link>
-                <Link
-                  href={`/portal/projects/${project.id}/especificaciones`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Catálogo FF&E
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
-                </Link>
-                <Link
-                  href={`/portal/projects/${project.id}/reuniones`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Reuniones
+                  Abrir proyecto
                   <span className="btn-brutal__arrow" aria-hidden="true">
                     ↗
                   </span>

@@ -31,13 +31,12 @@ interface Me {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [clients, setClients] = useState<Array<{ id: string; email: string; full_name: string | null }>>([]);
+  const [clients, setClients] = useState<
+    Array<{ id: string; email: string; full_name: string | null }>
+  >([]);
   const [me, setMe] = useState<Me | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activatingId, setActivatingId] = useState<string | null>(null);
-  const [validatingId, setValidatingId] = useState<string | null>(null);
-  const [assigningClientId, setAssigningClientId] = useState<string | null>(null);
 
   // New project modal state
   const [showModal, setShowModal] = useState(false);
@@ -93,70 +92,6 @@ export default function ProjectsPage() {
     load();
   }, [loadProjects]);
 
-  async function activateProject(projectId: string) {
-    setActivatingId(projectId);
-    setMessage("");
-    try {
-      const res = await apiFetch(`/api/v1/admin/projects/${projectId}/activate`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        setMessage("Proyecto activado");
-        loadProjects("/api/v1/admin/projects");
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setMessage(extractDetail(data, "Error al activar proyecto"));
-      }
-    } catch {
-      setMessage("Error de conexión con el servidor");
-    } finally {
-      setActivatingId(null);
-    }
-  }
-
-  async function validateFinalPayment(projectId: string) {
-    setValidatingId(projectId);
-    setMessage("");
-    try {
-      const res = await apiFetch(`/api/v1/admin/projects/${projectId}/validate-final-payment`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        setMessage("Pago final validado");
-        loadProjects("/api/v1/admin/projects");
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setMessage(extractDetail(data, "Error al validar pago final"));
-      }
-    } catch {
-      setMessage("Error de conexión con el servidor");
-    } finally {
-      setValidatingId(null);
-    }
-  }
-
-  async function assignClient(projectId: string, clientId: string) {
-    setAssigningClientId(projectId);
-    setMessage("");
-    try {
-      const res = await apiFetch(`/api/v1/admin/projects/${projectId}/client`, {
-        method: "PATCH",
-        body: JSON.stringify({ client_id: clientId || null }),
-      });
-      if (res.ok) {
-        setMessage("Cliente asignado correctamente");
-        loadProjects("/api/v1/admin/projects");
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setMessage(extractDetail(data, "Error al asignar cliente"));
-      }
-    } catch {
-      setMessage("Error de conexión con el servidor");
-    } finally {
-      setAssigningClientId(null);
-    }
-  }
-
   async function handleCreateProject(e: React.FormEvent) {
     e.preventDefault();
     if (!newTitle.trim()) {
@@ -181,7 +116,9 @@ export default function ProjectsPage() {
         setNewTitle("");
         setNewClientId("");
         setShowModal(false);
-        loadProjects(me?.role === "COLLABORATOR" ? "/api/v1/projects" : "/api/v1/admin/projects");
+        loadProjects(
+          me?.role === "COLLABORATOR" ? "/api/v1/projects" : "/api/v1/admin/projects"
+        );
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al crear el proyecto"));
@@ -300,75 +237,14 @@ export default function ProjectsPage() {
                   Rondas {project.remaining_rounds}/{project.included_rounds} ·{" "}
                   {project.balance_paid ? "PAGADO" : "PENDIENTE"}
                 </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="label-mono">Cliente:</span>
-                  <select
-                    value={project.client_id || ""}
-                    onChange={(e) => assignClient(project.id, e.target.value)}
-                    disabled={assigningClientId === project.id}
-                    className="border border-border bg-background px-2 py-1 text-xs min-h-[36px]"
-                  >
-                    <option value="">-- Sin cliente asignado --</option>
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.full_name ? `${c.full_name} (${c.email})` : c.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {me?.role === "SUPER_ADMIN" && project.status === "draft" && (
-                  <button
-                    type="button"
-                    onClick={() => activateProject(project.id)}
-                    disabled={activatingId === project.id}
-                    className="btn-brutal min-h-[44px] px-3 text-xs"
-                  >
-                    {activatingId === project.id ? "Activando…" : "Activar proyecto"}
-                    <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                  </button>
-                )}
-                {me?.role === "SUPER_ADMIN" && project.status !== "draft" && !project.balance_paid && (
-                  <button
-                    type="button"
-                    onClick={() => validateFinalPayment(project.id)}
-                    disabled={validatingId === project.id}
-                    className="btn-brutal min-h-[44px] px-3 text-xs"
-                  >
-                    {validatingId === project.id ? "Validando…" : "Validar pago final"}
-                    <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                  </button>
-                )}
-                <Link
-                  href={`/admin/projects/${project.id}/brief`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Brief
-                  <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                </Link>
-                <Link
-                  href={`/admin/projects/${project.id}/moodboard`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Moodboard
-                  <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                </Link>
-                <Link
-                  href={`/admin/projects/${project.id}/etapas`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Etapas
-                  <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                </Link>
-                <Link
-                  href={`/admin/projects/${project.id}/especificaciones`}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
-                >
-                  Especificaciones
-                  <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                </Link>
-              </div>
+              <Link
+                href={`/admin/projects/${project.id}`}
+                className="btn-brutal min-h-[44px] px-3 text-xs self-start sm:self-auto"
+              >
+                Abrir proyecto
+                <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+              </Link>
             </div>
           ))}
         </div>
