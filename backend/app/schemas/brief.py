@@ -71,6 +71,20 @@ class BriefAutosavePayload(BaseModel):
     items: list[BriefAutosaveItem] | None = None
 
 
+class BriefImageRead(BaseModel):
+    """Public shape of a reference image attached to a brief question; never exposes storage key."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    item_id: UUID
+    position: int
+    content_type: str | None = None
+    size_bytes: int | None = None
+    url: str | None = None
+    created_at: datetime
+
+
 class BriefItemRead(BaseModel):
     """Public shape of a brief item; never exposes the storage key."""
 
@@ -89,6 +103,7 @@ class BriefItemRead(BaseModel):
     size_bytes: int | None = None
     response_type: str | None = None
     image_url: str | None = None
+    images: list[BriefImageRead] = Field(default_factory=list)
     audio_url: str | None = None
     audio_transcription: str | None = None
     transcription: str | None = None

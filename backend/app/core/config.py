@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     # integration is disconnected; the value is never exposed through the API.
     GOOGLE_REFRESH_TOKEN: str = ""
 
+    # --- transcription (voice -> text) -------------------------------------
+    # Provider label for operators; the client only needs an OpenAI-compatible
+    # endpoint. An empty key disables transcription without failing uploads.
+    TRANSCRIPTION_PROVIDER: str = "openai"
+    TRANSCRIPTION_API_KEY: str = ""
+    TRANSCRIPTION_API_URL: str = "https://api.openai.com/v1/audio/transcriptions"
+    TRANSCRIPTION_MODEL: str = "whisper-1"
+
     # --- studio schedule ---------------------------------------------------
     # IANA timezone used when displaying studio business hours to clients.
     STUDIO_TIMEZONE: str = "America/Mexico_City"

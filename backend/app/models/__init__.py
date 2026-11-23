@@ -5,6 +5,7 @@ from .project import Project, ProjectStatus
 from .project_member import ProjectMember, ProjectRole
 from .pricing_config import PricingConfig
 from .audit_log import AuditLog
+from .notification import Notification
 from .lead import (
     BudgetRange,
     Lead,
@@ -25,6 +26,7 @@ from .brief_item import (
     BriefItemType,
     BriefStatus,
 )
+from .brief_item_image import BriefItemImage
 from .moodboard_item import MoodboardItem
 from .moodboard_reaction import (
     MoodboardReaction,
@@ -53,6 +55,7 @@ __all__ = [
     "ProjectRole",
     "PricingConfig",
     "AuditLog",
+    "Notification",
     "BudgetRange",
     "Lead",
     "LeadStatus",
@@ -64,6 +67,7 @@ __all__ = [
     "Brief",
     "BriefCategory",
     "BriefItem",
+    "BriefItemImage",
     "BriefItemStatus",
     "BriefItemType",
     "BriefStatus",

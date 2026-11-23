@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { isAuthenticated, clearToken } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import NotificationsBell from "@/components/NotificationsBell";
 
 interface Me {
   id: string;
@@ -25,6 +26,7 @@ export default function PortalLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [checked, setChecked] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -44,6 +46,7 @@ export default function PortalLayout({
             router.replace("/admin");
             return;
           }
+          setRole(me.role);
           setChecked(true);
         } else {
           // The role could not be confirmed (e.g. deactivated account);
@@ -75,15 +78,18 @@ export default function PortalLayout({
     <div className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-2 sm:px-6">
       <header className="flex min-h-[56px] flex-wrap items-center justify-between gap-2 border-b border-border py-3">
         <span className="label-mono">PORTAL / CLIENTE</span>
-        <button
-          onClick={() => {
-            clearToken();
-            router.push("/login");
-          }}
-          className="label-mono min-h-[44px] px-2 underline"
-        >
-          Salir
-        </button>
+        <div className="flex items-center gap-3">
+          <NotificationsBell role={role} />
+          <button
+            onClick={() => {
+              clearToken();
+              router.push("/login");
+            }}
+            className="label-mono min-h-[44px] px-2 underline"
+          >
+            Salir
+          </button>
+        </div>
       </header>
 
       <nav className="grid-brutal mt-4">

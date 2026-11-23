@@ -39,7 +39,7 @@ export default function AdminProjectLayout({
   const base = `/admin/projects/${projectId}`;
   const items = [
     { href: base, label: "Resumen" },
-    { href: `${base}/brief`, label: "Brief" },
+    { href: `${base}/brief`, label: "BRIEF ↗" },
     { href: `${base}/moodboard`, label: "Moodboard" },
     { href: `${base}/etapas`, label: "Etapas" },
     { href: `${base}/especificaciones`, label: "Especificaciones" },

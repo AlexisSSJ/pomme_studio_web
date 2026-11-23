@@ -1,5 +1,6 @@
 """Project brief endpoints: questionnaire, multimodal responses, autosave and reference uploads."""
 
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import (
@@ -13,6 +14,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import (
@@ -27,6 +29,7 @@ from ....api.deps import (
 )
 from ....db.session import get_db
 from ....models.brief_item import BriefCategory, BriefItem, BriefItemType, BriefStatus
+from ....models.brief_item_image import BriefItemImage
 from ....models.project import Project, ProjectStatus
 from ....models.project_member import ProjectMember, ProjectRole
 from ....models.user import User, UserRole
@@ -35,22 +38,29 @@ from ....schemas.brief import (
     BriefAutosaveItem,
     BriefAutosavePayload,
     BriefAutosaveResponse,
+    BriefImageRead,
     BriefItemRead,
     BriefPendingResponse,
     BriefQuestionCreate,
     PendingBriefProjectSummary,
 )
 from ....services.audit import log_audit
+from ....services.notifications import notify_project_team
 from ....services.storage import (
     BRIEF_REFERENCE_CONTENT_TYPES,
     BRIEF_RESPONSE_CONTENT_TYPES,
+    CONTENT_TYPE_EXTENSIONS,
     LocalStorage,
     UploadTooLargeError,
     UploadValidationError,
 )
+from ....services.transcription import transcribe_audio
 
 router = APIRouter()
 client_brief_router = APIRouter()
+
+# A brief question accepts at most two reference images.
+MAX_BRIEF_ITEM_IMAGES = 2
 
 
 def is_question_answered(item: BriefItem) -> bool:
@@ -98,6 +108,157 @@ async def compute_brief_progress(
     return progress, status_val, total, answered, questions
 
 
+async def _is_brief_completed(project_id: UUID, db: AsyncSession) -> bool:
+    """Snapshot the brief's completion state before applying any changes."""
+    return (await compute_brief_progress(project_id, db))[1] == BriefStatus.COMPLETED
+
+
+async def _maybe_notify_completion(
+    db: AsyncSession,
+    project_id: UUID,
+    actor_id: UUID,
+    was_completed: bool,
+) -> None:
+    """Notify the studio team and audit a single False -> COMPLETED transition.
+
+    Called after the answer has been committed. Re-saving an already completed
+    brief is a no-op, so team members are never notified twice for one event.
+    """
+    if was_completed:
+        return
+    if not await _is_brief_completed(project_id, db):
+        return
+
+    project = await db.get(Project, project_id)
+    if project is None:
+        return
+
+    payload = {"project_id": str(project_id), "project_title": project.title}
+    await notify_project_team(
+        db,
+        project_id,
+        event_type="brief.completed",
+        payload=payload,
+        exclude_user_id=actor_id,
+    )
+    await db.commit()
+    await log_audit(
+        db,
+        actor_user_id=actor_id,
+        action="brief.completed",
+        entity_type="project",
+        entity_id=project_id,
+        metadata=payload,
+    )
+
+
+async def _populate_images_for_items(
+    db: AsyncSession, project_id: UUID, items: list[BriefItem]
+) -> None:
+    """Attach the public image list to each item (empty for items without images)."""
+    if not items:
+        return
+
+    item_ids = [item.id for item in items]
+    result = await db.execute(
+        select(BriefItemImage)
+        .where(BriefItemImage.item_id.in_(item_ids))
+        .order_by(BriefItemImage.position.asc())
+    )
+
+    images_by_item: dict[UUID, list[BriefImageRead]] = {item_id: [] for item_id in item_ids}
+    for image in result.scalars().all():
+        images_by_item.setdefault(image.item_id, []).append(
+            BriefImageRead(
+                id=image.id,
+                item_id=image.item_id,
+                position=image.position,
+                content_type=image.content_type,
+                size_bytes=image.size_bytes,
+                url=(
+                    f"/api/v1/projects/{project_id}/brief/items/"
+                    f"{image.item_id}/images/{image.id}/media"
+                ),
+                created_at=image.created_at,
+            )
+        )
+
+    for item in items:
+        setattr(item, "images", images_by_item.get(item.id, []))
+
+
+async def _get_question_or_404(
+    db: AsyncSession, project_id: UUID, item_id: UUID
+) -> BriefItem:
+    """Return the question for `item_id` within `project_id` or raise 404.
+
+    Filtering on both ids makes cross-project items indistinguishable from
+    missing ones.
+    """
+    result = await db.execute(
+        select(BriefItem).where(
+            BriefItem.id == item_id,
+            BriefItem.project_id == project_id,
+            BriefItem.item_type == BriefItemType.QUESTION,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brief item not found",
+        )
+    return item
+
+
+async def _get_item_images(db: AsyncSession, item_id: UUID) -> list[BriefItemImage]:
+    """Return the item's images ordered by position."""
+    result = await db.execute(
+        select(BriefItemImage)
+        .where(BriefItemImage.item_id == item_id)
+        .order_by(BriefItemImage.position.asc())
+    )
+    return list(result.scalars().all())
+
+
+def _image_media_url(project_id: UUID, item_id: UUID, image_id: UUID) -> str:
+    """Public URL of a single reference image."""
+    return f"/api/v1/projects/{project_id}/brief/items/{item_id}/images/{image_id}/media"
+
+
+def _sync_legacy_image_fields(item: BriefItem, images: list[BriefItemImage]) -> None:
+    """Mirror the first image into the legacy columns, clearing them when none remain."""
+    first = images[0] if images else None
+    if first is None:
+        item.image_storage_key = None
+        item.image_url = None
+        item.content_type = None
+        return
+    item.image_storage_key = first.storage_key
+    item.image_url = _image_media_url(item.project_id, item.id, first.id)
+    item.content_type = first.content_type
+
+
+def _has_any_response(item: BriefItem) -> bool:
+    """Content-based check that ignores status, used after removing media."""
+    return bool(
+        (item.answer and item.answer.strip())
+        or item.image_storage_key
+        or item.audio_storage_key
+        or (item.audio_transcription and item.audio_transcription.strip())
+        or (item.transcription and item.transcription.strip())
+    )
+
+
+def _guess_media_type(storage_key: str) -> str:
+    """Derive a media type from the stored extension (legacy rows carry none)."""
+    extension = Path(storage_key).suffix.lower()
+    for content_type, known_extension in CONTENT_TYPE_EXTENSIONS.items():
+        if known_extension == extension:
+            return content_type
+    return "application/octet-stream"
+
+
 @router.get("", response_model=list[BriefItemRead])
 async def list_brief_items(
     project_id: UUID,
@@ -110,7 +271,9 @@ async def list_brief_items(
         .where(BriefItem.project_id == project_id)
         .order_by(BriefItem.created_at.asc())
     )
-    return list(result.scalars().all())
+    items = list(result.scalars().all())
+    await _populate_images_for_items(db, project_id, items)
+    return items
 
 
 @router.post(
@@ -190,6 +353,8 @@ async def answer_question(
             detail="Brief item not found",
         )
 
+    was_completed = await _is_brief_completed(project_id, db)
+
     if payload.answer is not None:
         item.answer = payload.answer
     if payload.image_url is not None:
@@ -205,9 +370,11 @@ async def answer_question(
         if item.transcription is None:
             item.transcription = payload.audio_transcription
     if payload.transcription is not None:
+        # The client's edited text is authoritative: mirror it into both columns
+        # so a reload (which hydrates from audio_transcription) does not revive
+        # the old service transcription.
         item.transcription = payload.transcription
-        if item.audio_transcription is None:
-            item.audio_transcription = payload.transcription
+        item.audio_transcription = payload.transcription
     if payload.response_type is not None:
         item.response_type = payload.response_type
 
@@ -221,10 +388,12 @@ async def answer_question(
             item.status = BriefStatus.IN_PROGRESS
 
     await db.commit()
+    await _maybe_notify_completion(db, project_id, current_user.id, was_completed)
     await db.refresh(item)
 
     progress, _, _, _, _ = await compute_brief_progress(project_id, db)
     setattr(item, "progress", progress)
+    await _populate_images_for_items(db, project_id, [item])
 
     await log_audit(
         db,
@@ -257,6 +426,8 @@ async def _apply_autosave(
         )
 
     await require_active_project(project_id, db)
+
+    was_completed = await _is_brief_completed(project_id, db)
 
     items_to_update: list[BriefAutosaveItem] = []
     if payload.items:
@@ -308,9 +479,10 @@ async def _apply_autosave(
             if item.transcription is None:
                 item.transcription = update.audio_transcription
         if update.transcription is not None:
+            # Same sync as answer_question: an edited transcription wins in both
+            # columns, otherwise a reload would show the stale service text.
             item.transcription = update.transcription
-            if item.audio_transcription is None:
-                item.audio_transcription = update.transcription
+            item.audio_transcription = update.transcription
         if update.response_type is not None:
             item.response_type = update.response_type
 
@@ -325,6 +497,7 @@ async def _apply_autosave(
         updated_brief_items.append(item)
 
     await db.commit()
+    await _maybe_notify_completion(db, project_id, current_user.id, was_completed)
 
     for item in updated_brief_items:
         await db.refresh(item)
@@ -332,6 +505,7 @@ async def _apply_autosave(
     progress, overall_status, total, answered, all_questions = await compute_brief_progress(
         project_id, db
     )
+    await _populate_images_for_items(db, project_id, all_questions)
 
     primary_item = updated_brief_items[0] if updated_brief_items else None
     if primary_item:
@@ -410,6 +584,7 @@ async def get_project_brief_status(
     progress, status_val, total, answered, questions = await compute_brief_progress(
         project_id, db
     )
+    await _populate_images_for_items(db, project_id, questions)
     pending_count = max(0, total - answered)
     is_pending = total > 0 and answered < total and project.status == ProjectStatus.ACTIVE
 
@@ -502,6 +677,7 @@ async def get_client_pending_brief(
                 primary_questions = q_list
 
     if primary_project is not None:
+        await _populate_images_for_items(db, primary_project.id, primary_questions)
         return BriefPendingResponse(
             has_pending_brief=True,
             project_id=primary_project.id,
@@ -563,19 +739,19 @@ async def upload_response_file(
 
     await require_active_project(project_id, db)
 
-    result = await db.execute(
-        select(BriefItem).where(
-            BriefItem.id == item_id,
-            BriefItem.project_id == project_id,
-            BriefItem.item_type == BriefItemType.QUESTION,
-        )
-    )
-    item = result.scalar_one_or_none()
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Brief item not found",
-        )
+    item = await _get_question_or_404(db, project_id, item_id)
+
+    was_completed = await _is_brief_completed(project_id, db)
+
+    is_audio = (file.content_type or "").startswith("audio/")
+    existing_images: list[BriefItemImage] = []
+    if not is_audio:
+        existing_images = await _get_item_images(db, item.id)
+        if len(existing_images) >= MAX_BRIEF_ITEM_IMAGES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Maximum of 2 images per question",
+            )
 
     data = await file.read()
     try:
@@ -593,27 +769,77 @@ async def upload_response_file(
             detail="Unsupported file type",
         ) from exc
 
-    is_audio = file.content_type.startswith("audio/")
     media_url = f"/api/v1/projects/{project_id}/brief/items/{item.id}/media"
 
+    previous_audio_key: str | None = None
     if is_audio:
+        # A re-upload replaces the previous recording; text and images stay.
+        previous_audio_key = item.audio_storage_key
+        if previous_audio_key == storage_key:
+            previous_audio_key = None
+        if previous_audio_key:
+            try:
+                await storage.delete(previous_audio_key)
+            except UploadValidationError:
+                pass
+
         item.audio_storage_key = storage_key
         item.audio_url = media_url
         item.response_type = "audio"
+
         if transcription:
             item.audio_transcription = transcription
             item.transcription = transcription
+        else:
+            text = await transcribe_audio(data, file.content_type or "")
+            if text:
+                item.audio_transcription = text
+                item.transcription = text
     else:
-        item.image_storage_key = storage_key
-        item.image_url = media_url
+        # A legacy key that never reached the child table would be orphaned by
+        # this upload, so drop its file (migrated keys are kept).
+        if item.image_storage_key and not any(
+            image.storage_key == item.image_storage_key for image in existing_images
+        ):
+            try:
+                await storage.delete(item.image_storage_key)
+            except UploadValidationError:
+                pass
+
+        db.add(
+            BriefItemImage(
+                item_id=item.id,
+                storage_key=storage_key,
+                content_type=file.content_type,
+                size_bytes=len(data),
+                position=max((image.position for image in existing_images), default=0) + 1,
+            )
+        )
+        try:
+            await db.flush()
+        except IntegrityError as exc:
+            # A concurrent upload claimed the same position after our count.
+            await db.rollback()
+            try:
+                await storage.delete(storage_key)
+            except UploadValidationError:
+                pass
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Maximum of 2 images per question",
+            ) from exc
+
+        _sync_legacy_image_fields(item, await _get_item_images(db, item.id))
         item.response_type = "image"
 
     item.status = BriefStatus.COMPLETED
     await db.commit()
+    await _maybe_notify_completion(db, project_id, current_user.id, was_completed)
     await db.refresh(item)
 
     progress, _, _, _, _ = await compute_brief_progress(project_id, db)
     setattr(item, "progress", progress)
+    await _populate_images_for_items(db, project_id, [item])
 
     await log_audit(
         db,
@@ -630,6 +856,132 @@ async def upload_response_file(
     return item
 
 
+@router.delete(
+    "/items/{item_id}/images/{image_id}",
+    response_model=BriefItemRead,
+    status_code=status.HTTP_200_OK,
+)
+async def delete_item_image(
+    project_id: UUID,
+    item_id: UUID,
+    image_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> BriefItem:
+    """Remove one reference image from a question and resync the legacy columns."""
+    member = await get_membership(db, project_id, current_user.id)
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    if member.assigned_role != ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    await require_active_project(project_id, db)
+
+    item = await _get_question_or_404(db, project_id, item_id)
+
+    result = await db.execute(
+        select(BriefItemImage).where(
+            BriefItemImage.id == image_id,
+            BriefItemImage.item_id == item.id,
+        )
+    )
+    image = result.scalar_one_or_none()
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Image not found",
+        )
+
+    try:
+        await storage.delete(image.storage_key)
+    except UploadValidationError:
+        # A malformed legacy key must not turn a delete into a 500.
+        pass
+
+    await db.delete(image)
+    await db.flush()
+
+    remaining = await _get_item_images(db, item.id)
+    for position, remaining_image in enumerate(remaining, start=1):
+        remaining_image.position = position
+    await db.flush()
+
+    _sync_legacy_image_fields(item, remaining)
+    if not _has_any_response(item):
+        item.status = BriefStatus.PENDING
+
+    await db.commit()
+    await db.refresh(item)
+
+    progress, _, _, _, _ = await compute_brief_progress(project_id, db)
+    setattr(item, "progress", progress)
+    await _populate_images_for_items(db, project_id, [item])
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.image_delete",
+        entity_type="brief_item",
+        entity_id=item.id,
+        metadata={
+            "project_id": str(project_id),
+            "image_id": str(image_id),
+            "remaining_images": len(remaining),
+        },
+    )
+    return item
+
+
+@router.get("/items/{item_id}/images/{image_id}/media")
+async def download_item_image_media(
+    project_id: UUID,
+    item_id: UUID,
+    image_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> FileResponse:
+    """Download one reference image of a question."""
+    item = await _get_question_or_404(db, project_id, item_id)
+
+    result = await db.execute(
+        select(BriefItemImage).where(
+            BriefItemImage.id == image_id,
+            BriefItemImage.item_id == item.id,
+        )
+    )
+    image = result.scalar_one_or_none()
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Image not found",
+        )
+
+    try:
+        path = storage.resolve(image.storage_key)
+    except UploadValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        ) from exc
+    if not path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found",
+        )
+
+    return FileResponse(
+        path, media_type=image.content_type or "application/octet-stream"
+    )
+
+
 @router.get("/items/{item_id}/media")
 async def download_response_media(
     project_id: UUID,
@@ -638,22 +990,18 @@ async def download_response_media(
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
 ) -> FileResponse:
-    """Download the media uploaded as an answer to a question."""
-    result = await db.execute(
-        select(BriefItem).where(
-            BriefItem.id == item_id,
-            BriefItem.project_id == project_id,
-            BriefItem.item_type == BriefItemType.QUESTION,
-        )
-    )
-    item = result.scalar_one_or_none()
-    if item is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Brief item not found",
-        )
+    """Download the question's audio, or its first image, as the legacy single-media endpoint."""
+    item = await _get_question_or_404(db, project_id, item_id)
 
-    storage_key = item.image_storage_key or item.audio_storage_key
+    if item.audio_storage_key:
+        storage_key = item.audio_storage_key
+        media_type = None
+    else:
+        images = await _get_item_images(db, item.id)
+        first = images[0] if images else None
+        storage_key = first.storage_key if first else item.image_storage_key
+        media_type = first.content_type if first else item.content_type
+
     if storage_key is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -673,8 +1021,7 @@ async def download_response_media(
             detail="File not found",
         )
 
-    media_type = "audio/mpeg" if item.audio_storage_key else "image/png"
-    return FileResponse(path, media_type=media_type)
+    return FileResponse(path, media_type=media_type or _guess_media_type(storage_key))
 
 
 @router.post(

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch, apiFetchBlobUrl, extractDetail } from "@/lib/api";
+import { useProtectedMediaUrl } from "@/lib/useProtectedMediaUrl";
 
 interface Project {
   id: string;
@@ -18,6 +19,13 @@ interface Project {
   created_at: string;
 }
 
+interface BriefImage {
+  id: string;
+  url: string;
+  position: number;
+  content_type: string | null;
+}
+
 interface BriefItem {
   id: string;
   project_id: string;
@@ -30,10 +38,12 @@ interface BriefItem {
   content_type: string | null;
   size_bytes: number | null;
   image_url: string | null;
+  images?: BriefImage[];
   audio_url: string | null;
   audio_transcription: string | null;
   transcription?: string | null;
   response_type: string | null;
+  progress?: number | null;
   status: string;
   created_by: string;
   created_at: string;
@@ -47,6 +57,66 @@ function formatBytes(sizeBytes: number | null): string {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function ImagePreview({
+  image,
+  index,
+  deleting,
+  onZoom,
+  onDelete,
+}: {
+  image: BriefImage;
+  index: number;
+  deleting: boolean;
+  onZoom: (src: string, alt: string) => void;
+  onDelete: () => void;
+}) {
+  const src = useProtectedMediaUrl(image?.url);
+  // Fixed denominator: every question accepts up to two images (as in admin).
+  const label = `${String(index + 1).padStart(2, "0")}/02`;
+
+  return (
+    <div className="flex flex-col bg-[#F7F7F5]">
+      <button
+        type="button"
+        onClick={() => src && onZoom(src, `Imagen de respuesta ${label}`)}
+        disabled={!src}
+        aria-label={`Ampliar imagen ${label}`}
+        className="flex min-h-[160px] w-full items-center justify-center border-b border-[#111111] bg-[#F7F7F5] p-2"
+      >
+        {src ? (
+          <img
+            src={src}
+            alt={`Imagen de respuesta ${label}`}
+            className="max-h-48 w-full object-contain"
+          />
+        ) : (
+          <span className="label-mono">CARGANDO IMAGEN…</span>
+        )}
+      </button>
+      <div className="flex items-center justify-between gap-2 p-2">
+        <span className="label-mono">{label}</span>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          className="btn-brutal min-h-[44px] px-3 text-xs"
+        >
+          {deleting ? "ELIMINANDO…" : "ELIMINAR ✕"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AudioPlayer({ url }: { url: string }) {
+  const src = useProtectedMediaUrl(url);
+  return src ? (
+    <audio controls src={src} className="w-full mt-1" />
+  ) : (
+    <p className="label-mono">CARGANDO AUDIO…</p>
+  );
+}
+
 export default function BriefPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params?.projectId ?? "";
@@ -55,7 +125,11 @@ export default function BriefPage() {
   const [items, setItems] = useState<BriefItem[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [transcriptions, setTranscriptions] = useState<Record<string, string>>({});
+  const answersRef = useRef<Record<string, string>>({});
+  const transcriptionsRef = useRef<Record<string, string>>({});
   const [itemFeedback, setItemFeedback] = useState<Record<string, string>>({});
+  const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
+  const [zoomedImage, setZoomedImage] = useState<{ src: string; alt: string } | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
@@ -101,11 +175,26 @@ export default function BriefPage() {
         const ansMap: Record<string, string> = {};
         const trMap: Record<string, string> = {};
         fetchedItems.forEach((item) => {
-          if (item.answer) ansMap[item.id] = item.answer;
-          if (item.audio_transcription || item.transcription) {
-            trMap[item.id] = item.audio_transcription || (item as any).transcription || "";
+          if (!item?.id) return;
+          const localAnswer = answersRef.current[item.id];
+          const localTranscription = transcriptionsRef.current[item.id];
+          const serverAnswer = item.answer;
+          const serverTranscription = item.audio_transcription || item.transcription;
+          // The refs are the UI source of truth for pending (debounced) edits.
+          // A reload triggered by an image/audio upload or delete must not
+          // overwrite them with stale server values: the pending 800ms timer
+          // reads these refs when it fires, so that would discard text the
+          // client typed inside the debounce window. Local keys win, including
+          // an intentional empty string (the client cleared the field).
+          if (localAnswer !== undefined || serverAnswer) {
+            ansMap[item.id] = localAnswer !== undefined ? localAnswer : serverAnswer!;
+          }
+          if (localTranscription !== undefined || serverTranscription) {
+            trMap[item.id] = localTranscription !== undefined ? localTranscription : serverTranscription!;
           }
         });
+        answersRef.current = ansMap;
+        transcriptionsRef.current = trMap;
         setAnswers(ansMap);
         setTranscriptions(trMap);
       } else {
@@ -131,16 +220,25 @@ export default function BriefPage() {
   // Debounced Autosave
   const autosaveTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
-  const triggerAutosave = useCallback((itemId: string, answer: string) => {
+  const triggerAutosave = useCallback((itemId: string) => {
     setAutosaveStatus((prev) => ({ ...prev, [itemId]: "Guardando…" }));
     if (autosaveTimers.current[itemId]) {
       clearTimeout(autosaveTimers.current[itemId]);
     }
     autosaveTimers.current[itemId] = setTimeout(async () => {
       try {
+        // Send the latest answer + transcription together: both fields share
+        // the same 800ms debounce so neither edit can overwrite the other.
+        const body: Record<string, string> = {
+          answer: answersRef.current[itemId] ?? "",
+        };
+        const transcription = transcriptionsRef.current[itemId];
+        if (transcription !== undefined) {
+          body.transcription = transcription;
+        }
         const res = await apiFetch(
           `/api/v1/projects/${projectId}/brief/items/${itemId}/autosave`,
-          { method: "PATCH", body: JSON.stringify({ answer }) }
+          { method: "PATCH", body: JSON.stringify(body) }
         );
         if (res.ok) {
           const result = await res.json();
@@ -158,8 +256,15 @@ export default function BriefPage() {
   }, [projectId]);
 
   function handleAnswerChange(itemId: string, value: string) {
-    setAnswers((prev) => ({ ...prev, [itemId]: value }));
-    triggerAutosave(itemId, value);
+    answersRef.current = { ...answersRef.current, [itemId]: value };
+    setAnswers(answersRef.current);
+    triggerAutosave(itemId);
+  }
+
+  function handleTranscriptionChange(itemId: string, value: string) {
+    transcriptionsRef.current = { ...transcriptionsRef.current, [itemId]: value };
+    setTranscriptions(transcriptionsRef.current);
+    triggerAutosave(itemId);
   }
 
   // Audio recording handlers
@@ -212,10 +317,24 @@ export default function BriefPage() {
       if (res.ok) {
         const updated: BriefItem = await res.json();
         setItems((prev) => prev.map((it) => it.id === updated.id ? updated : it));
-        if (updated.audio_transcription) {
-          setTranscriptions((prev) => ({ ...prev, [itemId]: updated.audio_transcription! }));
+        const transcription = updated?.audio_transcription || updated?.transcription;
+        const nextTranscriptions = { ...transcriptionsRef.current };
+        if (transcription) {
+          nextTranscriptions[itemId] = transcription;
+        } else {
+          delete nextTranscriptions[itemId];
         }
-        setItemFeedback((prev) => ({ ...prev, [itemId]: "Audio y transcripción guardados" }));
+        transcriptionsRef.current = nextTranscriptions;
+        setTranscriptions(nextTranscriptions);
+        if (typeof updated?.progress === "number") {
+          setProgressData((prev) => prev ? { ...prev, progress: updated.progress! } : null);
+        }
+        setItemFeedback((prev) => ({
+          ...prev,
+          [itemId]: transcription
+            ? "Audio y transcripción guardados"
+            : "Audio guardado — transcripción no disponible",
+        }));
         load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
@@ -241,14 +360,50 @@ export default function BriefPage() {
       if (res.ok) {
         const updated: BriefItem = await res.json();
         setItems((prev) => prev.map((it) => it.id === updated.id ? updated : it));
+        if (typeof updated?.progress === "number") {
+          setProgressData((prev) => prev ? { ...prev, progress: updated.progress! } : null);
+        }
         setItemFeedback((prev) => ({ ...prev, [itemId]: "Imagen guardada correctamente" }));
         load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
-        setItemFeedback((prev) => ({ ...prev, [itemId]: extractDetail(data, "Error al subir imagen") }));
+        setItemFeedback((prev) => ({
+          ...prev,
+          [itemId]: res.status === 409
+            ? "Máximo 2 imágenes por pregunta"
+            : extractDetail(data, "Error al subir imagen"),
+        }));
       }
     } catch {
       setItemFeedback((prev) => ({ ...prev, [itemId]: "Error de red al subir imagen" }));
+    }
+  }
+
+  async function deleteImageResponse(itemId: string, imageId: string) {
+    setDeletingImageId(imageId);
+    setItemFeedback((prev) => ({ ...prev, [itemId]: "Eliminando imagen…" }));
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/brief/items/${itemId}/images/${imageId}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        const updated: BriefItem = await res.json();
+        setItems((prev) => prev.map((it) => it.id === updated.id ? updated : it));
+        setZoomedImage(null);
+        if (typeof updated?.progress === "number") {
+          setProgressData((prev) => prev ? { ...prev, progress: updated.progress! } : null);
+        }
+        setItemFeedback((prev) => ({ ...prev, [itemId]: "Imagen eliminada" }));
+        load();
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setItemFeedback((prev) => ({ ...prev, [itemId]: extractDetail(data, "Error al eliminar imagen") }));
+      }
+    } catch {
+      setItemFeedback((prev) => ({ ...prev, [itemId]: "Error de red al eliminar imagen" }));
+    } finally {
+      setDeletingImageId(null);
     }
   }
 
@@ -366,7 +521,18 @@ export default function BriefPage() {
             </p>
           ) : (
             <div className="grid-brutal mt-3">
-              {questions.map((item, index) => (
+              {questions.map((item, index) => {
+                // Legacy / incomplete records must never break the view.
+                const images = item?.images ?? [];
+                const imageCount = Math.min(images.length, 2);
+                const nextImageLabel = String(Math.min(imageCount + 1, 2)).padStart(2, "0");
+                const transcription =
+                  transcriptions[item.id] ??
+                  item.transcription ??
+                  item.audio_transcription ??
+                  "";
+                const hasTranscription = Boolean(transcription.trim());
+                return (
                 <div key={item.id} className="flex flex-col gap-3 p-4 border border-border bg-surface">
                   <div className="flex items-center justify-between">
                     <p className="label-mono">
@@ -391,71 +557,118 @@ export default function BriefPage() {
                     className="min-h-[100px] border border-border bg-background p-3 text-sm"
                   />
 
-                  {/* Multimodal response section: Voice & Image */}
-                  <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
-                    {/* Audio Recorder */}
-                    <div className="flex items-center gap-2">
+                  {/* Multimodal response: images, voice and editable transcription */}
+                  <div className="flex flex-col gap-3 border-t border-[#111111] pt-3">
+                    <p className="label-mono">RESPUESTA MULTIMODAL</p>
+
+                    {imageCount > 0 && (
+                      <div className="grid grid-cols-2 gap-px bg-[#111111] border border-[#111111]">
+                        {images.slice(0, 2).map((image, imageIndex) => (
+                          <ImagePreview
+                            key={image?.id ?? imageIndex}
+                            image={image}
+                            index={imageIndex}
+                            deleting={deletingImageId === image?.id}
+                            onZoom={(src, alt) => setZoomedImage({ src, alt })}
+                            onDelete={() =>
+                              image?.id && deleteImageResponse(item.id, image.id)
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-3">
                       {recordingId === item.id ? (
                         <button
                           type="button"
                           onClick={stopRecording}
-                          className="btn-brutal min-h-[36px] px-3 text-xs bg-foreground text-background"
+                          className="btn-brutal min-h-[44px] px-3 text-xs"
                         >
-                          ⏹ Detener grabación
+                          ⏹ DETENER GRABACIÓN
                         </button>
                       ) : (
                         <button
                           type="button"
                           onClick={() => startRecording(item.id)}
                           disabled={!isActive}
-                          className="btn-brutal min-h-[36px] px-3 text-xs"
+                          className="btn-brutal min-h-[44px] px-3 text-xs"
                         >
-                          🎙 Grabar audio
+                          🎙 GRABAR AUDIO
                         </button>
                       )}
+
+                      <label
+                        aria-disabled={imageCount >= 2 || !isActive}
+                        className={`btn-brutal min-h-[44px] px-3 text-xs ${
+                          imageCount >= 2 || !isActive
+                            ? "cursor-not-allowed opacity-50"
+                            : "cursor-pointer"
+                        }`}
+                      >
+                        <span className="label-mono">
+                          {nextImageLabel}/02 IMÁGENES
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={imageCount >= 2 || !isActive}
+                          className="sr-only"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) uploadImageResponse(item.id, f);
+                            e.target.value = "";
+                          }}
+                        />
+                        <span className="btn-brutal__arrow" aria-hidden="true">
+                          ↗
+                        </span>
+                      </label>
                     </div>
 
-                    {/* Image Upload */}
-                    <label className="btn-brutal min-h-[36px] px-3 text-xs cursor-pointer inline-flex items-center">
-                      <span>🖼 Subir imagen/referencia</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) uploadImageResponse(item.id, f);
-                        }}
-                      />
-                    </label>
-                  </div>
-
-                  {/* Display uploaded media / transcription if any */}
-                  {item.audio_url && (
-                    <div className="mt-2 p-3 border border-border bg-background text-xs">
-                      <p className="label-mono mb-1">Audio adjunto:</p>
-                      <audio controls src={item.audio_url} className="w-full mt-1" />
-                      {(transcriptions[item.id] || item.audio_transcription) && (
-                        <div className="mt-2 pt-2 border-t border-border">
-                          <p className="label-mono mb-1">Transcripción automática:</p>
-                          <p className="text-sm italic">{transcriptions[item.id] || item.audio_transcription}</p>
+                    {(item.audio_url || hasTranscription) && (
+                      <div className="flex flex-col gap-2 p-3 border border-[#111111] bg-[#F7F7F5] text-xs">
+                        {item.audio_url && (
+                          <>
+                            <p className="label-mono">AUDIO ADJUNTO</p>
+                            <AudioPlayer url={item.audio_url} />
+                          </>
+                        )}
+                        <div className="flex flex-col gap-1 pt-2 border-t border-[#111111]">
+                          <label
+                            htmlFor={`transcription-${item.id}`}
+                            className="label-mono"
+                          >
+                            TRANSCRIPCIÓN EDITABLE
+                          </label>
+                          <textarea
+                            id={`transcription-${item.id}`}
+                            value={transcription}
+                            onChange={(event) =>
+                              handleTranscriptionChange(item.id, event.target.value)
+                            }
+                            placeholder={
+                              hasTranscription ? undefined : "Escribe tu respuesta…"
+                            }
+                            maxLength={10000}
+                            className="min-h-[100px] border border-[#111111] bg-background p-3 text-sm"
+                          />
+                          {!hasTranscription && (
+                            <p className="label-mono">
+                              TRANSCRIPCIÓN NO DISPONIBLE — ESCRIBE TU RESPUESTA
+                            </p>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  )}
-
-                  {item.image_url && (
-                    <div className="mt-2 p-3 border border-border bg-background text-xs">
-                      <p className="label-mono mb-1">Imagen de respuesta:</p>
-                      <img src={item.image_url} alt="Respuesta visual" className="max-h-48 object-cover border border-border mt-1" />
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
 
                   {itemFeedback[item.id] && (
                     <p className="text-xs text-muted mt-1">{itemFeedback[item.id]}</p>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -556,6 +769,35 @@ export default function BriefPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Full-screen image zoom: tap anywhere (or Esc) closes, no hover needed. */}
+      {zoomedImage && (
+        <div
+          role="button"
+          tabIndex={0}
+          autoFocus
+          aria-label="Cerrar imagen ampliada"
+          onClick={() => setZoomedImage(null)}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Escape" ||
+              event.key === "Enter" ||
+              event.key === " "
+            ) {
+              setZoomedImage(null);
+            }
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#111111] p-4 cursor-zoom-out"
+        >
+          <div className="max-h-full max-w-full border border-[#F7F7F5] bg-[#F7F7F5] p-2">
+            <img
+              src={zoomedImage.src}
+              alt={zoomedImage.alt}
+              className="max-h-[80vh] max-w-[92vw] object-contain"
+            />
+          </div>
+        </div>
       )}
     </section>
   );

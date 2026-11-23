@@ -1,4 +1,14 @@
-"""Brief item — an answered question or a reference file within a project brief."""
+"""Brief item — an answered question or a reference file within a project brief.
+
+Note on enum tolerance (documentation only): the ``_missing_`` hooks on the
+enums below make value parsing tolerant for Pydantic/schemas and for incoming
+request payloads (e.g. the brief autosave), but they do NOT make SQLAlchemy ORM
+reads tolerant. ``SAEnum(native_enum=False)`` resolves stored values through its
+own ``_object_lookup`` and rejects raw uppercase values left by legacy rows.
+The repair of those raw values in the database is guaranteed by migration 0009
+(``alembic/versions/0009_normalize_brief_data.py``), which runs on every deploy
+before uvicorn starts -- see also ``app/services/brief_normalization.py``.
+"""
 
 import enum
 import uuid
@@ -25,6 +35,15 @@ class BriefItemType(str, enum.Enum):
     QUESTION = "question"
     REFERENCE = "reference"
 
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
+
 
 class BriefCategory(str, enum.Enum):
     """Area of the engagement a brief item belongs to."""
@@ -32,6 +51,15 @@ class BriefCategory(str, enum.Enum):
     BRANDING = "branding"
     INTERIOR = "interior"
     GENERAL = "general"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
 
 
 class BriefStatus(str, enum.Enum):

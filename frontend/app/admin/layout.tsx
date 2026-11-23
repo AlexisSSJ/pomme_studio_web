@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { isAuthenticated, clearToken } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
+import NotificationsBell from "@/components/NotificationsBell";
 
 interface Me {
   id: string;
@@ -34,6 +35,7 @@ export default function AdminLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [checked, setChecked] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -53,6 +55,7 @@ export default function AdminLayout({
             router.replace("/portal");
             return;
           }
+          setRole(me.role);
           setChecked(true);
         } else {
           // The role could not be confirmed (e.g. deactivated account);
@@ -86,15 +89,18 @@ export default function AdminLayout({
         <span className="text-[15px] font-semibold tracking-tightest">
           Pomme Studio / Admin
         </span>
-        <button
-          onClick={() => {
-            clearToken();
-            router.push("/login");
-          }}
-          className="label-mono min-h-[44px] px-2 underline"
-        >
-          Salir
-        </button>
+        <div className="flex items-center gap-3">
+          <NotificationsBell role={role} />
+          <button
+            onClick={() => {
+              clearToken();
+              router.push("/login");
+            }}
+            className="label-mono min-h-[44px] px-2 underline"
+          >
+            Salir
+          </button>
+        </div>
       </header>
 
       <nav className="grid-brutal mt-4 grid-cols-2 sm:grid-cols-3">

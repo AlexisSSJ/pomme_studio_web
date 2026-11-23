@@ -56,7 +56,7 @@ export default function ProjectSidebar({
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <span>{item.label}</span>
-                {active && (
+                {active && !item.label.includes("↗") && (
                   <span aria-hidden="true" className="ml-auto hidden sm:inline">
                     ↗
                   </span>
