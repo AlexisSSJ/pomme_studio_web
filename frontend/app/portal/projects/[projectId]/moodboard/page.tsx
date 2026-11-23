@@ -239,8 +239,10 @@ export default function PortalMoodboardPage() {
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [items, setItems] = useState<MoodboardItem[]>([]);
   const [message, setMessage] = useState("");
-  const [loadingBoards, setLoadingBoards] = useState(false);
-  const [loadingItems, setLoadingItems] = useState(false);
+  const [loadingBoards, setLoadingBoards] = useState(true);
+  const [loadingItems, setLoadingItems] = useState(true);
+  // La lista puede fallar sin que la lámina esté vacía: no confundir ambos estados.
+  const [itemsFailed, setItemsFailed] = useState(false);
   // Descarta respuestas de una lámina ya abandonada al cambiar de pestaña.
   const itemsRequestRef = useRef(0);
 
@@ -248,7 +250,10 @@ export default function PortalMoodboardPage() {
     boards.find((board) => board.id === activeBoardId) ?? null;
 
   const loadBoards = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId) {
+      setLoadingBoards(false);
+      return;
+    }
     setLoadingBoards(true);
     setMessage("");
     try {
@@ -278,9 +283,13 @@ export default function PortalMoodboardPage() {
     const requestId = ++itemsRequestRef.current;
     if (!projectId || !activeBoardId) {
       setItems([]);
+      setItemsFailed(false);
       setLoadingItems(false);
       return;
     }
+    // Limpia el aviso anterior: una recarga correcta no debe arrastrarlo.
+    setMessage("");
+    setItemsFailed(false);
     setLoadingItems(true);
     try {
       const res = await apiFetch(
@@ -292,10 +301,12 @@ export default function PortalMoodboardPage() {
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al cargar las piezas"));
+        setItemsFailed(true);
       }
     } catch {
       if (requestId === itemsRequestRef.current) {
         setMessage("Error de conexión con el servidor");
+        setItemsFailed(true);
       }
     } finally {
       if (requestId === itemsRequestRef.current) {
@@ -359,7 +370,9 @@ export default function PortalMoodboardPage() {
             })}
           </div>
 
-          {activeBoard && (
+          {/* Si la carga de piezas falló, el aviso de error de arriba es el
+              estado honesto: no simular una lámina vacía. */}
+          {activeBoard && !itemsFailed && (
             <>
               <p className="label-mono mt-4">
                 {items.length} / {MAX_BOARD_IMAGES} IMÁGENES

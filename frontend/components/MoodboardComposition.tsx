@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactElement, type ReactNode } from "react";
-import { useProtectedMediaUrl } from "@/lib/useProtectedMediaUrl";
+import { useProtectedMedia } from "@/lib/useProtectedMediaUrl";
 
 export type MoodboardLayout =
   | "editorial_collage"
@@ -49,7 +49,7 @@ function PieceFrame({
   index: number;
   footer: ReactNode;
 }) {
-  const url = useProtectedMediaUrl(
+  const { url, error } = useProtectedMedia(
     `/api/v1/projects/${projectId}/moodboard/items/${item.id}/file`
   );
   const [overlayOpen, setOverlayOpen] = useState(false);
@@ -69,6 +69,10 @@ function PieceFrame({
             className="block h-auto w-full"
           />
         </button>
+      ) : error ? (
+        <p className="type-ui border border-border bg-surface p-3 text-sm">
+          Error al cargar la imagen
+        </p>
       ) : (
         <p className="label-mono text-stone-600">Cargando imagen…</p>
       )}

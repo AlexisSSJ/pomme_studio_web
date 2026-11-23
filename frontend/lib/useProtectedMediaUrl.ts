@@ -3,25 +3,38 @@
 import { useEffect, useState } from "react";
 import { apiFetchBlobUrl } from "./api";
 
+export interface ProtectedMediaState {
+  /** Blob URL listo para usar en <img>/<audio>, o `null` mientras carga o si falló. */
+  url: string | null;
+  /** `true` solo cuando la petición terminó en error (≠ cargando). */
+  error: boolean;
+}
+
 /**
  * Protected media needs the Bearer token, so plain <img>/<audio> URLs cannot
  * be used: fetch a blob URL through apiFetch and revoke it on unmount.
  *
  * Shared by the client portal and the admin brief view.
+ *
+ * Devuelve también el estado de error para distinguir "cargando" de
+ * "no se pudo cargar".
  */
-export function useProtectedMediaUrl(
+export function useProtectedMedia(
   url: string | null | undefined
-): string | null {
-  const [src, setSrc] = useState<string | null>(null);
+): ProtectedMediaState {
+  const [state, setState] = useState<ProtectedMediaState>({
+    url: null,
+    error: false,
+  });
 
   useEffect(() => {
     if (!url) {
-      setSrc(null);
+      setState({ url: null, error: false });
       return;
     }
     let active = true;
     let objectUrl: string | null = null;
-    setSrc(null);
+    setState({ url: null, error: false });
     apiFetchBlobUrl(url)
       .then((loaded) => {
         if (!active) {
@@ -29,10 +42,10 @@ export function useProtectedMediaUrl(
           return;
         }
         objectUrl = loaded;
-        setSrc(loaded);
+        setState({ url: loaded, error: false });
       })
       .catch(() => {
-        if (active) setSrc(null);
+        if (active) setState({ url: null, error: true });
       });
     return () => {
       active = false;
@@ -40,5 +53,14 @@ export function useProtectedMediaUrl(
     };
   }, [url]);
 
-  return src;
+  return state;
+}
+
+/**
+ * Compatibilidad: consumidores previos solo necesitan la URL.
+ */
+export function useProtectedMediaUrl(
+  url: string | null | undefined
+): string | null {
+  return useProtectedMedia(url).url;
 }
