@@ -1,4 +1,4 @@
-"""Tests for moodboard endpoints: team uploads and client reactions."""
+"""Tests for moodboard endpoints: team uploads and board management."""
 
 import uuid
 from pathlib import Path
@@ -13,12 +13,11 @@ from backend.app.core.security import create_access_token
 from backend.app.main import app
 from backend.app.models import (
     AuditLog,
+    MoodboardComment,
     MoodboardItem,
-    MoodboardReaction,
     Project,
     ProjectMember,
     ProjectRole,
-    ReactionType,
     User,
 )
 from backend.app.services.storage import LocalStorage
@@ -65,14 +64,18 @@ def upload_piece(
     token: str,
     *,
     board_id: uuid.UUID | None = None,
-    title: str = "Paleta cálida",
+    title: str | None = "Paleta cálida",
     description: str | None = "Referencia de tonos tierra",
     sort_order: int = 0,
     file_name: str = "pin.png",
     payload: bytes = b"\x89PNG-fake-bytes",
     content_type: str = "image/png",
 ):
-    """Upload a moodboard piece, creating a board first when none is given."""
+    """Upload a moodboard piece, creating a board first when none is given.
+
+    ``title=None`` omits the form field so the API auto-fills it from the
+    filename stem (or "Imagen N" when that is blank).
+    """
     if board_id is None:
         board = create_board(client, project_id, token)
         if board.status_code != 201:
@@ -80,7 +83,9 @@ def upload_piece(
             return board
         board_id = uuid.UUID(board.json()["id"])
 
-    data = {"title": title, "sort_order": str(sort_order)}
+    data = {"sort_order": str(sort_order)}
+    if title is not None:
+        data["title"] = title
     if description is not None:
         data["description"] = description
     response = client.post(
@@ -116,11 +121,11 @@ async def test_team_uploads_piece_201(
     assert data["sort_order"] == 0
     assert data["project_id"] == str(active_project.id)
     assert data["created_by"] == str(collaborator_user.id)
-    assert data["like_count"] == 0
-    assert data["dislike_count"] == 0
     assert data["comment_count"] == 0
-    assert data["my_reaction"] is None
-    assert data["my_comment"] is None
+    assert "like_count" not in data
+    assert "dislike_count" not in data
+    assert "my_reaction" not in data
+    assert "my_comment" not in data
     assert "storage_key" not in data
 
     result = await db_session.execute(
@@ -142,6 +147,45 @@ async def test_team_uploads_piece_201(
     assert download.status_code == 200
     assert download.content == payload
     assert download.headers["content-type"].split(";")[0] == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_upload_without_title_autofills_filename_stem(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    """A title-less upload takes the file stem as its title."""
+    response = upload_piece(
+        client, active_project.id, collaborator_token, title=None
+    )
+    assert response.status_code == 201
+    assert response.json()["title"] == "pin"
+
+
+@pytest.mark.asyncio
+async def test_upload_without_title_empty_stem_autofills_imagen_n(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    """A blank stem falls back to `Imagen {item_count + 1}`."""
+    first = upload_piece(client, active_project.id, collaborator_token)
+    assert first.status_code == 201
+
+    response = upload_piece(
+        client,
+        active_project.id,
+        collaborator_token,
+        board_id=first.moodboard_id,
+        title=None,
+        file_name="   ",
+        sort_order=1,
+    )
+    assert response.status_code == 201
+    assert response.json()["title"] == "Imagen 2"
 
 
 @pytest.mark.asyncio
@@ -193,267 +237,7 @@ async def test_lead_designer_assigned_201(
 
 
 @pytest.mark.asyncio
-async def test_client_like_201_then_dislike_200_replaces(
-    client: TestClient,
-    db_session: AsyncSession,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    client_token: str,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    assert piece.status_code == 201
-    item_id = piece.json()["id"]
-    base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions"
-
-    like = client.post(base, json={"reaction": "like"}, headers=auth(client_token))
-    assert like.status_code == 201
-    assert like.json()["reaction"] == "like"
-
-    dislike = client.post(base, json={"reaction": "dislike"}, headers=auth(client_token))
-    assert dislike.status_code == 200
-    assert dislike.json()["reaction"] == "dislike"
-
-    # One row per (item, user): the dislike replaced the like.
-    result = await db_session.execute(
-        select(MoodboardReaction).where(
-            MoodboardReaction.moodboard_item_id == uuid.UUID(item_id)
-        )
-    )
-    reactions = result.scalars().all()
-    assert len(reactions) == 1
-    assert reactions[0].reaction == ReactionType.DISLIKE
-
-    listing = client.get(
-        f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions",
-        headers=auth(client_token),
-    )
-    assert listing.status_code == 200
-    assert len(listing.json()) == 1
-
-    board = client.get(
-        f"/api/v1/projects/{active_project.id}/moodboard",
-        headers=auth(client_token),
-    )
-    assert board.status_code == 200
-    items = board.json()
-    assert len(items) == 1
-    assert items[0]["like_count"] == 0
-    assert items[0]["dislike_count"] == 1
-    assert items[0]["my_reaction"] == "dislike"
-
-
-@pytest.mark.asyncio
-async def test_comment_requires_text_422(
-    client: TestClient,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    client_token: str,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions"
-
-    response = client.post(base, json={"reaction": "comment"}, headers=auth(client_token))
-    assert response.status_code == 422
-    assert "Comment text is required" in response.json()["detail"][0]["msg"]
-
-    response = client.post(
-        base, json={"reaction": "comment", "comment": "   "}, headers=auth(client_token)
-    )
-    assert response.status_code == 422
-    assert "Comment text is required" in response.json()["detail"][0]["msg"]
-
-
-@pytest.mark.asyncio
-async def test_comment_with_text_201(
-    client: TestClient,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    client_token: str,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions"
-
-    response = client.post(
-        base,
-        json={"reaction": "comment", "comment": "  Me encanta esta paleta  "},
-        headers=auth(client_token),
-    )
-    assert response.status_code == 201
-    data = response.json()
-    assert data["reaction"] == "comment"
-    assert data["comment"] == "Me encanta esta paleta"
-
-    board = client.get(
-        f"/api/v1/projects/{active_project.id}/moodboard",
-        headers=auth(client_token),
-    )
-    items = board.json()
-    assert items[0]["comment_count"] == 1
-    assert items[0]["my_reaction"] == "comment"
-    assert items[0]["my_comment"] == "Me encanta esta paleta"
-
-
-@pytest.mark.asyncio
-async def test_like_with_comment_422(
-    client: TestClient,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    client_token: str,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    response = client.post(
-        f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions",
-        json={"reaction": "like", "comment": "nice"},
-        headers=auth(client_token),
-    )
-    assert response.status_code == 422
-    assert "Comment only allowed with COMMENT reaction" in response.json()["detail"][0]["msg"]
-
-
-@pytest.mark.asyncio
-async def test_delete_own_reaction_204_then_404(
-    client: TestClient,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    client_token: str,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions"
-
-    react = client.post(base, json={"reaction": "like"}, headers=auth(client_token))
-    assert react.status_code == 201
-
-    response = client.delete(base, headers=auth(client_token))
-    assert response.status_code == 204
-
-    response = client.delete(base, headers=auth(client_token))
-    assert response.status_code == 404
-    assert response.json()["detail"] == "Reaction not found"
-
-
-@pytest.mark.asyncio
-async def test_team_cannot_react_403(
-    client: TestClient,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    lead_designer_token: str,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions"
-
-    for token in (collaborator_token, lead_designer_token):
-        response = client.post(base, json={"reaction": "like"}, headers=auth(token))
-        assert response.status_code == 403
-        assert response.json()["detail"] == "Insufficient permissions"
-
-
-@pytest.mark.asyncio
-async def test_nonmember_client_403(
-    client: TestClient,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    other_client_token: str,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    response = client.post(
-        f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions",
-        json={"reaction": "like"},
-        headers=auth(other_client_token),
-    )
-    assert response.status_code == 403
-    assert response.json()["detail"] == "No access to this project"
-
-
-@pytest.mark.asyncio
-async def test_list_counts_and_my_reaction(
-    client: TestClient,
-    db_session: AsyncSession,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    client_token: str,
-    other_client_user: User,
-    other_client_token: str,
-):
-    # A second CLIENT member reacts differently on the same piece.
-    db_session.add(
-        ProjectMember(
-            id=uuid.uuid4(),
-            project_id=active_project.id,
-            user_id=other_client_user.id,
-            assigned_role=ProjectRole.CLIENT,
-        )
-    )
-    await db_session.commit()
-
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions"
-
-    first = client.post(base, json={"reaction": "like"}, headers=auth(client_token))
-    assert first.status_code == 201
-    second = client.post(base, json={"reaction": "dislike"}, headers=auth(other_client_token))
-    assert second.status_code == 201
-
-    for token, expected in ((client_token, "like"), (other_client_token, "dislike")):
-        board = client.get(
-            f"/api/v1/projects/{active_project.id}/moodboard",
-            headers=auth(token),
-        )
-        assert board.status_code == 200
-        items = board.json()
-        assert len(items) == 1
-        assert items[0]["like_count"] == 1
-        assert items[0]["dislike_count"] == 1
-        assert items[0]["comment_count"] == 0
-        assert items[0]["my_reaction"] == expected
-
-
-@pytest.mark.asyncio
-async def test_team_sees_client_comments(
-    client: TestClient,
-    media_storage: LocalStorage,
-    active_project: Project,
-    collaborator_token: str,
-    client_token: str,
-    client_user: User,
-):
-    piece = upload_piece(client, active_project.id, collaborator_token)
-    item_id = piece.json()["id"]
-    base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}/reactions"
-
-    response = client.post(
-        base,
-        json={"reaction": "comment", "comment": "Prefiero tonos más fríos."},
-        headers=auth(client_token),
-    )
-    assert response.status_code == 201
-
-    listing = client.get(base, headers=auth(collaborator_token))
-    assert listing.status_code == 200
-    reactions = listing.json()
-    assert len(reactions) == 1
-    assert reactions[0]["reaction"] == "comment"
-    assert reactions[0]["comment"] == "Prefiero tonos más fríos."
-    assert reactions[0]["user_id"] == str(client_user.id)
-    assert reactions[0]["moodboard_item_id"] == item_id
-
-
-@pytest.mark.asyncio
-async def test_delete_item_removes_reactions_and_file_204(
+async def test_delete_item_removes_comments_and_file_204(
     client: TestClient,
     db_session: AsyncSession,
     media_storage: LocalStorage,
@@ -467,16 +251,12 @@ async def test_delete_item_removes_reactions_and_file_204(
     base = f"/api/v1/projects/{active_project.id}/moodboard/items/{item_id}"
 
     assert (
-        client.post(f"{base}/reactions", json={"reaction": "like"}, headers=auth(client_token)).status_code
-        == 201
-    )
-    assert (
         client.post(
-            f"{base}/reactions",
-            json={"reaction": "comment", "comment": "Bonito."},
+            f"{base}/comments",
+            json={"comment": "Bonito."},
             headers=auth(client_token),
         ).status_code
-        == 200
+        == 201
     )
 
     result = await db_session.execute(
@@ -489,11 +269,11 @@ async def test_delete_item_removes_reactions_and_file_204(
     response = client.delete(base, headers=auth(collaborator_token))
     assert response.status_code == 204
 
-    # The file is gone from storage and the reactions from the database.
+    # The file is gone from storage and the comments from the database.
     assert not stored_path.exists()
     result = await db_session.execute(
-        select(MoodboardReaction).where(
-            MoodboardReaction.moodboard_item_id == uuid.UUID(item_id)
+        select(MoodboardComment).where(
+            MoodboardComment.moodboard_item_id == uuid.UUID(item_id)
         )
     )
     assert result.scalars().first() is None
@@ -507,7 +287,7 @@ async def test_delete_item_removes_reactions_and_file_204(
     assert response.status_code == 404
     assert response.json()["detail"] == "Moodboard item not found"
 
-    response = client.get(f"{base}/reactions", headers=auth(collaborator_token))
+    response = client.get(f"{base}/comments", headers=auth(collaborator_token))
     assert response.status_code == 404
     assert response.json()["detail"] == "Moodboard item not found"
 
@@ -596,7 +376,6 @@ async def test_write_on_draft_409(
     client_user: User,
     collaborator_user: User,
     collaborator_token: str,
-    client_token: str,
 ):
     # `active_project` mutates the shared project to ACTIVE; use a fresh DRAFT.
     draft = Project(id=uuid.uuid4(), title="Draft Project", client_id=client_user.id)
@@ -630,19 +409,6 @@ async def test_write_on_draft_409(
     assert response.json()["detail"] == "Project is not active"
 
     response = client.delete(f"{base}/items/{uuid.uuid4()}", headers=auth(collaborator_token))
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Project is not active"
-
-    item_id = uuid.uuid4()
-    response = client.post(
-        f"{base}/items/{item_id}/reactions",
-        json={"reaction": "like"},
-        headers=auth(client_token),
-    )
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Project is not active"
-
-    response = client.delete(f"{base}/items/{item_id}/reactions", headers=auth(client_token))
     assert response.status_code == 409
     assert response.json()["detail"] == "Project is not active"
 
@@ -710,12 +476,6 @@ async def test_unauthenticated_401(
 
     assert client.delete(f"{base}/items/{item_id}").status_code == 401
     assert client.get(f"{base}/items/{item_id}/file").status_code == 401
-    assert (
-        client.post(f"{base}/items/{item_id}/reactions", json={"reaction": "like"}).status_code
-        == 401
-    )
-    assert client.delete(f"{base}/items/{item_id}/reactions").status_code == 401
-    assert client.get(f"{base}/items/{item_id}/reactions").status_code == 401
 
 
 def _stored_files(storage: LocalStorage) -> list[Path]:
@@ -1091,13 +851,13 @@ async def test_delete_board_cascades(
     )
     item_a_id = uuid.UUID(piece_a.json()["id"])
 
-    react = client.post(
+    comment = client.post(
         f"/api/v1/projects/{active_project.id}/moodboard/items/"
-        f"{item_a_id}/reactions",
-        json={"reaction": "like"},
+        f"{item_a_id}/comments",
+        json={"comment": "Bonito."},
         headers=auth(client_token),
     )
-    assert react.status_code == 201
+    assert comment.status_code == 201
 
     result = await db_session.execute(
         select(MoodboardItem).where(MoodboardItem.id == item_a_id)
@@ -1128,7 +888,9 @@ async def test_delete_board_cascades(
     )
     assert result.scalars().all() == []
     result = await db_session.execute(
-        select(func.count()).select_from(MoodboardReaction)
+        select(func.count())
+        .select_from(MoodboardComment)
+        .where(MoodboardComment.moodboard_item_id == item_a_id)
     )
     assert result.scalar_one() == 0
     result = await db_session.execute(

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_storage
@@ -20,6 +20,7 @@ from backend.app.models import (
     BriefItem,
     BriefItemType,
     Moodboard,
+    MoodboardComment,
     MoodboardItem,
     Project,
     User,
@@ -103,24 +104,24 @@ FOREIGN_ENDPOINTS = [
     ),
     pytest.param(
         "POST",
-        "/moodboard/items/{item_id}/reactions",
-        {"reaction": "like"},
+        "/moodboard/items/{item_id}/comments",
+        {"comment": "Nota"},
         "json",
-        id="moodboard-react",
+        id="moodboard-comment-create",
     ),
     pytest.param(
         "DELETE",
-        "/moodboard/items/{item_id}/reactions",
+        "/moodboard/items/{item_id}/comments/{comment_id}",
         None,
         "json",
-        id="moodboard-reaction-delete",
+        id="moodboard-comment-delete",
     ),
     pytest.param(
         "GET",
-        "/moodboard/items/{item_id}/reactions",
+        "/moodboard/items/{item_id}/comments",
         None,
         "json",
-        id="moodboard-reactions",
+        id="moodboard-comment-list",
     ),
 ]
 
@@ -193,9 +194,14 @@ async def test_foreign_member_gets_403(
         "collaborator_two": collaborator_two_token,
     }
     project = active_project if target_name == "active_project" else other_project
+    path_params = {
+        "item_id": uuid.uuid4(),
+        "board_id": uuid.uuid4(),
+        "comment_id": uuid.uuid4(),
+    }
     path = (
         f"/api/v1/projects/{project.id}"
-        f"{path_template.format(item_id=uuid.uuid4(), board_id=uuid.uuid4())}"
+        f"{path_template.format(**path_params)}"
     )
 
     response = _foreign_request(client, method, path, tokens[caller], body, kind)
@@ -272,7 +278,7 @@ async def test_cross_project_item_ids_404(
     assert response.status_code == 404
     assert response.json()["detail"] == "Brief item not found"
 
-    # Moodboard: same rule for team writes/reads and client reactions.
+    # Moodboard: same rule for team writes/reads and member comments.
     piece_path = f"{base}/moodboard/items/{foreign_piece.id}"
 
     response = client.delete(piece_path, headers=auth(collaborator_token))
@@ -283,19 +289,21 @@ async def test_cross_project_item_ids_404(
     assert response.status_code == 404
     assert response.json()["detail"] == "Moodboard item not found"
 
-    response = client.get(f"{piece_path}/reactions", headers=auth(collaborator_token))
+    response = client.get(f"{piece_path}/comments", headers=auth(collaborator_token))
     assert response.status_code == 404
     assert response.json()["detail"] == "Moodboard item not found"
 
     response = client.post(
-        f"{piece_path}/reactions",
-        json={"reaction": "like"},
+        f"{piece_path}/comments",
+        json={"comment": "Nota invasora"},
         headers=auth(client_token),
     )
     assert response.status_code == 404
     assert response.json()["detail"] == "Moodboard item not found"
 
-    response = client.delete(f"{piece_path}/reactions", headers=auth(client_token))
+    response = client.delete(
+        f"{piece_path}/comments/{uuid.uuid4()}", headers=auth(client_token)
+    )
     assert response.status_code == 404
     assert response.json()["detail"] == "Moodboard item not found"
 
@@ -334,6 +342,10 @@ async def test_cross_project_item_ids_404(
         select(MoodboardItem).where(MoodboardItem.id == foreign_piece.id)
     )
     assert result.scalar_one() is not None
+    result = await db_session.execute(
+        select(func.count()).select_from(MoodboardComment)
+    )
+    assert result.scalar_one() == 0
 
 
 @pytest.mark.asyncio

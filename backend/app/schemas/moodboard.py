@@ -1,4 +1,4 @@
-"""Moodboard schemas: board validation, reaction validation and item reads."""
+"""Moodboard schemas: board validation, comments and item reads."""
 
 from datetime import datetime
 from uuid import UUID
@@ -6,50 +6,42 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..models.moodboard import MoodboardLayout
-from ..models.moodboard_reaction import ReactionType
 
 
-class MoodboardReactionCreate(BaseModel):
-    """Payload for reacting to a moodboard item.
-
-    COMMENT reactions require non-blank comment text (stored stripped);
-    any other reaction must not carry a comment.
-    """
+class MoodboardCommentCreate(BaseModel):
+    """Payload for leaving a comment on a moodboard item."""
 
     model_config = ConfigDict(extra="forbid")
 
-    reaction: ReactionType
-    comment: str | None = Field(default=None, max_length=2000)
+    comment: str = Field(min_length=1, max_length=2000)
 
     @model_validator(mode="after")
-    def _validate_comment(self) -> "MoodboardReactionCreate":
-        if self.reaction == ReactionType.COMMENT:
-            if self.comment is None or not self.comment.strip():
-                raise ValueError("Comment text is required")
-            self.comment = self.comment.strip()
-        elif self.comment is not None:
-            raise ValueError("Comment only allowed with COMMENT reaction")
+    def _normalize_comment(self) -> "MoodboardCommentCreate":
+        text = self.comment.strip()
+        if not text:
+            raise ValueError("Comment text is required")
+        self.comment = text
         return self
 
 
-class MoodboardReactionRead(BaseModel):
-    """Public shape of a moodboard reaction."""
+class MoodboardCommentRead(BaseModel):
+    """Public shape of a moodboard comment, with its author's name."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     moodboard_item_id: UUID
     user_id: UUID
-    reaction: ReactionType
-    comment: str | None
+    author_name: str
+    comment: str
     created_at: datetime
 
 
 class MoodboardItemRead(BaseModel):
     """Public shape of a moodboard piece; never exposes the storage key.
 
-    Reaction counts and the caller's own reaction are filled in by the
-    list endpoint via ``model_copy(update=...)``.
+    The comment count is filled in by the list endpoints via
+    ``model_copy(update=...)``.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -65,11 +57,7 @@ class MoodboardItemRead(BaseModel):
     sort_order: int
     created_by: UUID
     created_at: datetime
-    like_count: int = 0
-    dislike_count: int = 0
     comment_count: int = 0
-    my_reaction: ReactionType | None = None
-    my_comment: str | None = None
 
 
 class MoodboardCreate(BaseModel):

@@ -12,7 +12,7 @@ de interiores**. Se compone de tres superficies sobre una misma API:
 | Superficie | Audiencia | Propósito |
 |---|---|---|
 | **Front-office público** | Visitantes y prospectos | Presentación del estudio, portafolio, captación de leads y agendamiento de reuniones. |
-| **Portal de clientes** | `CLIENT` | Consulta de sus proyectos, brief (cuestionario y referencias), moodboard con reacciones, entregables, pines/decisiones, pagos y reuniones. |
+| **Portal de clientes** | `CLIENT` | Consulta de sus proyectos, brief (cuestionario y referencias), moodboard con hilos de comentarios, entregables, pines/decisiones, pagos y reuniones. |
 | **Back-office interno** | `SUPER_ADMIN`, `LEAD_DESIGNER`, `COLLABORATOR` | Gestión de leads, proyectos, entregables, FF&E, pricing, pagos y auditoría. |
 
 En Sprint 3 el portal de clientes se materializa en la ruta `/portal`
@@ -189,7 +189,7 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `brief_items` | Brief del proyecto: preguntas del cuestionario y referencias subidas. | **Sprint 3** |
 | `moodboards` | Láminas curadas del moodboard, con título, nota curatorial, layout y orden. | **Extensión moodboard** |
 | `moodboard_items` | Piezas de inspiración del moodboard cargadas por el equipo (pertenecen a un board). | **Sprint 3** |
-| `moodboard_reactions` | Reacciones (`like`/`dislike`/`comment`) de los clientes a las piezas. | **Sprint 3** |
+| `moodboard_comments` | Hilos de comentarios de cualquier miembro (equipo o cliente) sobre las piezas. | **Extensión comentarios** |
 | `project_stages` | Fases secuenciales del flujo de trabajo, con candado y aprobación del cliente. | **Sprint 4** |
 | `deliverables` | Entregables versionados dentro de una etapa, con pines/comentarios, drafts y handover final. | Sprint 1 → Sprint 4 → **Sprint 5** |
 | `deliverable_comments` | Pines de revisión anclados a un punto porcentual de un entregable. | **Sprint 4** |
@@ -298,8 +298,8 @@ Láminas curadas dentro de un proyecto, con layout editorial y nota curatorial
 
 #### 4.3.6 `moodboard_items`
 
-Piezas de inspiración cargadas por el equipo para que el cliente reaccione
-(migración `0004`; `moodboard_id` añadido en `0013`).
+Piezas de inspiración cargadas por el equipo para que los miembros del
+proyecto comenten (migración `0004`; `moodboard_id` añadido en `0013`).
 
 | Columna | Tipo | Descripción |
 |---|---|---|
@@ -322,23 +322,29 @@ autor = autor de la pieza más antigua). El API asigna siempre el board en las
 subidas nuevas y limita cada board a **10 imágenes** (409 al intentar la 11ª);
 el mínimo de **6** es solo una recomendación de presentación y nunca bloquea.
 
-#### 4.3.7 `moodboard_reactions`
+El `title` de una subida es opcional: si falta o llega en blanco se usa el
+`stem` del nombre del archivo (máximo 255 caracteres) y, si también queda
+vacío, `Imagen {n}` con `n = item_count + 1` del board.
 
-Reacción única por usuario y pieza (migración `0004`).
+#### 4.3.7 `moodboard_comments`
+
+Hilo de comentarios sobre una pieza (migración `0014`). Cualquier miembro del
+proyecto —`CLIENT` o equipo— puede comentar cuantas veces quiera; no hay
+restricción de unicidad por usuario y pieza.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `id` | UUID | Clave primaria. |
 | `moodboard_item_id` | UUID | FK a `moodboard_items.id` (indexada). |
 | `user_id` | UUID | FK a `users.id` (indexada). |
-| `reaction` | enum | `like` \| `dislike` \| `comment`. |
-| `comment` | text / null | Texto de la reacción (obligatorio si `comment`). |
+| `comment` | text | Texto del comentario (obligatorio, `strip()` aplicado). |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
-Restricciones: `uq_moodboard_reaction_user` hace única la pareja
-`(moodboard_item_id, user_id)` — base del upsert de reacciones — y
-`ck_reaction_comment_required` exige texto no vacío cuando
-`reaction = 'comment'`.
+La migración `0014` copia cada reacción `comment` previa conservando su `id`,
+texto, autor y fechas (guard `NOT EXISTS`, idempotente) y después elimina
+`moodboard_reactions`; los `like`/`dislike` se descartan. El `downgrade`
+recrea la tabla de reacciones de `0004` y copia el primer comentario por
+`(item, user)` como reacción `comment`.
 
 #### 4.3.8 `project_stages`
 
@@ -452,9 +458,11 @@ y su auditoría son comportamiento futuro, no parte de Sprint 2.
 
 En Sprint 3 se auditan además las acciones de brief y moodboard:
 `brief.question_create`, `brief.answer`, `brief.reference_upload`,
-`moodboard.item_create`, `moodboard.item_delete`, `moodboard.reaction` y
-`moodboard.reaction_delete`, con `entity_type` `brief_item`, `moodboard_item` o
-`moodboard_reaction` y `project_id` (como string) en los metadatos.
+`moodboard.item_create`, `moodboard.item_delete`, `moodboard.comment_create` y
+`moodboard.comment_delete`, con `entity_type` `brief_item`, `moodboard_item` o
+`moodboard_comment` y `project_id` (como string) en los metadatos. Los hilos de
+comentarios (`0014`) sustituyen a las antiguas acciones `moodboard.reaction` y
+`moodboard.reaction_delete`, ya eliminadas.
 
 La extensión multi-board añade `moodboard.board_create`,
 `moodboard.board_update` y `moodboard.board_delete` (entidad `moodboard`).
@@ -687,18 +695,18 @@ usuario, brief y moodboard). Todos los paths usan el prefijo `/api/v1`.
 | `PATCH` | `/projects/{pid}/brief/items/{id}` | `CLIENT` con membresía `CLIENT` | Responder/actualizar la respuesta de una pregunta (proyecto `ACTIVE`). |
 | `POST` | `/projects/{pid}/brief/references` | Cualquier miembro | Subir un archivo de referencia (multipart; proyecto `ACTIVE`). |
 | `GET` | `/projects/{pid}/brief/items/{id}/file` | Cualquier miembro | Descargar el archivo de una referencia. |
-| `GET` | `/projects/{pid}/moodboard` | Cualquier miembro | Lista plana legacy de todas las piezas del proyecto (incluye `moodboard_id`) con conteos (`like`/`dislike`/`comment`) y `my_reaction`. |
+| `GET` | `/projects/{pid}/moodboard` | Cualquier miembro | Lista plana legacy de todas las piezas del proyecto (incluye `moodboard_id`) con `comment_count`. |
 | `GET` | `/projects/{pid}/moodboard/boards` | Cualquier miembro | Listar boards ordenados por `position`/`created_at` con `item_count`. |
 | `POST` | `/projects/{pid}/moodboard/boards` | Equipo | Crear un board (título, nota curatorial, layout; `position` = `max+1`; proyecto `ACTIVE`). |
 | `PATCH` | `/projects/{pid}/moodboard/boards/{id}` | Equipo | Actualizar solo los campos enviados (título, nota, layout, posición; proyecto `ACTIVE`). |
-| `DELETE` | `/projects/{pid}/moodboard/boards/{id}` | Equipo | Eliminar board con sus piezas, reacciones y archivos (proyecto `ACTIVE`). |
-| `GET` | `/projects/{pid}/moodboard/boards/{id}/items` | Cualquier miembro | Listar las piezas del board con conteos y `my_reaction`. |
-| `POST` | `/projects/{pid}/moodboard/boards/{id}/items` | Equipo | Subir una pieza al board (multipart, solo imágenes, máximo 10; proyecto `ACTIVE`). |
-| `DELETE` | `/projects/{pid}/moodboard/items/{id}` | Equipo | Eliminar pieza, sus reacciones y su archivo (proyecto `ACTIVE`). |
+| `DELETE` | `/projects/{pid}/moodboard/boards/{id}` | Equipo | Eliminar board con sus piezas, comentarios y archivos (proyecto `ACTIVE`). |
+| `GET` | `/projects/{pid}/moodboard/boards/{id}/items` | Cualquier miembro | Listar las piezas del board con `comment_count`. |
+| `POST` | `/projects/{pid}/moodboard/boards/{id}/items` | Equipo | Subir una pieza al board (multipart, solo imágenes, máximo 10; `title` opcional con auto-relleno desde el archivo; proyecto `ACTIVE`). |
+| `DELETE` | `/projects/{pid}/moodboard/items/{id}` | Equipo | Eliminar pieza, sus comentarios y su archivo (proyecto `ACTIVE`). |
 | `GET` | `/projects/{pid}/moodboard/items/{id}/file` | Cualquier miembro | Descargar la imagen de una pieza. |
-| `POST` | `/projects/{pid}/moodboard/items/{id}/reactions` | `CLIENT` con membresía `CLIENT` | Upsert de la reacción propia (201 nueva, 200 reemplaza; proyecto `ACTIVE`). |
-| `DELETE` | `/projects/{pid}/moodboard/items/{id}/reactions` | `CLIENT` con membresía `CLIENT` | Eliminar la reacción propia (proyecto `ACTIVE`). |
-| `GET` | `/projects/{pid}/moodboard/items/{id}/reactions` | Cualquier miembro | Listar las reacciones de una pieza (más antiguas primero). |
+| `GET` | `/projects/{pid}/moodboard/items/{id}/comments` | Cualquier miembro | Listar el hilo de comentarios de una pieza (`created_at` ASC, con `author_name`). |
+| `POST` | `/projects/{pid}/moodboard/items/{id}/comments` | Cualquier miembro | Comentar una pieza (201; proyecto `ACTIVE`; texto no vacío, máximo 2000). |
+| `DELETE` | `/projects/{pid}/moodboard/items/{id}/comments/{comment_id}` | Autor o `SUPER_ADMIN` | Eliminar un comentario (proyecto `ACTIVE`); otro autor o ítem → 404 `"Comment not found"`. |
 
 El antiguo `POST /projects/{pid}/moodboard` (subida plana) se **eliminó**: toda
 subida debe dirigirse a un board concreto, por lo que esa ruta responde `405`.
@@ -708,7 +716,7 @@ Reglas de acceso específicas de Sprint 3:
 - **Lecturas** (listados, detalle y descargas): cualquier miembro del proyecto,
   con cualquier `status`; `SUPER_ADMIN` pasa siempre.
 - **Escrituras** (crear preguntas, responder, subir referencias o piezas,
-  reaccionar, eliminar): exigen `project.status == ACTIVE`; si no → `409
+  comentar, eliminar): exigen `project.status == ACTIVE`; si no → `409
   "Project is not active"`.
 - **Equipo** (`require_team_member`): `SUPER_ADMIN` pasa; `LEAD_DESIGNER`
   requiere membresía `assigned_role=LEAD_DESIGNER` **o** ser
@@ -716,18 +724,18 @@ Reglas de acceso específicas de Sprint 3:
   `assigned_role=COLLABORATOR`. Sin membresía → `403 "No access to this
   project"`; membresía insuficiente (incluido `CLIENT`) → `403 "Insufficient
   permissions"`.
-- **Acciones de cliente** (responder el brief, reaccionar): rol `CLIENT` más
-  membresía `assigned_role=CLIENT` en el proyecto.
+- **Acciones de cliente:** responder el brief exige rol `CLIENT` más
+  membresía `assigned_role=CLIENT` en el proyecto. Los comentarios del
+  moodboard están abiertos a **cualquier miembro** (`CLIENT` o equipo); borrar
+  uno exige ser su autor o `SUPER_ADMIN`.
 - **Aislamiento por ítem:** toda consulta filtra `id == item_id AND project_id
   == project_id del path`; un id de ítem de otro proyecto responde `404`, sin
   fuga de existencia.
 
 Queda con **hardening pendiente** (documentado, no implementado en Sprint 3):
-la carrera de INSERT concurrente en el upsert de reacciones (bajo carrera
-extrema un `IntegrityError` puede llegar como `500`; el único
-`uq_moodboard_reaction_user` impide duplicados), la verificación de tamaño en
-streaming para uploads (hoy se lee el archivo completo en memoria) y el focus
-trap con cierre por `Escape` en el overlay del moodboard.
+la verificación de tamaño en streaming para uploads (hoy se lee el archivo
+completo en memoria) y el focus trap con cierre por `Escape` en el overlay del
+moodboard.
 
 ### 6.3 Uploads y descarga de medios (Sprint 3)
 
@@ -845,7 +853,7 @@ Queda con **hardening pendiente** (documentado, no implementado en Sprint 4):
 - La creación de pines por teclado: hoy la colocación es pointer-only (los
   marcadores existentes sí son activables con `Enter`/`Space`).
 - El quirk preexistente (Sprint 3) de whitespace en comentarios del moodboard:
-  `MoodboardReactionCreate` normaliza el comentario con `strip()` antes de
+  `MoodboardCommentCreate` normaliza el comentario con `strip()` antes de
   persistirlo (mutación silenciosa del texto del usuario), mientras que los
   pines de entregables se guardan verbatim y solo se rechaza el body en blanco;
   unificar el criterio queda pendiente.

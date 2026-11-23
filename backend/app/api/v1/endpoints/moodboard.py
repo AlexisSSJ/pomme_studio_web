@@ -1,5 +1,6 @@
-"""Moodboard endpoints: boards, inspiration uploads and client reactions."""
+"""Moodboard endpoints: boards, inspiration uploads and member comments."""
 
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import (
@@ -8,7 +9,6 @@ from fastapi import (
     File,
     Form,
     HTTPException,
-    Response,
     UploadFile,
     status,
 )
@@ -17,25 +17,22 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import (
-    get_membership,
     get_storage,
     require_active_project,
     require_project_access_from_path,
-    require_roles,
     require_team_member,
 )
 from ....db.session import get_db
 from ....models.moodboard import Moodboard
+from ....models.moodboard_comment import MoodboardComment
 from ....models.moodboard_item import MoodboardItem
-from ....models.moodboard_reaction import MoodboardReaction, ReactionType
-from ....models.project_member import ProjectRole
 from ....models.user import User, UserRole
 from ....schemas.moodboard import (
+    MoodboardCommentCreate,
+    MoodboardCommentRead,
     MoodboardCreate,
     MoodboardItemRead,
     MoodboardRead,
-    MoodboardReactionCreate,
-    MoodboardReactionRead,
     MoodboardUpdate,
 )
 from ....services.audit import log_audit
@@ -106,55 +103,28 @@ async def _get_scoped_board(
 async def _item_reads(
     db: AsyncSession,
     items: list[MoodboardItem],
-    current_user: User,
 ) -> list[MoodboardItemRead]:
-    """Attach reaction counts and the caller's reaction to each item."""
+    """Attach the comment count to each item."""
     if not items:
         return []
 
     item_ids = [item.id for item in items]
 
-    counts: dict[tuple[UUID, ReactionType], int] = {}
+    counts: dict[UUID, int] = {}
     count_rows = await db.execute(
-        select(
-            MoodboardReaction.moodboard_item_id,
-            MoodboardReaction.reaction,
-            func.count(),
-        )
-        .where(MoodboardReaction.moodboard_item_id.in_(item_ids))
-        .group_by(
-            MoodboardReaction.moodboard_item_id,
-            MoodboardReaction.reaction,
-        )
+        select(MoodboardComment.moodboard_item_id, func.count())
+        .where(MoodboardComment.moodboard_item_id.in_(item_ids))
+        .group_by(MoodboardComment.moodboard_item_id)
     )
-    for item_id, reaction, count in count_rows.all():
-        counts[(item_id, reaction)] = count
+    for item_id, count in count_rows.all():
+        counts[item_id] = count
 
-    mine: dict[UUID, MoodboardReaction] = {}
-    my_rows = await db.execute(
-        select(MoodboardReaction).where(
-            MoodboardReaction.moodboard_item_id.in_(item_ids),
-            MoodboardReaction.user_id == current_user.id,
+    return [
+        MoodboardItemRead.model_validate(item).model_copy(
+            update={"comment_count": counts.get(item.id, 0)}
         )
-    )
-    for reaction in my_rows.scalars().all():
-        mine[reaction.moodboard_item_id] = reaction
-
-    reads = []
-    for item in items:
-        own = mine.get(item.id)
-        reads.append(
-            MoodboardItemRead.model_validate(item).model_copy(
-                update={
-                    "like_count": counts.get((item.id, ReactionType.LIKE), 0),
-                    "dislike_count": counts.get((item.id, ReactionType.DISLIKE), 0),
-                    "comment_count": counts.get((item.id, ReactionType.COMMENT), 0),
-                    "my_reaction": own.reaction if own is not None else None,
-                    "my_comment": own.comment if own is not None else None,
-                }
-            )
-        )
-    return reads
+        for item in items
+    ]
 
 
 async def _board_read(db: AsyncSession, board: Moodboard) -> MoodboardRead:
@@ -169,21 +139,18 @@ async def _board_read(db: AsyncSession, board: Moodboard) -> MoodboardRead:
     )
 
 
-async def _require_client_member(
-    db: AsyncSession, project_id: UUID, current_user: User
-) -> None:
-    """Require a CLIENT membership on the project (client-only actions)."""
-    member = await get_membership(db, project_id, current_user.id)
-    if member is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No access to this project",
-        )
-    if member.assigned_role != ProjectRole.CLIENT:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions",
-        )
+def _comment_read(
+    comment: MoodboardComment, author_name: str
+) -> MoodboardCommentRead:
+    """Build a comment read with its author's name attached."""
+    return MoodboardCommentRead(
+        id=comment.id,
+        moodboard_item_id=comment.moodboard_item_id,
+        user_id=comment.user_id,
+        author_name=author_name,
+        comment=comment.comment,
+        created_at=comment.created_at,
+    )
 
 
 @router.get("", response_model=list[MoodboardItemRead])
@@ -192,13 +159,13 @@ async def list_moodboard_items(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> list[MoodboardItemRead]:
-    """List every piece of the project (flat), with reaction counts."""
+    """List every piece of the project (flat), with comment counts."""
     result = await db.execute(
         select(MoodboardItem)
         .where(MoodboardItem.project_id == project_id)
         .order_by(MoodboardItem.sort_order.asc(), MoodboardItem.created_at.asc())
     )
-    return await _item_reads(db, list(result.scalars().all()), current_user)
+    return await _item_reads(db, list(result.scalars().all()))
 
 
 @router.get("/boards", response_model=list[MoodboardRead])
@@ -339,7 +306,7 @@ async def delete_moodboard_board(
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
 ) -> None:
-    """Delete a board with every piece, reaction and file it holds."""
+    """Delete a board with every piece, comment and file it holds."""
     await require_active_project(project_id, db)
     board = await _get_scoped_board(db, project_id, board_id)
 
@@ -350,11 +317,11 @@ async def delete_moodboard_board(
 
     if items:
         item_ids = [item.id for item in items]
-        # Reactions first (explicit delete, no ORM cascade), then the stored
+        # Comments first (explicit delete, no ORM cascade), then the stored
         # files, then the items themselves.
         await db.execute(
-            delete(MoodboardReaction).where(
-                MoodboardReaction.moodboard_item_id.in_(item_ids)
+            delete(MoodboardComment).where(
+                MoodboardComment.moodboard_item_id.in_(item_ids)
             )
         )
         for item in items:
@@ -383,14 +350,14 @@ async def list_board_items(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> list[MoodboardItemRead]:
-    """List one board's pieces with reaction counts (any member)."""
+    """List one board's pieces with comment counts (any member)."""
     board = await _get_scoped_board(db, project_id, board_id)
     result = await db.execute(
         select(MoodboardItem)
         .where(MoodboardItem.moodboard_id == board.id)
         .order_by(MoodboardItem.sort_order.asc(), MoodboardItem.created_at.asc())
     )
-    return await _item_reads(db, list(result.scalars().all()), current_user)
+    return await _item_reads(db, list(result.scalars().all()))
 
 
 @router.post(
@@ -402,28 +369,39 @@ async def upload_board_item(
     project_id: UUID,
     board_id: UUID,
     file: UploadFile = File(...),
-    title: str = Form(..., min_length=1, max_length=255),
+    title: str | None = Form(None, max_length=255),
     description: str | None = Form(None),
     sort_order: int = Form(0),
     current_user: User = Depends(require_team_member),
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
 ) -> MoodboardItem:
-    """Upload a piece into a board (team, ACTIVE only, max 10 pieces)."""
+    """Upload a piece into a board (team, ACTIVE only, max 10 pieces).
+
+    A missing or blank title is derived from the filename stem, falling back
+    to "Imagen N" where N is the next position in the board.
+    """
     await require_active_project(project_id, db)
     board = await _get_scoped_board(db, project_id, board_id)
 
     # Reject the 11th piece before writing anything to storage.
-    count = await db.scalar(
+    item_count = await db.scalar(
         select(func.count())
         .select_from(MoodboardItem)
         .where(MoodboardItem.moodboard_id == board.id)
     )
-    if (count or 0) >= MAX_BOARD_IMAGES:
+    item_count = item_count or 0
+    if item_count >= MAX_BOARD_IMAGES:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Moodboard already has 10 images",
         )
+
+    resolved_title = (title or "").strip()
+    if not resolved_title:
+        resolved_title = Path(file.filename or "").stem[:255].strip()
+    if not resolved_title:
+        resolved_title = f"Imagen {item_count + 1}"
 
     data = await file.read()
     try:
@@ -444,7 +422,7 @@ async def upload_board_item(
     item = MoodboardItem(
         project_id=project_id,
         moodboard_id=board.id,
-        title=title,
+        title=resolved_title,
         description=description,
         file_name=(file.filename or "piece")[:255],
         content_type=file.content_type,
@@ -481,15 +459,15 @@ async def delete_moodboard_item(
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
 ) -> None:
-    """Delete a piece, its reactions and its file (team, ACTIVE only)."""
+    """Delete a piece, its comments and its file (team, ACTIVE only)."""
     await require_active_project(project_id, db)
     item = await _get_scoped_item(db, project_id, item_id)
 
-    # Reactions first (explicit delete, no ORM cascade), then the stored
+    # Comments first (explicit delete, no ORM cascade), then the stored
     # file, then the item itself.
     await db.execute(
-        delete(MoodboardReaction).where(
-            MoodboardReaction.moodboard_item_id == item.id
+        delete(MoodboardComment).where(
+            MoodboardComment.moodboard_item_id == item.id
         )
     )
     await storage.delete(item.storage_key)
@@ -533,120 +511,110 @@ async def download_moodboard_file(
     return FileResponse(path, media_type=item.content_type, filename=item.file_name)
 
 
-@router.post(
-    "/items/{item_id}/reactions",
-    response_model=MoodboardReactionRead,
-    status_code=status.HTTP_201_CREATED,
+@router.get(
+    "/items/{item_id}/comments",
+    response_model=list[MoodboardCommentRead],
 )
-async def react_to_moodboard_item(
+async def list_moodboard_comments(
     project_id: UUID,
     item_id: UUID,
-    payload: MoodboardReactionCreate,
-    response: Response,
-    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
-) -> MoodboardReaction:
-    """React to a piece (project client only, ACTIVE projects only).
+) -> list[MoodboardCommentRead]:
+    """List an item's comment thread in creation order (any member)."""
+    item = await _get_scoped_item(db, project_id, item_id)
+    result = await db.execute(
+        select(MoodboardComment, User.full_name)
+        .join(User, User.id == MoodboardComment.user_id)
+        .where(MoodboardComment.moodboard_item_id == item.id)
+        .order_by(MoodboardComment.created_at.asc())
+    )
+    return [
+        _comment_read(comment, author_name)
+        for comment, author_name in result.all()
+    ]
 
-    Upsert semantics: the caller holds at most one reaction per piece, so
-    an existing reaction is updated (200) instead of duplicated (201).
-    """
-    await _require_client_member(db, project_id, current_user)
+
+@router.post(
+    "/items/{item_id}/comments",
+    response_model=MoodboardCommentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_moodboard_comment(
+    project_id: UUID,
+    item_id: UUID,
+    payload: MoodboardCommentCreate,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+) -> MoodboardCommentRead:
+    """Comment on a piece (any project member, ACTIVE projects only)."""
     await require_active_project(project_id, db)
     item = await _get_scoped_item(db, project_id, item_id)
 
-    result = await db.execute(
-        select(MoodboardReaction).where(
-            MoodboardReaction.moodboard_item_id == item.id,
-            MoodboardReaction.user_id == current_user.id,
-        )
+    comment = MoodboardComment(
+        moodboard_item_id=item.id,
+        user_id=current_user.id,
+        comment=payload.comment,
     )
-    reaction = result.scalar_one_or_none()
-    if reaction is not None:
-        reaction.reaction = payload.reaction
-        reaction.comment = payload.comment
-        await db.commit()
-        await db.refresh(reaction)
-        response.status_code = status.HTTP_200_OK
-    else:
-        reaction = MoodboardReaction(
-            moodboard_item_id=item.id,
-            user_id=current_user.id,
-            reaction=payload.reaction,
-            comment=payload.comment,
-        )
-        db.add(reaction)
-        await db.commit()
-        await db.refresh(reaction)
+    db.add(comment)
+    await db.commit()
+    await db.refresh(comment)
 
     await log_audit(
         db,
         actor_user_id=current_user.id,
-        action="moodboard.reaction",
-        entity_type="moodboard_reaction",
-        entity_id=reaction.id,
-        metadata={
-            "project_id": str(project_id),
-            "reaction": payload.reaction.value,
-        },
+        action="moodboard.comment_create",
+        entity_type="moodboard_comment",
+        entity_id=comment.id,
+        metadata={"project_id": str(project_id)},
     )
-    return reaction
+    return _comment_read(comment, current_user.full_name)
 
 
 @router.delete(
-    "/items/{item_id}/reactions",
+    "/items/{item_id}/comments/{comment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
-async def delete_own_reaction(
+async def delete_moodboard_comment(
     project_id: UUID,
     item_id: UUID,
-    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    comment_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Remove the caller's reaction (project client only, ACTIVE only)."""
-    await _require_client_member(db, project_id, current_user)
+    """Delete a comment (its author or SUPER_ADMIN, ACTIVE projects only).
+
+    A comment from another item or another author is indistinguishable from
+    a missing one (404 "Comment not found").
+    """
     await require_active_project(project_id, db)
     item = await _get_scoped_item(db, project_id, item_id)
 
     result = await db.execute(
-        select(MoodboardReaction).where(
-            MoodboardReaction.moodboard_item_id == item.id,
-            MoodboardReaction.user_id == current_user.id,
+        select(MoodboardComment).where(
+            MoodboardComment.id == comment_id,
+            MoodboardComment.moodboard_item_id == item.id,
         )
     )
-    reaction = result.scalar_one_or_none()
-    if reaction is None:
+    comment = result.scalar_one_or_none()
+    if comment is None or (
+        comment.user_id != current_user.id
+        and current_user.role != UserRole.SUPER_ADMIN
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Reaction not found",
+            detail="Comment not found",
         )
 
-    reaction_id = reaction.id
-    await db.delete(reaction)
+    deleted_id = comment.id
+    await db.delete(comment)
     await db.commit()
 
     await log_audit(
         db,
         actor_user_id=current_user.id,
-        action="moodboard.reaction_delete",
-        entity_type="moodboard_reaction",
-        entity_id=reaction_id,
+        action="moodboard.comment_delete",
+        entity_type="moodboard_comment",
+        entity_id=deleted_id,
         metadata={"project_id": str(project_id)},
     )
-
-
-@router.get("/items/{item_id}/reactions", response_model=list[MoodboardReactionRead])
-async def list_moodboard_reactions(
-    project_id: UUID,
-    item_id: UUID,
-    current_user: User = Depends(require_project_access_from_path),
-    db: AsyncSession = Depends(get_db),
-) -> list[MoodboardReaction]:
-    """List reactions on a piece (any member, any project status)."""
-    item = await _get_scoped_item(db, project_id, item_id)
-    result = await db.execute(
-        select(MoodboardReaction)
-        .where(MoodboardReaction.moodboard_item_id == item.id)
-        .order_by(MoodboardReaction.created_at.asc())
-    )
-    return list(result.scalars().all())

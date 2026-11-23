@@ -1,4 +1,4 @@
-"""Tests for Sprint 3 data models: brief items, moodboard items and reactions."""
+"""Tests for Sprint 3 data models: brief items and moodboard items."""
 
 import uuid
 
@@ -14,10 +14,7 @@ from backend.app.models import (
     BriefItemStatus,
     BriefItemType,
     BriefStatus,
-    MoodboardItem,
-    MoodboardReaction,
     Project,
-    ReactionType,
     User,
     UserRole,
 )
@@ -48,24 +45,6 @@ async def _create_project(db_session, user: User) -> Project:
     db_session.add(project)
     await db_session.commit()
     return project
-
-
-async def _create_moodboard_item(db_session, project: Project, user: User) -> MoodboardItem:
-    """Create an inline moodboard item uploaded by `user`."""
-    item = MoodboardItem(
-        id=uuid.uuid4(),
-        project_id=project.id,
-        title="Paleta cálida",
-        description="Referencia de tonos tierra",
-        file_name="palette.jpg",
-        content_type="image/jpeg",
-        size_bytes=1024,
-        storage_key="moodboard/palette.jpg",
-        created_by=user.id,
-    )
-    db_session.add(item)
-    await db_session.commit()
-    return item
 
 
 @pytest.mark.asyncio
@@ -139,73 +118,6 @@ async def test_brief_item_shape_check_rejects_question_without_prompt(db_session
 
 
 @pytest.mark.asyncio
-async def test_moodboard_reaction_unique_per_user(db_session):
-    user = await _create_user(db_session, "sprint3-reactor@example.com")
-    project = await _create_project(db_session, user)
-    item = await _create_moodboard_item(db_session, project, user)
-
-    db_session.add(
-        MoodboardReaction(
-            id=uuid.uuid4(),
-            moodboard_item_id=item.id,
-            user_id=user.id,
-            reaction=ReactionType.LIKE,
-        )
-    )
-    await db_session.commit()
-
-    db_session.add(
-        MoodboardReaction(
-            id=uuid.uuid4(),
-            moodboard_item_id=item.id,
-            user_id=user.id,
-            reaction=ReactionType.LIKE,
-        )
-    )
-    with pytest.raises(IntegrityError):
-        await db_session.commit()
-    await db_session.rollback()
-
-
-@pytest.mark.asyncio
-async def test_comment_reaction_requires_text(db_session):
-    user = await _create_user(db_session, "sprint3-commenter@example.com")
-    project = await _create_project(db_session, user)
-    item = await _create_moodboard_item(db_session, project, user)
-
-    # Plain locals: after rollback() the ORM instances are expired and must
-    # not be touched again from the async session.
-    item_id = item.id
-    user_id = user.id
-
-    db_session.add(
-        MoodboardReaction(
-            id=uuid.uuid4(),
-            moodboard_item_id=item_id,
-            user_id=user_id,
-            reaction=ReactionType.COMMENT,
-            comment=None,
-        )
-    )
-    with pytest.raises(IntegrityError):
-        await db_session.commit()
-    await db_session.rollback()
-
-    db_session.add(
-        MoodboardReaction(
-            id=uuid.uuid4(),
-            moodboard_item_id=item_id,
-            user_id=user_id,
-            reaction=ReactionType.COMMENT,
-            comment="  ",
-        )
-    )
-    with pytest.raises(IntegrityError):
-        await db_session.commit()
-    await db_session.rollback()
-
-
-@pytest.mark.asyncio
 async def test_enum_values_are_lowercase(db_session):
     user = await _create_user(db_session, "sprint3-enums@example.com")
     project = await _create_project(db_session, user)
@@ -220,15 +132,6 @@ async def test_enum_values_are_lowercase(db_session):
             created_by=user.id,
         )
     )
-    item = await _create_moodboard_item(db_session, project, user)
-    db_session.add(
-        MoodboardReaction(
-            id=uuid.uuid4(),
-            moodboard_item_id=item.id,
-            user_id=user.id,
-            reaction=ReactionType.LIKE,
-        )
-    )
     await db_session.commit()
 
     item_type = await db_session.execute(sa.text("SELECT item_type FROM brief_items"))
@@ -236,9 +139,6 @@ async def test_enum_values_are_lowercase(db_session):
 
     category = await db_session.execute(sa.text("SELECT category FROM brief_items"))
     assert category.scalar_one() == "general"
-
-    reaction = await db_session.execute(sa.text("SELECT reaction FROM moodboard_reactions"))
-    assert reaction.scalar_one() == "like"
 
 
 @pytest.mark.asyncio

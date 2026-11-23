@@ -33,10 +33,7 @@ from .brief_item import (
 from .brief_item_image import BriefItemImage
 from .moodboard import Moodboard, MoodboardLayout
 from .moodboard_item import MoodboardItem
-from .moodboard_reaction import (
-    MoodboardReaction,
-    ReactionType,
-)
+from .moodboard_comment import MoodboardComment
 from .project_stage import (
     ProjectStage,
     StageStatus,
@@ -81,8 +78,7 @@ __all__ = [
     "Moodboard",
     "MoodboardLayout",
     "MoodboardItem",
-    "MoodboardReaction",
-    "ReactionType",
+    "MoodboardComment",
     "ProjectStage",
     "StageStatus",
     "Deliverable",
