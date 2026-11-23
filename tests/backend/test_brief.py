@@ -15,6 +15,7 @@ from backend.app.models import (
     AuditLog,
     BriefCategory,
     BriefItem,
+    BriefItemImage,
     BriefItemType,
     BriefStatus,
     Project,
@@ -849,4 +850,323 @@ async def test_brief_autosave_permissions_and_checks(
         headers={"Authorization": f"Bearer {client_token}"},
     )
     assert res_other.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_upload_two_images_ok(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Referencias visuales?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    # First image upload
+    img1_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img1.png", b"png-bytes-1", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert img1_res.status_code == 200
+
+    # Second image upload
+    img2_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img2.png", b"png-bytes-2", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert img2_res.status_code == 200
+
+    brief_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert brief_res.status_code == 200
+    items = brief_res.json()
+    item = next(i for i in items if i["id"] == item_id)
+    assert "images" in item
+    assert len(item["images"]) == 2
+    assert item["images"][0]["position"] == 1
+    assert item["images"][1]["position"] == 2
+
+    # Autosave and pending payloads expose the same image list.
+    autosave_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/autosave",
+        json={"item_id": item_id, "answer": "Referencias listas"},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert autosave_res.status_code == 200
+    autosaved = next(i for i in autosave_res.json()["items"] if i["id"] == item_id)
+    assert len(autosaved["images"]) == 2
+
+    pending_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief/pending",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert pending_res.status_code == 200
+    pending_item = next(i for i in pending_res.json()["items"] if i["id"] == item_id)
+    assert len(pending_item["images"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_third_image_rejected_409(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Referencias de iluminación?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img1.png", b"png-bytes-1", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img2.png", b"png-bytes-2", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+
+    img3_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img3.png", b"png-bytes-3", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert img3_res.status_code == 409
+    assert img3_res.json()["detail"] == "Maximum of 2 images per question"
+
+    brief_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    items = brief_res.json()
+    item = next(i for i in items if i["id"] == item_id)
+    assert len(item["images"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_image_resyncs_legacy(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Materiales preferidos?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img1.png", b"png-bytes-1", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img2.png", b"png-bytes-2", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+
+    brief_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    item = next(i for i in brief_res.json() if i["id"] == item_id)
+    img1_id = item["images"][0]["id"]
+    img2_id = item["images"][1]["id"]
+
+    # Delete first image
+    del1_res = client.delete(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/images/{img1_id}",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert del1_res.status_code in (200, 204)
+
+    brief_res2 = client.get(
+        f"/api/v1/projects/{active_project.id}/brief",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    item2 = next(i for i in brief_res2.json() if i["id"] == item_id)
+    assert len(item2["images"]) == 1
+    assert item2["images"][0]["id"] == img2_id
+    assert item2["images"][0]["position"] == 1
+    assert item2["image_url"] is not None
+    assert img2_id in item2["image_url"]
+
+    # Delete remaining image
+    del2_res = client.delete(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/images/{img2_id}",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert del2_res.status_code in (200, 204)
+
+    brief_res3 = client.get(
+        f"/api/v1/projects/{active_project.id}/brief",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    item3 = next(i for i in brief_res3.json() if i["id"] == item_id)
+    assert len(item3["images"]) == 0
+    assert item3["image_url"] is None
+    assert item3["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_image_media_download_content_type(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Textura deseada?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    upload_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("sample.webp", b"webp-bytes-content", "image/webp")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert upload_res.status_code == 200
+
+    brief_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    item = next(i for i in brief_res.json() if i["id"] == item_id)
+    img_id = item["images"][0]["id"]
+
+    dl_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/images/{img_id}/media",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert dl_res.status_code == 200
+    assert "image/webp" in dl_res.headers["content-type"]
+    assert dl_res.content == b"webp-bytes-content"
+
+
+@pytest.mark.asyncio
+async def test_image_upload_cross_project_404(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    other_project: Project,
+    client_user: User,
+    collaborator_token: str,
+    client_token: str,
+    media_storage,
+):
+    # Give client_user CLIENT role in other_project too
+    member = ProjectMember(
+        id=uuid.uuid4(),
+        project_id=other_project.id,
+        user_id=client_user.id,
+        assigned_role=ProjectRole.CLIENT,
+    )
+    db_session.add(member)
+    await db_session.commit()
+
+    # Question belongs to active_project
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Paleta de color?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    # Try uploading file using other_project path
+    upload_res = client.post(
+        f"/api/v1/projects/{other_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img.png", b"png-bytes", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert upload_res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_collaborator_cannot_upload_response_403(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    media_storage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Estilo de mobiliario?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img.png", b"png-bytes", "image/png")},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_image_cross_project_404(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    other_project: Project,
+    collaborator_user: User,
+    collaborator_token: str,
+    client_token: str,
+    media_storage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Atmósfera?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    # An image attached to a question of a different project.
+    other_item = BriefItem(
+        id=uuid.uuid4(),
+        project_id=other_project.id,
+        item_type=BriefItemType.QUESTION,
+        category=BriefCategory.INTERIOR,
+        prompt="¿Otra atmósfera?",
+        status=BriefStatus.PENDING,
+        created_by=collaborator_user.id,
+    )
+    other_image = BriefItemImage(
+        id=uuid.uuid4(),
+        item_id=other_item.id,
+        storage_key=f"{other_project.id}/other.png",
+        content_type="image/png",
+        position=1,
+    )
+    db_session.add_all([other_item, other_image])
+    await db_session.commit()
+
+    res = client.delete(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/images/{other_image.id}",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res.status_code == 404
+
 

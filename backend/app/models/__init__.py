@@ -25,6 +25,7 @@ from .brief_item import (
     BriefItemType,
     BriefStatus,
 )
+from .brief_item_image import BriefItemImage
 from .moodboard_item import MoodboardItem
 from .moodboard_reaction import (
     MoodboardReaction,
@@ -64,6 +65,7 @@ __all__ = [
     "Brief",
     "BriefCategory",
     "BriefItem",
+    "BriefItemImage",
     "BriefItemStatus",
     "BriefItemType",
     "BriefStatus",
