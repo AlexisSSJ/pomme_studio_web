@@ -60,20 +60,19 @@ function formatBytes(sizeBytes: number | null): string {
 function ImagePreview({
   image,
   index,
-  total,
   deleting,
   onZoom,
   onDelete,
 }: {
   image: BriefImage;
   index: number;
-  total: number;
   deleting: boolean;
   onZoom: (src: string, alt: string) => void;
   onDelete: () => void;
 }) {
   const src = useProtectedMediaUrl(image?.url);
-  const label = `${String(index + 1).padStart(2, "0")}/${String(total).padStart(2, "0")}`;
+  // Fixed denominator: every question accepts up to two images (as in admin).
+  const label = `${String(index + 1).padStart(2, "0")}/02`;
 
   return (
     <div className="flex flex-col bg-[#F7F7F5]">
@@ -177,9 +176,22 @@ export default function BriefPage() {
         const trMap: Record<string, string> = {};
         fetchedItems.forEach((item) => {
           if (!item?.id) return;
-          if (item.answer) ansMap[item.id] = item.answer;
-          const transcription = item.audio_transcription || item.transcription;
-          if (transcription) trMap[item.id] = transcription;
+          const localAnswer = answersRef.current[item.id];
+          const localTranscription = transcriptionsRef.current[item.id];
+          const serverAnswer = item.answer;
+          const serverTranscription = item.audio_transcription || item.transcription;
+          // The refs are the UI source of truth for pending (debounced) edits.
+          // A reload triggered by an image/audio upload or delete must not
+          // overwrite them with stale server values: the pending 800ms timer
+          // reads these refs when it fires, so that would discard text the
+          // client typed inside the debounce window. Local keys win, including
+          // an intentional empty string (the client cleared the field).
+          if (localAnswer !== undefined || serverAnswer) {
+            ansMap[item.id] = localAnswer !== undefined ? localAnswer : serverAnswer!;
+          }
+          if (localTranscription !== undefined || serverTranscription) {
+            trMap[item.id] = localTranscription !== undefined ? localTranscription : serverTranscription!;
+          }
         });
         answersRef.current = ansMap;
         transcriptionsRef.current = trMap;
@@ -556,7 +568,6 @@ export default function BriefPage() {
                             key={image?.id ?? imageIndex}
                             image={image}
                             index={imageIndex}
-                            total={imageCount}
                             deleting={deletingImageId === image?.id}
                             onZoom={(src, alt) => setZoomedImage({ src, alt })}
                             onDelete={() =>

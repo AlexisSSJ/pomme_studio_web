@@ -1682,3 +1682,72 @@ async def test_media_legacy_image_branch(
     assert dl_res.status_code == 200
     assert dl_res.headers["content-type"].split(";")[0] == "image/png"
     assert dl_res.content == image_bytes
+
+
+@pytest.mark.asyncio
+async def test_edited_transcription_survives_reload_both_fields(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+):
+    """An edited `transcription` must win over the service transcription in BOTH columns.
+
+    The portal hydrates from `audio_transcription || transcription` (admin:
+    `audio_transcription ?? transcription`), so leaving a stale service value in
+    `audio_transcription` would resurrect the old text after a reload. Covers the
+    autosave path and the answer_question PATCH path independently.
+    """
+    edited = "texto editado por el cliente"
+
+    def question_with_service_transcription(prompt: str) -> str:
+        q_res = client.post(
+            f"/api/v1/projects/{active_project.id}/brief/questions",
+            json={"prompt": prompt, "category": "interior"},
+            headers={"Authorization": f"Bearer {collaborator_token}"},
+        )
+        assert q_res.status_code == 201
+        item_id = q_res.json()["id"]
+        upload_res = client.post(
+            f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+            files={"file": ("recording.mp3", b"ID3fake-mp3-audio", "audio/mpeg")},
+            data={"transcription": "Transcripción original del servicio."},
+            headers={"Authorization": f"Bearer {client_token}"},
+        )
+        assert upload_res.status_code == 200
+        assert upload_res.json()["audio_transcription"] == "Transcripción original del servicio."
+        assert upload_res.json()["transcription"] == "Transcripción original del servicio."
+        return item_id
+
+    def brief_item(item_id: str) -> dict:
+        brief_res = client.get(
+            f"/api/v1/projects/{active_project.id}/brief",
+            headers={"Authorization": f"Bearer {client_token}"},
+        )
+        assert brief_res.status_code == 200
+        return next(i for i in brief_res.json() if i["id"] == item_id)
+
+    # 1. Autosave path.
+    autosave_item_id = question_with_service_transcription("Concepto en audio (autosave)")
+    auto_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{autosave_item_id}/autosave",
+        json={"answer": "Respuesta escrita.", "transcription": edited},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert auto_res.status_code == 200
+    saved = brief_item(autosave_item_id)
+    assert saved["transcription"] == edited
+    assert saved["audio_transcription"] == edited
+
+    # 2. answer_question PATCH path.
+    answer_item_id = question_with_service_transcription("Concepto en audio (answer)")
+    answer_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{answer_item_id}",
+        json={"answer": "Respuesta escrita.", "transcription": edited},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert answer_res.status_code == 200
+    saved = brief_item(answer_item_id)
+    assert saved["transcription"] == edited
+    assert saved["audio_transcription"] == edited

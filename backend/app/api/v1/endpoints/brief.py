@@ -370,9 +370,11 @@ async def answer_question(
         if item.transcription is None:
             item.transcription = payload.audio_transcription
     if payload.transcription is not None:
+        # The client's edited text is authoritative: mirror it into both columns
+        # so a reload (which hydrates from audio_transcription) does not revive
+        # the old service transcription.
         item.transcription = payload.transcription
-        if item.audio_transcription is None:
-            item.audio_transcription = payload.transcription
+        item.audio_transcription = payload.transcription
     if payload.response_type is not None:
         item.response_type = payload.response_type
 
@@ -477,9 +479,10 @@ async def _apply_autosave(
             if item.transcription is None:
                 item.transcription = update.audio_transcription
         if update.transcription is not None:
+            # Same sync as answer_question: an edited transcription wins in both
+            # columns, otherwise a reload would show the stale service text.
             item.transcription = update.transcription
-            if item.audio_transcription is None:
-                item.audio_transcription = update.transcription
+            item.audio_transcription = update.transcription
         if update.response_type is not None:
             item.response_type = update.response_type
 

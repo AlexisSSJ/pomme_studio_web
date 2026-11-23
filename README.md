@@ -23,6 +23,12 @@ arranque. `0009` repara el casing de los enums, deriva `status` / `category` /
 y reconcilia imágenes heredadas con `brief_item_images`. Es idempotente:
 re-ejecutarla no altera las filas ya reparadas.
 
+Los valores `_missing_` de los enums protegen la validación de Pydantic y los
+payloads de la API, **no** las lecturas ORM de SQLAlchemy: una fila heredada con
+valores en mayúscula puede leerse tal cual desde la BD. La reparación de esos
+valores heredados la garantiza la migración `0009` en cada deploy
+(`alembic upgrade head` antes de `uvicorn`), no los `_missing_`.
+
 Comando manual (útil tras importar datos o para verificar) — **desde `backend/`**:
 
 ```bash
@@ -83,6 +89,6 @@ especificaciones FF&E.
 
 ```bash
 python3 -m pytest tests/backend -q
-cd frontend && npx tsc --noEmit && npm run build
-cd backend && alembic heads && alembic history
+(cd frontend && npx tsc --noEmit && npm run build)
+(cd backend && alembic heads && alembic history)
 ```
