@@ -11,6 +11,7 @@ interface Project {
   title: string;
   status: string;
   scope_type: string | null;
+  brief_sent_at: string | null;
 }
 
 interface BriefImage {
@@ -125,7 +126,21 @@ export default function AdminBriefPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const expandInitRef = useRef(false);
 
+  // Question edit/delete + release-to-client state.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editPrompt, setEditPrompt] = useState("");
+  const [editCategory, setEditCategory] = useState<
+    "branding" | "interior" | "general"
+  >("branding");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [deletingQuestionId, setDeletingQuestionId] = useState<string | null>(
+    null
+  );
+  const [sending, setSending] = useState(false);
+
   const isActive = project?.status === "active";
+  const briefSent = Boolean(project?.brief_sent_at);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -216,6 +231,118 @@ export default function AdminBriefPage() {
     }
   }
 
+  async function sendBrief() {
+    if (!project || project.brief_sent_at || !isActive || sending) return;
+    const confirmed = window.confirm(
+      "¿Confirmas y envías el brief al cliente? El cliente podrá responder desde su portal."
+    );
+    if (!confirmed) return;
+
+    setSending(true);
+    try {
+      const res = await apiFetch(`/api/v1/projects/${projectId}/brief/send`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data: { project_id: string; brief_sent_at: string } =
+          await res.json();
+        setProject((prev) =>
+          prev ? { ...prev, brief_sent_at: data.brief_sent_at } : prev
+        );
+        setMessage("Brief enviado al cliente ✓");
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al enviar el brief"));
+      }
+    } catch {
+      setMessage("Error de conexión con el servidor");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function startEditing(item: BriefItem) {
+    setEditingId(item.id);
+    setEditPrompt(item.prompt ?? "");
+    setEditCategory(item.category ?? "general");
+    setEditError("");
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditPrompt("");
+    setEditError("");
+  }
+
+  async function saveEdit(item: BriefItem) {
+    const trimmed = editPrompt.trim();
+    if (!trimmed) {
+      setEditError("La pregunta no puede estar vacía");
+      return;
+    }
+
+    setEditSaving(true);
+    setEditError("");
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/brief/questions/${item.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ prompt: trimmed, category: editCategory }),
+        }
+      );
+      if (res.ok) {
+        const updated: BriefItem = await res.json();
+        setItems((prev) =>
+          prev.map((it) => (it.id === updated.id ? { ...it, ...updated } : it))
+        );
+        setEditingId(null);
+        setEditPrompt("");
+        setMessage("Pregunta actualizada");
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setEditError(extractDetail(data, "Error al guardar la pregunta"));
+      }
+    } catch {
+      setEditError("Error de conexión con el servidor");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function deleteQuestion(item: BriefItem, hasResponse: boolean) {
+    const confirmed = window.confirm(
+      hasResponse
+        ? "¿Eliminar esta pregunta? Las respuestas del cliente (texto, imágenes y audio) también se eliminarán. Esta acción no se puede deshacer."
+        : "¿Eliminar esta pregunta? Esta acción no se puede deshacer."
+    );
+    if (!confirmed) return;
+
+    setDeletingQuestionId(item.id);
+    try {
+      // The backend refuses to discard answers unless force=true.
+      const suffix = hasResponse ? "?force=true" : "";
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/brief/questions/${item.id}${suffix}`,
+        { method: "DELETE" }
+      );
+      // 204 No Content: there is no JSON body to parse.
+      if (res.status === 204 || res.ok) {
+        setItems((prev) => prev.filter((it) => it.id !== item.id));
+        if (expandedId === item.id) setExpandedId(null);
+        if (editingId === item.id) cancelEditing();
+        setMessage("Pregunta eliminada");
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al eliminar la pregunta"));
+      }
+    } catch {
+      setMessage("Error de conexión con el servidor");
+    } finally {
+      setDeletingQuestionId(null);
+    }
+  }
+
   async function downloadReference(item: BriefItem) {
     setDownloadingId(item.id);
     try {
@@ -295,6 +422,37 @@ export default function AdminBriefPage() {
         <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
           {project?.title ?? "Brief"}
         </h1>
+        {project && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <span
+              className={`type-tech inline-flex items-center gap-2 rounded-lg border px-3 py-1 ${
+                briefSent
+                  ? "border-[#5F7161]/40 bg-[#EEF2EC] text-[#44544A]"
+                  : "border-stone-900/15 bg-surface/75 text-stone-600"
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`dot-organic h-1.5 w-1.5 shrink-0 ${
+                  briefSent ? "bg-[#5F7161]" : "bg-stone-800/70"
+                }`}
+              />
+              {briefSent ? "Enviado al cliente" : "Borrador · no enviado"}
+            </span>
+            {!briefSent && isActive && (
+              <button
+                type="button"
+                onClick={sendBrief}
+                disabled={sending}
+                className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sending
+                  ? "Enviando…"
+                  : "Confirmar y enviar al cliente ↗"}
+              </button>
+            )}
+          </div>
+        )}
         <div className="mt-5 flex flex-col gap-2">
           <div className="h-[2px] w-full bg-stone-200">
             <div
@@ -397,7 +555,13 @@ export default function AdminBriefPage() {
                   ""
                 ).trim();
                 const hasResponse = Boolean(
-                  answer || transcription || item?.audio_url || imageCount > 0
+                  answer ||
+                    transcription ||
+                    item?.audio_url ||
+                    imageCount > 0 ||
+                    // Mirrors the backend's is_question_answered(): a completed
+                    // status counts as a response even if the fields look empty.
+                    item?.status === "completed"
                 );
                 const expanded = expandedId === item.id;
                 const confirmed = Boolean(item.client_confirmed);
@@ -541,6 +705,94 @@ export default function AdminBriefPage() {
                             </p>
                           )}
                         </div>
+
+                        {editingId === item.id ? (
+                          <div className="flex flex-col gap-3 border-t border-stone-900/10 pt-4">
+                            <p className="type-tech text-stone-600">
+                              Editar pregunta
+                            </p>
+                            <label className="flex flex-col gap-1">
+                              <span className="type-ui text-sm text-stone-600">
+                                Pregunta
+                              </span>
+                              <textarea
+                                value={editPrompt}
+                                onChange={(event) =>
+                                  setEditPrompt(event.target.value)
+                                }
+                                maxLength={500}
+                                className="type-ui min-h-[80px] w-full rounded-xl border border-stone-900/15 bg-background p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1">
+                              <span className="type-ui text-sm text-stone-600">
+                                Categoría
+                              </span>
+                              <select
+                                value={editCategory}
+                                onChange={(event) =>
+                                  setEditCategory(
+                                    event.target.value as
+                                      | "branding"
+                                      | "interior"
+                                      | "general"
+                                  )
+                                }
+                                className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900"
+                              >
+                                <option value="branding">Branding</option>
+                                <option value="interior">Interior</option>
+                                <option value="general">General</option>
+                              </select>
+                            </label>
+                            {editError && (
+                              <p className="type-ui text-sm text-stone-600">
+                                {editError}
+                              </p>
+                            )}
+                            <div className="flex flex-wrap items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(item)}
+                                disabled={editSaving}
+                                className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {editSaving ? "Guardando…" : "Guardar"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditing}
+                                disabled={editSaving}
+                                className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-3 border-t border-stone-900/10 pt-4">
+                            <button
+                              type="button"
+                              onClick={() => startEditing(item)}
+                              disabled={!isActive}
+                              className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteQuestion(item, hasResponse)}
+                              disabled={
+                                deletingQuestionId === item.id || !isActive
+                              }
+                              className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingQuestionId === item.id
+                                ? "Eliminando…"
+                                : "Eliminar"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

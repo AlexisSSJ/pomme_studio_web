@@ -17,6 +17,7 @@ interface Project {
   included_rounds: number;
   remaining_rounds: number;
   balance_paid: boolean;
+  brief_sent_at: string | null;
   created_at: string;
 }
 
@@ -157,6 +158,10 @@ export default function BriefPage() {
   const audioChunksRef = useRef<Blob[]>([]);
 
   const isActive = project?.status === "active";
+  // The studio releases the brief explicitly: until then the client only sees
+  // references and a waiting state, and answer actions are hard-disabled.
+  const briefSent = Boolean(project?.brief_sent_at);
+  const awaitingBrief = project !== null && project.brief_sent_at === null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -226,6 +231,8 @@ export default function BriefPage() {
   const autosaveTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
   const triggerAutosave = useCallback((itemId: string) => {
+    // Never queue an answer before the studio releases the brief.
+    if (!briefSent) return;
     setAutosaveStatus((prev) => ({ ...prev, [itemId]: "Guardando…" }));
     if (autosaveTimers.current[itemId]) {
       clearTimeout(autosaveTimers.current[itemId]);
@@ -258,7 +265,7 @@ export default function BriefPage() {
         setAutosaveStatus((prev) => ({ ...prev, [itemId]: "Error de red" }));
       }
     }, 800);
-  }, [projectId]);
+  }, [projectId, briefSent]);
 
   function handleAnswerChange(itemId: string, value: string) {
     answersRef.current = { ...answersRef.current, [itemId]: value };
@@ -274,6 +281,7 @@ export default function BriefPage() {
 
   // Audio recording handlers
   async function startRecording(itemId: string) {
+    if (!briefSent) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -308,6 +316,7 @@ export default function BriefPage() {
   }
 
   async function uploadAudioResponse(itemId: string, blob: Blob) {
+    if (!briefSent) return;
     setItemFeedback((prev) => ({ ...prev, [itemId]: "Subiendo y transcribiendo audio…" }));
     try {
       const form = new FormData();
@@ -352,6 +361,7 @@ export default function BriefPage() {
 
   // Image response upload
   async function uploadImageResponse(itemId: string, imageFile: File) {
+    if (!briefSent) return;
     setItemFeedback((prev) => ({ ...prev, [itemId]: "Subiendo imagen de respuesta…" }));
     try {
       const form = new FormData();
@@ -446,6 +456,7 @@ export default function BriefPage() {
   }
 
   async function confirmQuestion(itemId: string, confirmed: boolean) {
+    if (!briefSent) return;
     setConfirmingId(itemId);
     try {
       const res = await apiFetch(
@@ -604,6 +615,7 @@ export default function BriefPage() {
 
   // Flush pending debounced autosaves immediately (same PATCH endpoint).
   async function saveProgressNow() {
+    if (!briefSent) return;
     const pendingIds = Object.keys(autosaveTimers.current);
     if (pendingIds.length === 0) {
       setFlowMessage("Todo el progreso ya está guardado");
@@ -664,6 +676,7 @@ export default function BriefPage() {
   // once every question is answered; the client's explicit confirmation seal
   // is what gates the "Enviar Brief" button in the UI.
   function handleSendBrief() {
+    if (!briefSent) return;
     if (allConfirmed) {
       setFlowMessage("Brief enviado ✓ — el estudio ya fue notificado");
       return;
@@ -724,319 +737,330 @@ export default function BriefPage() {
         <p className="mt-4 text-sm text-stone-500">Cargando…</p>
       ) : (
         <>
-          <h2 className="type-subtitle-caps text-xl text-stone-900">
-            Cuestionario
-          </h2>
-          {questions.length === 0 ? (
-            <p className="mt-3 text-sm text-stone-500">
-              Todavía no hay preguntas del estudio.
-            </p>
+          {awaitingBrief ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-stone-900/10 bg-surface/75 p-5 md:p-6">
+              <p className="type-tech text-stone-500">Brief en preparación</p>
+              <p className="type-editorial text-lg leading-snug text-stone-950 md:text-xl">
+                El estudio está preparando tu brief. Podrás responder cuando el equipo lo confirme y envíe.
+              </p>
+            </div>
           ) : (
-            <div className="mt-4 space-y-3">
-              {questions.map((item, index) => {
-                // Legacy / incomplete records must never break the view.
-                const images = item?.images ?? [];
-                const imageCount = Math.min(images.length, 2);
-                const nextImageLabel = String(Math.min(imageCount + 1, 2)).padStart(2, "0");
-                const transcription =
-                  transcriptions[item.id] ??
-                  item.transcription ??
-                  item.audio_transcription ??
-                  "";
-                const hasTranscription = Boolean(transcription.trim());
-                const expanded = expandedId === item.id;
-                const answered = questionAnswered(item);
-                const confirmed = Boolean(item.client_confirmed);
-                const isLast = index === questions.length - 1;
-                return (
-                  <div
-                    key={item.id}
-                    id={`brief-question-${item.id}`}
-                    className={`scroll-mt-4 rounded-2xl border transition-all duration-300 ${
-                      expanded
-                        ? confirmed
-                          ? "border-[#5F7161]/45 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
-                          : "border-stone-900/35 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
-                        : confirmed
-                          ? "border-[#5F7161]/30 bg-[#EEF2EC]/75 px-5 py-4 hover:bg-[#E5EBE2] md:px-6 md:py-5"
-                          : "border-stone-900/10 bg-surface/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
-                    }`}
-                  >
-                    {/* Full-row header button: touch target far above 44px. */}
-                    <button
-                      type="button"
-                      aria-expanded={expanded}
-                      aria-controls={`brief-panel-${item.id}`}
-                      onClick={() => setExpandedId(expanded ? null : item.id)}
-                      className="flex min-h-[44px] w-full cursor-pointer items-center gap-4 text-left"
-                    >
-                      <span className="label-mono text-stone-600">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                      <span
-                        className={`flex-1 ${
-                          expanded
-                            ? "type-editorial text-lg leading-snug text-stone-950 md:text-xl"
-                            : "text-[15px] font-normal text-stone-800 md:text-base"
-                        }`}
-                      >
-                        {item.prompt}
-                      </span>
-                      {!expanded && confirmed && (
-                        <span className="hidden items-center gap-2 type-editorial text-[11px] italic text-[#44544A] sm:flex">
-                          <span
-                            aria-hidden="true"
-                            className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
-                          />
-                          Confirmada
-                        </span>
-                      )}
-                      {!expanded && !confirmed && answered && (
-                        <span className="hidden type-editorial text-[11px] italic text-stone-500 sm:inline">
-                          Respondida
-                        </span>
-                      )}
-                      <span
-                        aria-hidden="true"
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base transition-transform duration-300 ${
-                          expanded
-                            ? "border border-stone-900/25 bg-transparent text-stone-800 hover:border-stone-900"
-                            : "bg-stone-900 text-background"
-                        }`}
-                      >
-                        {expanded ? "×" : "+"}
-                      </span>
-                    </button>
-
-                    {expanded && (
+            <>
+              <h2 className="type-subtitle-caps text-xl text-stone-900">
+                Cuestionario
+              </h2>
+              {questions.length === 0 ? (
+                <p className="mt-3 text-sm text-stone-500">
+                  Todavía no hay preguntas del estudio.
+                </p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {questions.map((item, index) => {
+                    // Legacy / incomplete records must never break the view.
+                    const images = item?.images ?? [];
+                    const imageCount = Math.min(images.length, 2);
+                    const nextImageLabel = String(Math.min(imageCount + 1, 2)).padStart(2, "0");
+                    const transcription =
+                      transcriptions[item.id] ??
+                      item.transcription ??
+                      item.audio_transcription ??
+                      "";
+                    const hasTranscription = Boolean(transcription.trim());
+                    const expanded = expandedId === item.id;
+                    const answered = questionAnswered(item);
+                    const confirmed = Boolean(item.client_confirmed);
+                    const isLast = index === questions.length - 1;
+                    return (
                       <div
-                        id={`brief-panel-${item.id}`}
-                        className="mt-5 flex flex-col gap-4"
+                        key={item.id}
+                        id={`brief-question-${item.id}`}
+                        className={`scroll-mt-4 rounded-2xl border transition-all duration-300 ${
+                          expanded
+                            ? confirmed
+                              ? "border-[#5F7161]/45 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                              : "border-stone-900/35 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                            : confirmed
+                              ? "border-[#5F7161]/30 bg-[#EEF2EC]/75 px-5 py-4 hover:bg-[#E5EBE2] md:px-6 md:py-5"
+                              : "border-stone-900/10 bg-surface/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
+                        }`}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="type-tech text-stone-500">
-                            {item.category}
+                        {/* Full-row header button: touch target far above 44px. */}
+                        <button
+                          type="button"
+                          aria-expanded={expanded}
+                          aria-controls={`brief-panel-${item.id}`}
+                          onClick={() => setExpandedId(expanded ? null : item.id)}
+                          className="flex min-h-[44px] w-full cursor-pointer items-center gap-4 text-left"
+                        >
+                          <span className="label-mono text-stone-600">
+                            {String(index + 1).padStart(2, "0")}
                           </span>
-                          {autosaveStatus[item.id] && (
-                            <span className="type-editorial text-[11px] italic text-stone-500">
-                              {autosaveStatus[item.id]}
-                            </span>
-                          )}
-                        </div>
-
-                        <textarea
-                          value={answers[item.id] ?? item.answer ?? ""}
-                          onChange={(event) =>
-                            handleAnswerChange(item.id, event.target.value)
-                          }
-                          placeholder="Escribe tu respuesta aquí (autoguardado en tiempo real)..."
-                          maxLength={10000}
-                          className="type-ui min-h-[120px] w-full rounded-xl border border-stone-900/15 bg-surface/70 p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
-                        />
-
-                        {/* Multimodal response: images, voice and editable transcription */}
-                        <div className="flex flex-col gap-3 border-t border-stone-900/10 pt-4">
-                          <p className="type-tech text-stone-500">
-                            Respuesta multimodal
-                          </p>
-
-                          {imageCount > 0 && (
-                            <div className="grid grid-cols-2 gap-3">
-                              {images.slice(0, 2).map((image, imageIndex) => (
-                                <ImagePreview
-                                  key={image?.id ?? imageIndex}
-                                  image={image}
-                                  index={imageIndex}
-                                  deleting={deletingImageId === image?.id}
-                                  onZoom={(src, alt) => setZoomedImage({ src, alt })}
-                                  onDelete={() =>
-                                    image?.id && deleteImageResponse(item.id, image.id)
-                                  }
-                                />
-                              ))}
-                            </div>
-                          )}
-
-                          <div className="flex flex-wrap items-center gap-3">
-                            {recordingId === item.id ? (
-                              <button
-                                type="button"
-                                onClick={stopRecording}
-                                className="type-ui flex min-h-[44px] items-center gap-2 rounded-lg border border-stone-900 bg-stone-900 px-3 py-2 text-xs text-background transition-colors duration-300"
-                              >
-                                <span
-                                  aria-hidden="true"
-                                  className="dot-organic h-1.5 w-1.5 animate-pulse bg-background"
-                                />
-                                Grabando — detener
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => startRecording(item.id)}
-                                disabled={!isActive}
-                                className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-3 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {item.audio_url
-                                  ? "Regrabar nota de voz"
-                                  : "Grabar audio"}
-                              </button>
-                            )}
-
-                            <label
-                              aria-disabled={imageCount >= 2 || !isActive}
-                              className={`flex min-h-[44px] items-center gap-2 rounded-xl border border-dashed border-stone-900/20 px-4 py-2 transition-colors duration-300 ${
-                                imageCount >= 2 || !isActive
-                                  ? "cursor-not-allowed opacity-50"
-                                  : "cursor-pointer hover:border-stone-900/45"
-                              }`}
-                            >
-                              <span className="label-mono text-stone-600">
-                                Añadir imagen {nextImageLabel}/02
-                              </span>
-                              <input
-                                type="file"
-                                accept="image/*"
-                                disabled={imageCount >= 2 || !isActive}
-                                className="sr-only"
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  if (f) uploadImageResponse(item.id, f);
-                                  e.target.value = "";
-                                }}
-                              />
-                            </label>
-                          </div>
-
-                          {(item.audio_url || hasTranscription) && (
-                            <div className="flex flex-col gap-3 rounded-xl border border-stone-900/15 bg-surface/50 p-4">
-                              {item.audio_url && (
-                                <div className="flex flex-col gap-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <p className="type-tech text-stone-500">
-                                      Nota de voz
-                                    </p>
-                                    <button
-                                      type="button"
-                                      onClick={() => deleteAudioResponse(item.id)}
-                                      disabled={deletingAudioId === item.id}
-                                      className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-3 text-[11px] text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
-                                    >
-                                      {deletingAudioId === item.id
-                                        ? "Eliminando…"
-                                        : "Eliminar ✕"}
-                                    </button>
-                                  </div>
-                                  {/* key forces a remount (fresh blob fetch) after re-recording:
-                                      the /media URL is stable across uploads. */}
-                                  <VoiceNotePlayer
-                                    key={item.updated_at ?? item.id}
-                                    url={item.audio_url}
-                                  />
-                                </div>
-                              )}
-                              <div className="flex flex-col gap-2 border-t border-stone-900/10 pt-3">
-                                <label
-                                  htmlFor={`transcription-${item.id}`}
-                                  className="type-ui text-xs text-stone-500"
-                                >
-                                  Transcripción editable
-                                </label>
-                                <textarea
-                                  id={`transcription-${item.id}`}
-                                  value={transcription}
-                                  onChange={(event) =>
-                                    handleTranscriptionChange(item.id, event.target.value)
-                                  }
-                                  placeholder={
-                                    hasTranscription ? undefined : "Escribe tu respuesta…"
-                                  }
-                                  maxLength={10000}
-                                  className="type-ui min-h-[100px] w-full rounded-xl border border-stone-900/15 bg-background p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
-                                />
-                                {!hasTranscription && (
-                                  <p className="type-editorial text-[11px] italic text-stone-500">
-                                    Transcripción no disponible — escribe tu respuesta
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {itemFeedback[item.id] && (
-                          <p className="text-xs text-stone-500">
-                            {itemFeedback[item.id]}
-                          </p>
-                        )}
-
-                        {!confirmed && !answered && (
-                          <p className="type-editorial text-[11px] italic text-stone-500">
-                            Añade una respuesta para poder confirmar la pregunta.
-                          </p>
-                        )}
-
-                        <div className="flex flex-wrap items-center gap-3 border-t border-stone-900/10 pt-4">
-                          <button
-                            type="button"
-                            onClick={() => confirmQuestion(item.id, !confirmed)}
-                            disabled={confirmingId === item.id || (!confirmed && !answered)}
-                            className={`type-ui min-h-[44px] rounded-lg px-4 py-2 text-xs transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-50 ${
-                              confirmed
-                                ? "bg-[#5F7161] text-background hover:bg-[#4E5D50]"
-                                : "border border-[#5F7161]/50 text-[#44544A] hover:bg-[#5F7161] hover:text-white"
+                          <span
+                            className={`flex-1 ${
+                              expanded
+                                ? "type-editorial text-lg leading-snug text-stone-950 md:text-xl"
+                                : "text-[15px] font-normal text-stone-800 md:text-base"
                             }`}
                           >
-                            {confirmingId === item.id
-                              ? "Guardando…"
-                              : confirmed
-                                ? "Confirmada ✓ — reabrir"
-                                : "Confirmar respuesta ✓"}
-                          </button>
-                          {!isLast && (
-                            <button
-                              type="button"
-                              onClick={() => goToNextQuestion(item.id)}
-                              className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white"
-                            >
-                              Siguiente pregunta →
-                            </button>
+                            {item.prompt}
+                          </span>
+                          {!expanded && confirmed && (
+                            <span className="hidden items-center gap-2 type-editorial text-[11px] italic text-[#44544A] sm:flex">
+                              <span
+                                aria-hidden="true"
+                                className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
+                              />
+                              Confirmada
+                            </span>
                           )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                          {!expanded && !confirmed && answered && (
+                            <span className="hidden type-editorial text-[11px] italic text-stone-500 sm:inline">
+                              Respondida
+                            </span>
+                          )}
+                          <span
+                            aria-hidden="true"
+                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base transition-transform duration-300 ${
+                              expanded
+                                ? "border border-stone-900/25 bg-transparent text-stone-800 hover:border-stone-900"
+                                : "bg-stone-900 text-background"
+                            }`}
+                          >
+                            {expanded ? "×" : "+"}
+                          </span>
+                        </button>
 
-          {/* Flow actions: flush autosave / confirm completion. */}
-          {questions.length > 0 && (
-            <div className="mt-6 flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={saveProgressNow}
-                  disabled={savingAll}
-                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/25 px-5 py-2 text-xs text-stone-800 transition-colors duration-300 hover:border-stone-900 disabled:opacity-50"
-                >
-                  {savingAll ? "Guardando…" : "Guardar progreso"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSendBrief}
-                  className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800"
-                >
-                  {allConfirmed ? "Brief enviado ✓" : "Enviar Brief"}
-                </button>
-              </div>
-              {flowMessage && (
-                <p className="type-editorial text-[13px] italic text-stone-600">
-                  {flowMessage}
-                </p>
+                        {expanded && (
+                          <div
+                            id={`brief-panel-${item.id}`}
+                            className="mt-5 flex flex-col gap-4"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="type-tech text-stone-500">
+                                {item.category}
+                              </span>
+                              {autosaveStatus[item.id] && (
+                                <span className="type-editorial text-[11px] italic text-stone-500">
+                                  {autosaveStatus[item.id]}
+                                </span>
+                              )}
+                            </div>
+
+                            <textarea
+                              value={answers[item.id] ?? item.answer ?? ""}
+                              onChange={(event) =>
+                                handleAnswerChange(item.id, event.target.value)
+                              }
+                              placeholder="Escribe tu respuesta aquí (autoguardado en tiempo real)..."
+                              maxLength={10000}
+                              className="type-ui min-h-[120px] w-full rounded-xl border border-stone-900/15 bg-surface/70 p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
+                            />
+
+                            {/* Multimodal response: images, voice and editable transcription */}
+                            <div className="flex flex-col gap-3 border-t border-stone-900/10 pt-4">
+                              <p className="type-tech text-stone-500">
+                                Respuesta multimodal
+                              </p>
+
+                              {imageCount > 0 && (
+                                <div className="grid grid-cols-2 gap-3">
+                                  {images.slice(0, 2).map((image, imageIndex) => (
+                                    <ImagePreview
+                                      key={image?.id ?? imageIndex}
+                                      image={image}
+                                      index={imageIndex}
+                                      deleting={deletingImageId === image?.id}
+                                      onZoom={(src, alt) => setZoomedImage({ src, alt })}
+                                      onDelete={() =>
+                                        image?.id && deleteImageResponse(item.id, image.id)
+                                      }
+                                    />
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="flex flex-wrap items-center gap-3">
+                                {recordingId === item.id ? (
+                                  <button
+                                    type="button"
+                                    onClick={stopRecording}
+                                    className="type-ui flex min-h-[44px] items-center gap-2 rounded-lg border border-stone-900 bg-stone-900 px-3 py-2 text-xs text-background transition-colors duration-300"
+                                  >
+                                    <span
+                                      aria-hidden="true"
+                                      className="dot-organic h-1.5 w-1.5 animate-pulse bg-background"
+                                    />
+                                    Grabando — detener
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => startRecording(item.id)}
+                                    disabled={!isActive}
+                                    className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-3 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {item.audio_url
+                                      ? "Regrabar nota de voz"
+                                      : "Grabar audio"}
+                                  </button>
+                                )}
+
+                                <label
+                                  aria-disabled={imageCount >= 2 || !isActive}
+                                  className={`flex min-h-[44px] items-center gap-2 rounded-xl border border-dashed border-stone-900/20 px-4 py-2 transition-colors duration-300 ${
+                                    imageCount >= 2 || !isActive
+                                      ? "cursor-not-allowed opacity-50"
+                                      : "cursor-pointer hover:border-stone-900/45"
+                                  }`}
+                                >
+                                  <span className="label-mono text-stone-600">
+                                    Añadir imagen {nextImageLabel}/02
+                                  </span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    disabled={imageCount >= 2 || !isActive}
+                                    className="sr-only"
+                                    onChange={(e) => {
+                                      const f = e.target.files?.[0];
+                                      if (f) uploadImageResponse(item.id, f);
+                                      e.target.value = "";
+                                    }}
+                                  />
+                                </label>
+                              </div>
+
+                              {(item.audio_url || hasTranscription) && (
+                                <div className="flex flex-col gap-3 rounded-xl border border-stone-900/15 bg-surface/50 p-4">
+                                  {item.audio_url && (
+                                    <div className="flex flex-col gap-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="type-tech text-stone-500">
+                                          Nota de voz
+                                        </p>
+                                        <button
+                                          type="button"
+                                          onClick={() => deleteAudioResponse(item.id)}
+                                          disabled={deletingAudioId === item.id}
+                                          className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-3 text-[11px] text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
+                                        >
+                                          {deletingAudioId === item.id
+                                            ? "Eliminando…"
+                                            : "Eliminar ✕"}
+                                        </button>
+                                      </div>
+                                      {/* key forces a remount (fresh blob fetch) after re-recording:
+                                          the /media URL is stable across uploads. */}
+                                      <VoiceNotePlayer
+                                        key={item.updated_at ?? item.id}
+                                        url={item.audio_url}
+                                      />
+                                    </div>
+                                  )}
+                                  <div className="flex flex-col gap-2 border-t border-stone-900/10 pt-3">
+                                    <label
+                                      htmlFor={`transcription-${item.id}`}
+                                      className="type-ui text-xs text-stone-500"
+                                    >
+                                      Transcripción editable
+                                    </label>
+                                    <textarea
+                                      id={`transcription-${item.id}`}
+                                      value={transcription}
+                                      onChange={(event) =>
+                                        handleTranscriptionChange(item.id, event.target.value)
+                                      }
+                                      placeholder={
+                                        hasTranscription ? undefined : "Escribe tu respuesta…"
+                                      }
+                                      maxLength={10000}
+                                      className="type-ui min-h-[100px] w-full rounded-xl border border-stone-900/15 bg-background p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
+                                    />
+                                    {!hasTranscription && (
+                                      <p className="type-editorial text-[11px] italic text-stone-500">
+                                        Transcripción no disponible — escribe tu respuesta
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {itemFeedback[item.id] && (
+                              <p className="text-xs text-stone-500">
+                                {itemFeedback[item.id]}
+                              </p>
+                            )}
+
+                            {!confirmed && !answered && (
+                              <p className="type-editorial text-[11px] italic text-stone-500">
+                                Añade una respuesta para poder confirmar la pregunta.
+                              </p>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-3 border-t border-stone-900/10 pt-4">
+                              <button
+                                type="button"
+                                onClick={() => confirmQuestion(item.id, !confirmed)}
+                                disabled={confirmingId === item.id || (!confirmed && !answered)}
+                                className={`type-ui min-h-[44px] rounded-lg px-4 py-2 text-xs transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-50 ${
+                                  confirmed
+                                    ? "bg-[#5F7161] text-background hover:bg-[#4E5D50]"
+                                    : "border border-[#5F7161]/50 text-[#44544A] hover:bg-[#5F7161] hover:text-white"
+                                }`}
+                              >
+                                {confirmingId === item.id
+                                  ? "Guardando…"
+                                  : confirmed
+                                    ? "Confirmada ✓ — reabrir"
+                                    : "Confirmar respuesta ✓"}
+                              </button>
+                              {!isLast && (
+                                <button
+                                  type="button"
+                                  onClick={() => goToNextQuestion(item.id)}
+                                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white"
+                                >
+                                  Siguiente pregunta →
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
-            </div>
+
+              {/* Flow actions: flush autosave / confirm completion. */}
+              {questions.length > 0 && (
+                <div className="mt-6 flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={saveProgressNow}
+                      disabled={savingAll}
+                      className="type-ui min-h-[44px] rounded-lg border border-stone-900/25 px-5 py-2 text-xs text-stone-800 transition-colors duration-300 hover:border-stone-900 disabled:opacity-50"
+                    >
+                      {savingAll ? "Guardando…" : "Guardar progreso"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSendBrief}
+                      className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800"
+                    >
+                      {allConfirmed ? "Brief enviado ✓" : "Enviar Brief"}
+                    </button>
+                  </div>
+                  {flowMessage && (
+                    <p className="type-editorial text-[13px] italic text-stone-600">
+                      {flowMessage}
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           <h2 className="type-subtitle-caps mt-10 text-xl text-stone-900">
