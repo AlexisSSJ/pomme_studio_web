@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { isAuthenticated, clearToken } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import NotificationsBell from "@/components/NotificationsBell";
+import ShellNav, { type ShellNavItem } from "@/components/ShellNav";
 
 interface Me {
   id: string;
@@ -19,13 +19,13 @@ interface Me {
   updated_at: string;
 }
 
-const navItems = [
-  { href: "/admin", label: "Dashboard" },
-  { href: "/admin/leads", label: "Leads" },
-  { href: "/admin/projects", label: "Proyectos" },
-  { href: "/admin/users", label: "Usuarios" },
-  { href: "/admin/pricing", label: "Pricing" },
-  { href: "/admin/audit", label: "Auditoría" },
+const navItems: ShellNavItem[] = [
+  { numeral: "I", href: "/admin", label: "Dashboard" },
+  { numeral: "II", href: "/admin/leads", label: "Leads" },
+  { numeral: "III", href: "/admin/projects", label: "Proyectos" },
+  { numeral: "IV", href: "/admin/users", label: "Usuarios" },
+  { numeral: "V", href: "/admin/pricing", label: "Pricing" },
+  { numeral: "VI", href: "/admin/audit", label: "Auditoría" },
 ];
 
 export default function AdminLayout({
@@ -34,7 +34,6 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const pathname = usePathname();
   const [checked, setChecked] = useState(false);
   const [role, setRole] = useState<string | null>(null);
 
@@ -91,38 +90,25 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-2 sm:px-6">
-      <header className="flex min-h-[56px] flex-wrap items-center justify-between gap-2 border-b border-border py-3">
-        <span className="type-subtitle-caps text-[15px]">
-          Pomme Studio / Admin
-        </span>
-        <div className="flex items-center gap-3">
-          <NotificationsBell role={role} />
-          <button
-            onClick={() => {
-              clearToken();
-              router.push("/login");
-            }}
-            className="type-ui min-h-[44px] px-2 text-sm underline"
-          >
-            Salir
-          </button>
-        </div>
-      </header>
-
-      <nav className="grid-brutal mt-4 grid-cols-2 sm:grid-cols-3">
-        {navItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`type-ui flex min-h-[44px] items-center justify-center p-3 text-sm ${
-              pathname === item.href ? "bg-surface font-semibold" : ""
-            }`}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </nav>
+    <div className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-20 sm:px-6 md:mx-0 md:ml-[15rem] md:pt-2">
+      <ShellNav
+        contextLabel="ADMIN"
+        items={navItems}
+        footer={
+          <>
+            <NotificationsBell role={role} />
+            <button
+              onClick={() => {
+                clearToken();
+                router.push("/login");
+              }}
+              className="type-ui min-h-[44px] text-sm underline underline-offset-4 transition-[opacity,transform] duration-[250ms] hover:translate-x-1"
+            >
+              Salir
+            </button>
+          </>
+        }
+      />
 
       <div className="mt-6 flex-1">{children}</div>
     </div>
