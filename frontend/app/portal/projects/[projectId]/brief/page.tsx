@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch, apiFetchBlobUrl, extractDetail } from "@/lib/api";
+import { useProtectedMediaUrl } from "@/lib/useProtectedMediaUrl";
 
 interface Project {
   id: string;
@@ -54,42 +55,6 @@ function formatBytes(sizeBytes: number | null): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Protected media needs the Bearer token, so plain <img>/<audio> URLs cannot
- * be used: fetch a blob URL through apiFetch and revoke it on unmount.
- */
-function useProtectedMediaUrl(url: string | null | undefined): string | null {
-  const [src, setSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!url) {
-      setSrc(null);
-      return;
-    }
-    let active = true;
-    let objectUrl: string | null = null;
-    setSrc(null);
-    apiFetchBlobUrl(url)
-      .then((loaded) => {
-        if (!active) {
-          URL.revokeObjectURL(loaded);
-          return;
-        }
-        objectUrl = loaded;
-        setSrc(loaded);
-      })
-      .catch(() => {
-        if (active) setSrc(null);
-      });
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [url]);
-
-  return src;
 }
 
 function ImagePreview({
