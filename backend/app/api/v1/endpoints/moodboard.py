@@ -52,6 +52,10 @@ router = APIRouter()
 # only the upper bound blocks API writes).
 MAX_BOARD_IMAGES = 10
 
+# Patchable board fields backed by NOT NULL columns: an explicit null is a
+# client error (422), never a silent skip or a database failure.
+NON_NULLABLE_BOARD_FIELDS = frozenset({"title", "layout_variant", "position"})
+
 
 async def _get_scoped_item(
     db: AsyncSession, project_id: UUID, item_id: UUID
@@ -292,10 +296,22 @@ async def update_moodboard_board(
     """Patch a board's fields (team, ACTIVE only).
 
     Only fields present in the request are applied, so an empty body is a
-    no-op and an explicit ``null`` clears a nullable field.
+    no-op and an explicit ``null`` clears the nullable curatorial note. An
+    explicit ``null`` for a NOT NULL field is rejected with 422.
     """
     await require_active_project(project_id, db)
     board = await _get_scoped_board(db, project_id, board_id)
+
+    null_fields = sorted(
+        field
+        for field in payload.model_fields_set
+        if field in NON_NULLABLE_BOARD_FIELDS and getattr(payload, field) is None
+    )
+    if null_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Fields cannot be null: {', '.join(null_fields)}",
+        )
 
     fields = sorted(payload.model_fields_set)
     for field in fields:

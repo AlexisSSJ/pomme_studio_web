@@ -885,6 +885,48 @@ async def test_patch_board_fields_and_layout(
 
 
 @pytest.mark.asyncio
+async def test_patch_board_rejects_explicit_null_422(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    board = create_board(
+        client,
+        active_project.id,
+        collaborator_token,
+        curatorial_note="Nota original",
+    )
+    board_id = board.json()["id"]
+    base = f"/api/v1/projects/{active_project.id}/moodboard/boards/{board_id}"
+
+    # NOT NULL columns reject an explicit null with a visible 422.
+    for field in ("title", "position", "layout_variant"):
+        response = client.patch(
+            base, json={field: None}, headers=auth(collaborator_token)
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == f"Fields cannot be null: {field}"
+
+    listing = client.get(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards",
+        headers=auth(collaborator_token),
+    )
+    payload = next(b for b in listing.json() if b["id"] == board_id)
+    assert payload["title"] == "Moodboard 01"
+    assert payload["position"] == 0
+    assert payload["layout_variant"] == "editorial_collage"
+    assert payload["curatorial_note"] == "Nota original"
+
+    # The nullable note keeps its briefed explicit-null behaviour.
+    response = client.patch(
+        base, json={"curatorial_note": None}, headers=auth(collaborator_token)
+    )
+    assert response.status_code == 200
+    assert response.json()["curatorial_note"] is None
+
+
+@pytest.mark.asyncio
 async def test_client_cannot_patch_or_delete_board_403(
     client: TestClient,
     media_storage: LocalStorage,
