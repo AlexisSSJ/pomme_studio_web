@@ -46,25 +46,6 @@ const ROLE_LABELS: Record<ProjectMember["assigned_role"], string> = {
   CLIENT: "Cliente",
 };
 
-const ROMAN_NUMERALS = [
-  "I",
-  "II",
-  "III",
-  "IV",
-  "V",
-  "VI",
-  "VII",
-  "VIII",
-  "IX",
-  "X",
-  "XI",
-  "XII",
-];
-
-function memberNumeral(index: number): string {
-  return `${ROMAN_NUMERALS[index] ?? String(index + 1)}.`;
-}
-
 export default function AdminProjectOverviewPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params?.projectId ?? "";
@@ -146,6 +127,9 @@ export default function AdminProjectOverviewPage() {
       setTeamError(teamLoadError);
     } catch {
       setMessage("Error de conexión con el servidor");
+      setMembers([]);
+      setTeam([]);
+      setTeamError("Error de conexión con el servidor");
     } finally {
       setLoading(false);
     }
@@ -310,7 +294,7 @@ export default function AdminProjectOverviewPage() {
     <section className="brief-editorial">
       {/* Editorial ficha header: micro-label and title over a rule. */}
       <div className="mb-8 border-b border-stone-900/15 pb-6">
-        <p className="type-tech text-stone-600">01 · Resumen del proyecto</p>
+        <p className="type-tech text-stone-600">Resumen del proyecto</p>
         <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
           {project?.title ?? "Proyecto"}
         </h1>
@@ -411,66 +395,68 @@ export default function AdminProjectOverviewPage() {
               </p>
             )}
 
-            <div className="mt-4 flex flex-col gap-3">
-              {members.length === 0 ? (
-                <p className="type-editorial text-[15px] italic text-stone-500">
-                  Todavía no hay miembros en el equipo de este proyecto.
-                </p>
-              ) : (
-                members.map((member, index) => {
-                  const isClient = member.assigned_role === "CLIENT";
-                  const isAssignedLead =
-                    member.assigned_role === "LEAD_DESIGNER" &&
-                    member.user_id === project.lead_designer_id;
-                  const isRemoving = removingMemberId === member.user_id;
+            {!teamError && (
+              <div className="mt-4 flex flex-col gap-3">
+                {members.length === 0 ? (
+                  <p className="type-editorial text-[15px] italic text-stone-500">
+                    Todavía no hay miembros en el equipo de este proyecto.
+                  </p>
+                ) : (
+                  members.map((member, index) => {
+                    const isClient = member.assigned_role === "CLIENT";
+                    const isAssignedLead =
+                      member.assigned_role === "LEAD_DESIGNER" &&
+                      member.user_id === project.lead_designer_id;
+                    const isRemoving = removingMemberId === member.user_id;
 
-                  return (
-                    <div
-                      key={member.id}
-                      className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-background/60 p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex min-w-0 items-start gap-3">
-                        <span className="type-tech w-8 shrink-0 pt-1 text-stone-500">
-                          {memberNumeral(index)}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="type-editorial text-[15px] text-stone-900">
-                            {member.full_name || member.email}
-                          </p>
-                          {member.full_name && (
-                            <p className="type-ui truncate text-sm text-stone-600">
-                              {member.email}
+                    return (
+                      <div
+                        key={member.id}
+                        className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-background/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="type-tech w-8 shrink-0 pt-1 text-stone-500">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="type-editorial text-[15px] text-stone-900">
+                              {member.full_name || member.email}
                             </p>
-                          )}
-                          <p className="type-tech mt-1 text-stone-600">
-                            {ROLE_LABELS[member.assigned_role]}
-                          </p>
+                            {member.full_name && (
+                              <p className="type-editorial truncate text-sm text-stone-600">
+                                {member.email}
+                              </p>
+                            )}
+                            <p className="type-tech mt-1 text-stone-600">
+                              {ROLE_LABELS[member.assigned_role]}
+                            </p>
+                          </div>
                         </div>
-                      </div>
 
-                      {isClient ? (
-                        <span className="type-editorial shrink-0 text-[11px] italic text-stone-500">
-                          Se cambia desde Cliente del proyecto
-                        </span>
-                      ) : isAssignedLead ? (
-                        <span className="type-editorial shrink-0 text-[11px] italic text-stone-500">
-                          Se reasigna desde Responsable
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => removeMember(member)}
-                          disabled={isRemoving}
-                          className="type-ui min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isRemoving ? "Quitando…" : "Quitar ✕"}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
+                        {isClient ? (
+                          <span className="type-editorial shrink-0 text-[11px] italic text-stone-500">
+                            Se cambia desde Cliente del proyecto
+                          </span>
+                        ) : isAssignedLead ? (
+                          <span className="type-editorial shrink-0 text-[11px] italic text-stone-500">
+                            Se reasigna desde Responsable
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeMember(member)}
+                            disabled={removingMemberId !== null}
+                            className="type-ui min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isRemoving ? "Quitando…" : "Quitar ✕"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
 
             <div className="mt-5 border-t border-stone-900/10 pt-5">
               <p className="type-tech text-stone-600">Responsable</p>
