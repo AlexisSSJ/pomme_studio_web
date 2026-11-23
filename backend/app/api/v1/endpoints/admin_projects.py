@@ -15,6 +15,7 @@ from ....models.project_member import ProjectMember, ProjectRole
 from ....models.user import User, UserRole
 from ....schemas.project import ProjectCreate, ProjectRead
 from ....services.audit import log_audit
+from ....services.brief_templates import seed_brief_from_template
 
 router = APIRouter()
 
@@ -77,6 +78,8 @@ async def create_project(
     if project.lead_designer_id:
         db.add(ProjectMember(project_id=project.id, user_id=project.lead_designer_id, assigned_role=ProjectRole.LEAD_DESIGNER))
 
+    seeded_questions = await seed_brief_from_template(db, project, current_user.id)
+
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -94,6 +97,18 @@ async def create_project(
         entity_type="project",
         entity_id=project.id,
         metadata={"title": project.title},
+    )
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.template_seeded",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={
+            "scope": project.scope_type.value if project.scope_type else None,
+            "questions": len(seeded_questions),
+        },
     )
 
     return project

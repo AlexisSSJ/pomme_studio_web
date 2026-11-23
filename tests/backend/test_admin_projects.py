@@ -12,13 +12,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.core.security import create_access_token
 from backend.app.models import (
     AuditLog,
+    BriefItem,
+    BriefItemType,
+    BriefStatus,
     Project,
     ProjectMember,
     ProjectRole,
     ProjectStatus,
+    ServiceType,
     User,
     UserRole,
 )
+
+
+def _create_scoped_project(client: TestClient, token: str, scope: ServiceType,
+                           client_user: User, lead_designer_user: User) -> dict:
+    """Create a project with an explicit scope via the admin API."""
+    response = client.post(
+        "/api/v1/admin/projects",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "title": f"Proyecto {scope.value}",
+            "scope_type": scope.value,
+            "client_id": str(client_user.id),
+            "lead_designer_id": str(lead_designer_user.id),
+            "included_rounds": 3,
+            "remaining_rounds": 3,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _get_brief(client: TestClient, token: str, project_id: str) -> list[dict]:
+    """Read the seeded brief for a project as SUPER_ADMIN."""
+    response = client.get(
+        f"/api/v1/projects/{project_id}/brief",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 @pytest_asyncio.fixture
@@ -446,3 +479,129 @@ async def test_activate_integrity_conflict_returns_409(
     assert response.status_code == 409
     assert response.json()["detail"] == "Project is not in draft status"
     await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_create_project_seeds_branding_template(
+    client: TestClient,
+    super_admin_token: str,
+    client_user: User,
+    lead_designer_user: User,
+    db_session: AsyncSession,
+):
+    data = _create_scoped_project(client, super_admin_token, ServiceType.BRANDING,
+                                  client_user, lead_designer_user)
+    items = _get_brief(client, super_admin_token, data["id"])
+
+    questions = [i for i in items if i["item_type"] == BriefItemType.QUESTION.value]
+    assert len(questions) >= 6
+    assert all(i["status"] == BriefStatus.PENDING.value for i in questions)
+    assert {i["category"] for i in questions} <= {"branding", "general"}
+    assert all(i["project_id"] == data["id"] for i in questions)
+
+    result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "brief.template_seeded",
+            AuditLog.entity_id == uuid.UUID(data["id"]),
+        )
+    )
+    log = result.scalar_one()
+    assert log.metadata_json["scope"] == "branding"
+    assert log.metadata_json["questions"] == len(questions)
+
+
+@pytest.mark.asyncio
+async def test_create_project_seeds_interior_template(
+    client: TestClient,
+    super_admin_token: str,
+    client_user: User,
+    lead_designer_user: User,
+):
+    data = _create_scoped_project(client, super_admin_token, ServiceType.INTERIOR,
+                                  client_user, lead_designer_user)
+    items = _get_brief(client, super_admin_token, data["id"])
+
+    questions = [i for i in items if i["item_type"] == BriefItemType.QUESTION.value]
+    assert len(questions) >= 6
+    assert all(i["status"] == BriefStatus.PENDING.value for i in questions)
+    assert {i["category"] for i in questions} <= {"interior", "general"}
+
+
+@pytest.mark.asyncio
+async def test_create_project_seeds_integral_template(
+    client: TestClient,
+    super_admin_token: str,
+    client_user: User,
+    lead_designer_user: User,
+):
+    data = _create_scoped_project(client, super_admin_token, ServiceType.INTEGRAL,
+                                  client_user, lead_designer_user)
+    items = _get_brief(client, super_admin_token, data["id"])
+
+    questions = [i for i in items if i["item_type"] == BriefItemType.QUESTION.value]
+    assert len(questions) >= 10
+    categories = {i["category"] for i in questions}
+    assert {"branding", "interior"} <= categories
+    assert all(i["status"] == BriefStatus.PENDING.value for i in questions)
+
+
+def test_template_questions_are_design_only():
+    from backend.app.services.brief_templates import BRIEF_TEMPLATES
+
+    forbidden = ("obra", "montaje", "ejecución", "construcción", "cuadrilla", "instalación")
+    for questions in BRIEF_TEMPLATES.values():
+        for prompt, _category in questions:
+            lowered = prompt.lower()
+            for term in forbidden:
+                assert term not in lowered, f"Prompt contiene '{term}': {prompt!r}"
+
+
+@pytest.mark.asyncio
+async def test_template_items_belong_to_project(
+    client: TestClient,
+    super_admin_token: str,
+    client_user: User,
+    lead_designer_user: User,
+):
+    branding = _create_scoped_project(client, super_admin_token, ServiceType.BRANDING,
+                                      client_user, lead_designer_user)
+    interior = _create_scoped_project(client, super_admin_token, ServiceType.INTERIOR,
+                                      client_user, lead_designer_user)
+
+    branding_items = _get_brief(client, super_admin_token, branding["id"])
+    interior_items = _get_brief(client, super_admin_token, interior["id"])
+
+    assert branding_items and interior_items
+    assert all(i["project_id"] == branding["id"] for i in branding_items)
+    assert all(i["project_id"] == interior["id"] for i in interior_items)
+    assert not ({i["id"] for i in branding_items} & {i["id"] for i in interior_items})
+
+
+@pytest.mark.asyncio
+async def test_seed_is_idempotent(db_session: AsyncSession, lead_designer_user: User):
+    from backend.app.services.brief_templates import seed_brief_from_template
+
+    project = Project(
+        id=uuid.uuid4(),
+        title="Proyecto idempotente",
+        scope_type=ServiceType.BRANDING,
+        lead_designer_id=lead_designer_user.id,
+        status=ProjectStatus.DRAFT,
+        balance_paid=False,
+    )
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+
+    first = await seed_brief_from_template(db_session, project, lead_designer_user.id)
+    assert len(first) >= 6
+    await db_session.commit()
+
+    second = await seed_brief_from_template(db_session, project, lead_designer_user.id)
+    assert second == []
+
+    result = await db_session.execute(
+        select(BriefItem).where(BriefItem.project_id == project.id)
+    )
+    assert len(result.scalars().all()) == len(first)
+
