@@ -371,7 +371,9 @@ export default function AdminMoodboardPage() {
       } finally {
         uploadingRef.current = false;
         setUploading(false);
-        if (uploaded > 0) {
+        // Un 409 también recarga: el servidor puede estar en 10 aunque el
+        // contador local no lo refleje (estado obsoleto en la tanda).
+        if (uploaded > 0 || capped) {
           await refreshActiveBoard();
         }
       }

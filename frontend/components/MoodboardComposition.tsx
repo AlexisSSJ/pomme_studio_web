@@ -70,11 +70,25 @@ function PieceFrame({
           <img src={url} alt={item.title} className="block h-auto w-full" />
         </button>
       ) : error ? (
-        <p className="type-ui border border-border bg-surface p-3 text-sm">
+        <button
+          type="button"
+          onClick={() => onSelect?.(item)}
+          aria-pressed={selected}
+          aria-label={`Comentarios de ${item.title}`}
+          className="type-ui w-full border border-border bg-surface p-3 text-left text-sm"
+        >
           Error al cargar la imagen
-        </p>
+        </button>
       ) : (
-        <p className="label-mono text-stone-600">Cargando imagen…</p>
+        <button
+          type="button"
+          onClick={() => onSelect?.(item)}
+          aria-pressed={selected}
+          aria-label={`Comentarios de ${item.title}`}
+          className="label-mono w-full text-left text-stone-600"
+        >
+          Cargando imagen…
+        </button>
       )}
 
       <figcaption className="flex flex-col gap-2">
