@@ -14,6 +14,7 @@ interface Me {
   specialty: string | null;
   role: string;
   is_active: boolean;
+  must_change_password: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -51,6 +52,12 @@ export default function AdminLayout({
         if (cancelled) return;
         if (res.ok) {
           const me: Me = await res.json();
+          // A temporary password must be replaced before any guarded page:
+          // the backend answers 403 on everything except the auth endpoints.
+          if (me.must_change_password) {
+            router.replace("/change-password");
+            return;
+          }
           if (me.role === "CLIENT") {
             router.replace("/portal");
             return;
