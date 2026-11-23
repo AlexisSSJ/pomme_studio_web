@@ -4,16 +4,29 @@ from uuid import UUID
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ....api.deps import require_active_project, require_roles, require_team_member
+from ....api.deps import (
+    get_membership,
+    require_active_project,
+    require_roles,
+    require_team_member,
+)
 from ....db.session import get_db
+from ....models.notification import Notification
 from ....models.project import Project, ProjectStatus
 from ....models.project_member import ProjectMember, ProjectRole
 from ....models.user import User, UserRole
-from ....schemas.project import ProjectCreate, ProjectRead
+from ....schemas.project import (
+    LeadUpdate,
+    ProjectCreate,
+    ProjectMemberCreate,
+    ProjectMemberRead,
+    ProjectRead,
+    TeamUserRead,
+)
 from ....services.audit import log_audit
 from ....services.brief_templates import seed_brief_from_template
 
@@ -262,6 +275,7 @@ async def assign_project_client(
 
     client_id_str = payload.get("client_id")
     client_id = UUID(client_id_str) if client_id_str else None
+    previous_client_id = project.client_id
 
     if client_id is not None:
         client_user = await db.get(User, client_id)
@@ -290,6 +304,17 @@ async def assign_project_client(
                 )
             )
 
+    # Changing the client revokes the previous client's membership (and with
+    # it their access to the project). A previous client that holds another
+    # membership role keeps that row.
+    if previous_client_id is not None and previous_client_id != client_id:
+        previous_membership = await get_membership(db, project.id, previous_client_id)
+        if (
+            previous_membership is not None
+            and previous_membership.assigned_role == ProjectRole.CLIENT
+        ):
+            await db.delete(previous_membership)
+
     await db.commit()
     await db.refresh(project)
 
@@ -300,6 +325,349 @@ async def assign_project_client(
         entity_type="project",
         entity_id=project.id,
         metadata={"client_id": str(client_id) if client_id else None},
+    )
+
+    return project
+
+
+@router.get("/projects/{project_id}/members", response_model=list[ProjectMemberRead])
+async def list_project_members(
+    project_id: UUID,
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> list[ProjectMemberRead]:
+    """List the project's members with their assigned roles.
+
+    SUPER_ADMIN or LEAD_DESIGNER (assigned lead or project member). Members
+    are ordered LEAD_DESIGNER, COLLABORATOR, CLIENT and by `created_at`
+    within each group, so the output is deterministic.
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    role_priority = case(
+        (ProjectMember.assigned_role == ProjectRole.LEAD_DESIGNER, 0),
+        (ProjectMember.assigned_role == ProjectRole.COLLABORATOR, 1),
+        else_=2,
+    )
+    result = await db.execute(
+        select(ProjectMember, User)
+        .join(User, User.id == ProjectMember.user_id)
+        .where(ProjectMember.project_id == project.id)
+        .order_by(role_priority, ProjectMember.created_at, ProjectMember.id)
+    )
+    return [
+        ProjectMemberRead(
+            id=member.id,
+            user_id=member.user_id,
+            email=user.email,
+            full_name=user.full_name,
+            assigned_role=member.assigned_role,
+            created_at=member.created_at,
+        )
+        for member, user in result.all()
+    ]
+
+
+@router.get("/team", response_model=list[TeamUserRead])
+async def list_team_users(
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> list[TeamUserRead]:
+    """List active LEAD_DESIGNER / COLLABORATOR users for project assignment."""
+    result = await db.execute(
+        select(User)
+        .where(
+            User.role.in_((UserRole.LEAD_DESIGNER, UserRole.COLLABORATOR)),
+            User.is_active.is_(True),
+        )
+        .order_by(User.email)
+    )
+    return [
+        TeamUserRead(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role,
+        )
+        for user in result.scalars().all()
+    ]
+
+
+@router.post(
+    "/projects/{project_id}/members",
+    response_model=ProjectMemberRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_project_member(
+    project_id: UUID,
+    payload: ProjectMemberCreate,
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> ProjectMemberRead:
+    """Add a collaborator (or the current lead designer) to a project.
+
+    SUPER_ADMIN or LEAD_DESIGNER (assigned lead or project member). The
+    target must be active and its global role compatible with the requested
+    project role; CLIENT assignments go through the client endpoint and lead
+    changes through the lead reassignment endpoint. Adding a member
+    notifies the target user and records an audit entry.
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    target_user = await db.get(User, payload.user_id)
+    if target_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    if not target_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user",
+        )
+
+    role = payload.assigned_role
+    if role == ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Client assignment uses the project client endpoint",
+        )
+
+    if role == ProjectRole.LEAD_DESIGNER:
+        if target_user.role != UserRole.LEAD_DESIGNER:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Incompatible role",
+            )
+        if (
+            project.lead_designer_id is not None
+            and project.lead_designer_id != target_user.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Use the lead reassignment endpoint",
+            )
+    elif target_user.role not in (
+        UserRole.COLLABORATOR,
+        UserRole.LEAD_DESIGNER,
+        UserRole.SUPER_ADMIN,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Incompatible role",
+        )
+
+    existing = await get_membership(db, project.id, target_user.id)
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a member",
+        )
+
+    member = ProjectMember(
+        project_id=project.id,
+        user_id=target_user.id,
+        assigned_role=role,
+    )
+    db.add(member)
+    db.add(
+        Notification(
+            user_id=target_user.id,
+            project_id=project.id,
+            event_type="project.assigned",
+            payload={
+                "project_id": str(project.id),
+                "project_title": project.title,
+                "assigned_role": role.value,
+            },
+        )
+    )
+
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        # Race-safe fallback for the (project_id, user_id) unique constraint.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a member",
+        ) from exc
+    await db.refresh(member)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.member_added",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={
+            "user_id": str(target_user.id),
+            "assigned_role": role.value,
+        },
+    )
+
+    return ProjectMemberRead(
+        id=member.id,
+        user_id=member.user_id,
+        email=target_user.email,
+        full_name=target_user.full_name,
+        assigned_role=member.assigned_role,
+        created_at=member.created_at,
+    )
+
+
+@router.delete(
+    "/projects/{project_id}/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def remove_project_member(
+    project_id: UUID,
+    user_id: UUID,
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Remove a project member (collaborator or non-assigned lead).
+
+    SUPER_ADMIN or LEAD_DESIGNER (assigned lead or project member). The
+    project's client is changed through the client endpoint and the assigned
+    lead through the lead reassignment endpoint, so both are rejected here.
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    membership = await get_membership(db, project.id, user_id)
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Membership not found",
+        )
+
+    if membership.assigned_role == ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Change the project client instead",
+        )
+
+    if project.lead_designer_id == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Reassign the lead instead",
+        )
+
+    await db.delete(membership)
+    await db.commit()
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.member_removed",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={"user_id": str(user_id)},
+    )
+
+
+@router.patch("/projects/{project_id}/lead", response_model=ProjectRead)
+async def assign_project_lead(
+    project_id: UUID,
+    payload: LeadUpdate,
+    current_user: User = Depends(
+        require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> Project:
+    """Reassign the project's lead designer.
+
+    SUPER_ADMIN or LEAD_DESIGNER (assigned lead or project member). The
+    target must be an active-safe global LEAD_DESIGNER. The previous lead
+    loses their LEAD_DESIGNER membership; the new lead gains one unless a
+    membership row already exists (the unique constraint allows only one row
+    per user and project, and the project's `lead_designer_id` already grants
+    lead access).
+    """
+    await require_team_member(project_id=project_id, current_user=current_user, db=db)
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    new_lead = await db.get(User, payload.lead_designer_id)
+    if new_lead is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    if new_lead.role != UserRole.LEAD_DESIGNER:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="User is not a lead designer",
+        )
+
+    previous_lead_id = project.lead_designer_id
+    project.lead_designer_id = new_lead.id
+
+    if previous_lead_id is not None and previous_lead_id != new_lead.id:
+        previous_membership = await get_membership(db, project.id, previous_lead_id)
+        if (
+            previous_membership is not None
+            and previous_membership.assigned_role == ProjectRole.LEAD_DESIGNER
+        ):
+            await db.delete(previous_membership)
+
+    new_membership = await get_membership(db, project.id, new_lead.id)
+    if new_membership is None:
+        db.add(
+            ProjectMember(
+                project_id=project.id,
+                user_id=new_lead.id,
+                assigned_role=ProjectRole.LEAD_DESIGNER,
+            )
+        )
+
+    await db.commit()
+    await db.refresh(project)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.lead_assigned",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={
+            "previous_lead_id": (
+                str(previous_lead_id) if previous_lead_id is not None else None
+            ),
+            "new_lead_id": str(new_lead.id),
+        },
     )
 
     return project
