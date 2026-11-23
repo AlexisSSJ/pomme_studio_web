@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..models.brief_item import BriefCategory, BriefItemType, BriefItemStatus, BriefStatus
 
@@ -15,6 +15,21 @@ class BriefQuestionCreate(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=500)
     category: BriefCategory
+
+
+class BriefQuestionUpdate(BaseModel):
+    """Payload for the studio team to edit a brief question."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str | None = Field(None, min_length=1, max_length=500)
+    category: BriefCategory | None = None
+
+    @model_validator(mode="after")
+    def _require_a_change(self) -> "BriefQuestionUpdate":
+        if self.prompt is None and self.category is None:
+            raise ValueError("At least one field must be provided")
+        return self
 
 
 class BriefAnswerUpdate(BaseModel):
@@ -77,6 +92,13 @@ class BriefConfirmPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirmed: bool
+
+
+class BriefSendResponse(BaseModel):
+    """Confirmation that the brief was released to the client."""
+
+    project_id: UUID
+    brief_sent_at: datetime
 
 
 class BriefImageRead(BaseModel):
@@ -157,6 +179,7 @@ class BriefPendingResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    brief_sent: bool = False
     has_pending_brief: bool
     project_id: UUID | None = None
     project_title: str | None = None

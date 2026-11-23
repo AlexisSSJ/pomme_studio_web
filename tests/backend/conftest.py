@@ -3,6 +3,7 @@
 import asyncio
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -228,6 +229,8 @@ async def active_project(
     """The shared test project, activated, with a CLIENT membership for its client."""
     test_project.status = ProjectStatus.ACTIVE
     test_project.balance_paid = False
+    # The ready-to-answer gate is open by default so answer tests are not gated.
+    test_project.brief_sent_at = datetime.now(timezone.utc)
     member = ProjectMember(
         id=uuid.uuid4(),
         project_id=test_project.id,
@@ -272,6 +275,8 @@ async def other_project(
         title="Other Project",
         client_id=other_client_user.id,
         status=ProjectStatus.ACTIVE,
+        # Sent by default: these fixtures exercise isolation, not the gate.
+        brief_sent_at=datetime.now(timezone.utc),
     )
     db_session.add(project)
     await db_session.commit()

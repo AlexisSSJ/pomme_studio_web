@@ -31,4 +31,5 @@ class ProjectRead(BaseModel):
     included_rounds: int
     remaining_rounds: int
     balance_paid: bool
+    brief_sent_at: datetime | None = None
     created_at: datetime

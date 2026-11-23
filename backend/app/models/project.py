@@ -78,6 +78,12 @@ class Project(Base):
         server_default=sa.false(),
         nullable=False,
     )
+    # Ready-to-answer gate: NULL means the brief is still a studio draft and
+    # its questions are hidden from the project's CLIENT.
+    brief_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

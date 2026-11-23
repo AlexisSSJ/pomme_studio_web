@@ -1,5 +1,6 @@
 """Project brief endpoints: questionnaire, multimodal responses, autosave and reference uploads."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -43,10 +44,12 @@ from ....schemas.brief import (
     BriefItemRead,
     BriefPendingResponse,
     BriefQuestionCreate,
+    BriefQuestionUpdate,
+    BriefSendResponse,
     PendingBriefProjectSummary,
 )
 from ....services.audit import log_audit
-from ....services.notifications import notify_project_team
+from ....services.notifications import notify_project_client, notify_project_team
 from ....services.storage import (
     BRIEF_REFERENCE_CONTENT_TYPES,
     BRIEF_RESPONSE_CONTENT_TYPES,
@@ -79,6 +82,20 @@ def is_question_answered(item: BriefItem) -> bool:
     ):
         return True
     return False
+
+
+def require_brief_sent(project: Project) -> None:
+    """Block client answer actions until the studio sends the brief."""
+    if project.brief_sent_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Brief is not ready to be answered",
+        )
+
+
+def client_sees_questions(project: Project, user: User) -> bool:
+    """Questions are visible to team roles always and to CLIENTs after the send."""
+    return user.role != UserRole.CLIENT or project.brief_sent_at is not None
 
 
 async def compute_brief_progress(
@@ -266,12 +283,16 @@ async def list_brief_items(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> list[BriefItem]:
-    """List the project brief, oldest first (any member, any status)."""
-    result = await db.execute(
-        select(BriefItem)
-        .where(BriefItem.project_id == project_id)
-        .order_by(BriefItem.created_at.asc())
-    )
+    """List the project brief, oldest first (any member, any status).
+
+    A CLIENT only sees the references until the studio sends the brief;
+    questions stay hidden while the project is still a draft.
+    """
+    project = await get_project_or_404(project_id, db)
+    query = select(BriefItem).where(BriefItem.project_id == project_id)
+    if not client_sees_questions(project, current_user):
+        query = query.where(BriefItem.item_type == BriefItemType.REFERENCE)
+    result = await db.execute(query.order_by(BriefItem.created_at.asc()))
     items = list(result.scalars().all())
     await _populate_images_for_items(db, project_id, items)
     return items
@@ -317,6 +338,133 @@ async def create_question(
     return item
 
 
+@router.patch("/questions/{item_id}", response_model=BriefItemRead)
+async def update_question(
+    project_id: UUID,
+    item_id: UUID,
+    payload: BriefQuestionUpdate,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+) -> BriefItem:
+    """Edit a brief question's prompt and/or category (studio team only)."""
+    await require_active_project(project_id, db)
+
+    item = await _get_question_or_404(db, project_id, item_id)
+
+    if payload.prompt is not None:
+        item.prompt = payload.prompt
+    if payload.category is not None:
+        item.category = payload.category
+
+    await db.commit()
+    await db.refresh(item)
+    await _populate_images_for_items(db, project_id, [item])
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.question_update",
+        entity_type="brief_item",
+        entity_id=item.id,
+        metadata={"project_id": str(project_id)},
+    )
+    return item
+
+
+@router.delete("/questions/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_question(
+    project_id: UUID,
+    item_id: UUID,
+    force: bool = False,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> None:
+    """Delete a brief question, refusing to discard answers unless `force=true`."""
+    await require_active_project(project_id, db)
+
+    item = await _get_question_or_404(db, project_id, item_id)
+    if is_question_answered(item) and not force:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Question has responses; use force=true to delete",
+        )
+
+    images = await _get_item_images(db, item.id)
+    child_keys = {image.storage_key for image in images}
+    storage_keys = list(child_keys)
+    if item.image_storage_key and item.image_storage_key not in child_keys:
+        storage_keys.append(item.image_storage_key)
+    if item.audio_storage_key:
+        storage_keys.append(item.audio_storage_key)
+
+    for storage_key in storage_keys:
+        try:
+            await storage.delete(storage_key)
+        except UploadValidationError:
+            # A malformed legacy key must not block the deletion.
+            pass
+
+    for image in images:
+        await db.delete(image)
+    await db.flush()
+    await db.delete(item)
+    await db.commit()
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.question_delete",
+        entity_type="brief_item",
+        entity_id=item.id,
+        metadata={
+            "project_id": str(project_id),
+            "forced": force,
+            "removed_images": len(images),
+        },
+    )
+
+
+@router.post("/send", response_model=BriefSendResponse)
+async def send_brief(
+    project_id: UUID,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+) -> BriefSendResponse:
+    """Release the brief to the client: opens the questionnaire and notifies them."""
+    project = await require_active_project(project_id, db)
+    if project.brief_sent_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Brief already sent",
+        )
+
+    project.brief_sent_at = datetime.now(timezone.utc)
+    payload = {"project_id": str(project_id), "project_title": project.title}
+    await notify_project_client(
+        db,
+        project_id,
+        event_type="brief.ready",
+        payload=payload,
+        exclude_user_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(project)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.sent",
+        entity_type="project",
+        entity_id=project_id,
+        metadata=payload,
+    )
+    return BriefSendResponse(
+        project_id=project.id,
+        brief_sent_at=project.brief_sent_at,
+    )
+
+
 @router.patch("/items/{item_id}", response_model=BriefItemRead)
 async def answer_question(
     project_id: UUID,
@@ -338,7 +486,8 @@ async def answer_question(
             detail="Insufficient permissions",
         )
 
-    await require_active_project(project_id, db)
+    project = await require_active_project(project_id, db)
+    require_brief_sent(project)
 
     result = await db.execute(
         select(BriefItem).where(
@@ -426,7 +575,8 @@ async def _apply_autosave(
             detail="Insufficient permissions",
         )
 
-    await require_active_project(project_id, db)
+    project = await require_active_project(project_id, db)
+    require_brief_sent(project)
 
     was_completed = await _is_brief_completed(project_id, db)
 
@@ -582,6 +732,22 @@ async def get_project_brief_status(
 ) -> BriefPendingResponse:
     """Consult the brief progress and pending status for this project."""
     project = await get_project_or_404(project_id, db)
+    if not client_sees_questions(project, current_user):
+        # Pre-send: the client has no questionnaire yet, only references.
+        return BriefPendingResponse(
+            brief_sent=False,
+            has_pending_brief=False,
+            project_id=project.id,
+            project_title=project.title,
+            status=None,
+            progress=0.0,
+            total_questions=0,
+            answered_questions=0,
+            pending_questions=0,
+            items=[],
+            pending_briefs=[],
+        )
+
     progress, status_val, total, answered, questions = await compute_brief_progress(
         project_id, db
     )
@@ -601,6 +767,7 @@ async def get_project_brief_status(
     )
 
     return BriefPendingResponse(
+        brief_sent=project.brief_sent_at is not None,
         has_pending_brief=is_pending,
         project_id=project.id,
         project_title=project.title,
@@ -654,8 +821,12 @@ async def get_client_pending_brief(
     primary_total: int = 0
     primary_answered: int = 0
     primary_questions: list[BriefItem] = []
+    primary_sent: bool = False
 
     for proj in projects:
+        # Unsent briefs (studio drafts) are invisible to the client indicator.
+        if not client_sees_questions(proj, current_user):
+            continue
         prog, stat, tot, ans, q_list = await compute_brief_progress(proj.id, db)
         p_count = max(0, tot - ans)
         if tot > 0 and ans < tot:
@@ -676,10 +847,12 @@ async def get_client_pending_brief(
                 primary_total = tot
                 primary_answered = ans
                 primary_questions = q_list
+                primary_sent = proj.brief_sent_at is not None
 
     if primary_project is not None:
         await _populate_images_for_items(db, primary_project.id, primary_questions)
         return BriefPendingResponse(
+            brief_sent=primary_sent,
             has_pending_brief=True,
             project_id=primary_project.id,
             project_title=primary_project.title,
@@ -693,6 +866,7 @@ async def get_client_pending_brief(
         )
 
     return BriefPendingResponse(
+        brief_sent=False,
         has_pending_brief=False,
         project_id=None,
         project_title=None,
@@ -738,7 +912,8 @@ async def upload_response_file(
             detail="Insufficient permissions",
         )
 
-    await require_active_project(project_id, db)
+    project = await require_active_project(project_id, db)
+    require_brief_sent(project)
 
     item = await _get_question_or_404(db, project_id, item_id)
 
@@ -883,7 +1058,8 @@ async def delete_item_image(
             detail="Insufficient permissions",
         )
 
-    await require_active_project(project_id, db)
+    project = await require_active_project(project_id, db)
+    require_brief_sent(project)
 
     item = await _get_question_or_404(db, project_id, item_id)
 
@@ -965,7 +1141,8 @@ async def delete_item_audio(
             detail="Insufficient permissions",
         )
 
-    await require_active_project(project_id, db)
+    project = await require_active_project(project_id, db)
+    require_brief_sent(project)
 
     item = await _get_question_or_404(db, project_id, item_id)
     if not item.audio_storage_key and not item.audio_url:
@@ -1040,7 +1217,8 @@ async def confirm_item(
             detail="Insufficient permissions",
         )
 
-    await require_active_project(project_id, db)
+    project = await require_active_project(project_id, db)
+    require_brief_sent(project)
 
     item = await _get_question_or_404(db, project_id, item_id)
     if payload.confirmed and not is_question_answered(item):
@@ -1082,6 +1260,13 @@ async def download_item_image_media(
     storage: LocalStorage = Depends(get_storage),
 ) -> FileResponse:
     """Download one reference image of a question."""
+    project = await get_project_or_404(project_id, db)
+    if not client_sees_questions(project, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brief item not found",
+        )
+
     item = await _get_question_or_404(db, project_id, item_id)
 
     result = await db.execute(
@@ -1124,6 +1309,13 @@ async def download_response_media(
     storage: LocalStorage = Depends(get_storage),
 ) -> FileResponse:
     """Download the question's audio, or its first image, as the legacy single-media endpoint."""
+    project = await get_project_or_404(project_id, db)
+    if not client_sees_questions(project, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brief item not found",
+        )
+
     item = await _get_question_or_404(db, project_id, item_id)
 
     if item.audio_storage_key:
