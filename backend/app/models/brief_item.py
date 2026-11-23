@@ -25,6 +25,15 @@ class BriefItemType(str, enum.Enum):
     QUESTION = "question"
     REFERENCE = "reference"
 
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
+
 
 class BriefCategory(str, enum.Enum):
     """Area of the engagement a brief item belongs to."""
@@ -32,6 +41,15 @@ class BriefCategory(str, enum.Enum):
     BRANDING = "branding"
     INTERIOR = "interior"
     GENERAL = "general"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            val_lower = value.lower()
+            for member in cls:
+                if member.value == val_lower or member.name.lower() == val_lower:
+                    return member
+        return None
 
 
 class BriefStatus(str, enum.Enum):
