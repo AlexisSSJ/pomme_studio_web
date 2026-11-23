@@ -1,28 +1,51 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { apiFetch, apiFetchBlobUrl, extractDetail } from "@/lib/api";
+import { apiFetch, extractDetail } from "@/lib/api";
+import {
+  MoodboardComposition,
+  type MoodboardItemData,
+  type MoodboardLayout,
+} from "@/components/MoodboardComposition";
 
-interface MoodboardItem {
+interface MoodboardBoard {
   id: string;
   project_id: string;
   title: string;
-  description: string | null;
+  curatorial_note: string | null;
+  layout_variant: MoodboardLayout;
+  position: number;
+  item_count: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MoodboardItem extends MoodboardItemData {
+  project_id: string;
   file_name: string;
   content_type: string;
   size_bytes: number;
   sort_order: number;
   created_by: string;
   created_at: string;
-  like_count: number;
-  dislike_count: number;
-  comment_count: number;
   my_reaction: "like" | "dislike" | "comment" | null;
   my_comment: string | null;
 }
 
-function MoodboardPiece({
+const MAX_BOARD_IMAGES = 10;
+
+function boardNumber(index: number): string {
+  return String(index + 1).padStart(2, "0");
+}
+
+/**
+ * Pie de pieza del portal: conteos públicos y controles de reacción del
+ * cliente (me gusta / no me gusta / comentar / quitar), sin acciones de
+ * equipo.
+ */
+function MoodboardReactionFooter({
   projectId,
   item,
   onChanged,
@@ -31,46 +54,10 @@ function MoodboardPiece({
   item: MoodboardItem;
   onChanged: () => void;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [imageError, setImageError] = useState("");
-  const [overlayOpen, setOverlayOpen] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
-
-  const filePath = `/api/v1/projects/${projectId}/moodboard/items/${item.id}/file`;
-
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-
-    apiFetchBlobUrl(filePath)
-      .then((created) => {
-        if (!active) {
-          URL.revokeObjectURL(created);
-          return;
-        }
-        objectUrl = created;
-        setUrl(created);
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setImageError(
-            error instanceof Error
-              ? error.message
-              : "Error al cargar la imagen"
-          );
-        }
-      });
-
-    return () => {
-      active = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
-  }, [filePath]);
 
   async function react(reaction: "like" | "dislike") {
     if (busy) return;
@@ -148,31 +135,7 @@ function MoodboardPiece({
   }
 
   return (
-    <article className="flex flex-col gap-3 p-4">
-      {url ? (
-        <button
-          type="button"
-          onClick={() => setOverlayOpen(true)}
-          aria-label={`Ampliar ${item.title}`}
-          className="block w-full"
-        >
-          <img src={url} alt={item.title} className="w-full" />
-        </button>
-      ) : imageError ? (
-        <p className="border border-border bg-surface p-3 text-sm">
-          {imageError}
-        </p>
-      ) : (
-        <p className="type-ui text-xs text-foreground/60">Cargando imagen…</p>
-      )}
-
-      <div>
-        <p className="text-sm font-semibold">{item.title}</p>
-        {item.description && (
-          <p className="type-editorial mt-1 text-sm">{item.description}</p>
-        )}
-      </div>
-
+    <div className="flex flex-col gap-2 pt-1">
       <p className="label-mono">
         {item.like_count} ME GUSTA · {item.dislike_count} NO ·{" "}
         {item.comment_count} COMENTARIOS
@@ -231,7 +194,7 @@ function MoodboardPiece({
       </div>
 
       {item.my_reaction === "comment" && item.my_comment && !commentOpen && (
-        <p className="border border-border bg-surface p-3 text-sm">
+        <p className="type-ui border border-border bg-surface p-3 text-sm">
           Tu comentario: {item.my_comment}
         </p>
       )}
@@ -243,7 +206,7 @@ function MoodboardPiece({
             onChange={(event) => setComment(event.target.value)}
             maxLength={2000}
             placeholder="Escribe tu comentario"
-            className="min-h-[44px] border border-border bg-background p-3 text-sm"
+            className="type-ui min-h-[44px] border border-border bg-background p-3 text-sm"
           />
           <button
             type="button"
@@ -260,98 +223,183 @@ function MoodboardPiece({
       )}
 
       {feedback && (
-        <p className="border border-border bg-surface p-3 text-sm">{feedback}</p>
+        <p className="type-ui border border-border bg-surface p-3 text-sm">
+          {feedback}
+        </p>
       )}
-
-      {overlayOpen && url && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={item.title}
-          className="fixed inset-0 z-50 flex flex-col bg-background"
-        >
-          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
-            <p className="type-ui truncate text-sm">{item.title}</p>
-            <button
-              type="button"
-              onClick={() => setOverlayOpen(false)}
-              className="btn-brutal min-h-[44px] px-3 text-xs"
-            >
-              Cerrar
-            </button>
-          </div>
-          <div className="flex flex-1 items-center justify-center overflow-auto p-4">
-            <img
-              src={url}
-              alt={item.title}
-              className="max-h-full max-w-full object-contain"
-              style={{ touchAction: "pinch-zoom" }}
-            />
-          </div>
-        </div>
-      )}
-    </article>
+    </div>
   );
 }
 
-export default function MoodboardPage() {
+export default function PortalMoodboardPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params?.projectId ?? "";
 
+  const [boards, setBoards] = useState<MoodboardBoard[]>([]);
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [items, setItems] = useState<MoodboardItem[]>([]);
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loadingBoards, setLoadingBoards] = useState(false);
+  const [loadingItems, setLoadingItems] = useState(false);
+  // Descarta respuestas de una lámina ya abandonada al cambiar de pestaña.
+  const itemsRequestRef = useRef(0);
 
-  const loadItems = useCallback(async () => {
-    setLoading(true);
+  const activeBoard =
+    boards.find((board) => board.id === activeBoardId) ?? null;
+
+  const loadBoards = useCallback(async () => {
+    if (!projectId) return;
+    setLoadingBoards(true);
+    setMessage("");
     try {
       const res = await apiFetch(
-        `/api/v1/projects/${projectId}/moodboard`
+        `/api/v1/projects/${projectId}/moodboard/boards`
       );
       if (res.ok) {
-        setItems(await res.json());
+        const data = (await res.json()) as MoodboardBoard[];
+        setBoards(data);
+        setActiveBoardId((prev) =>
+          prev && data.some((board) => board.id === prev)
+            ? prev
+            : data[0]?.id ?? null
+        );
       } else {
         const data: unknown = await res.json().catch(() => ({}));
-        setMessage(extractDetail(data, "Error al cargar el moodboard"));
+        setMessage(extractDetail(data, "Error al cargar los moodboards"));
       }
     } catch {
       setMessage("Error de conexión con el servidor");
     } finally {
-      setLoading(false);
+      setLoadingBoards(false);
     }
   }, [projectId]);
+
+  const loadItems = useCallback(async () => {
+    const requestId = ++itemsRequestRef.current;
+    if (!projectId || !activeBoardId) {
+      setItems([]);
+      setLoadingItems(false);
+      return;
+    }
+    setLoadingItems(true);
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/moodboard/boards/${activeBoardId}/items`
+      );
+      if (requestId !== itemsRequestRef.current) return;
+      if (res.ok) {
+        setItems(await res.json());
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al cargar las piezas"));
+      }
+    } catch {
+      if (requestId === itemsRequestRef.current) {
+        setMessage("Error de conexión con el servidor");
+      }
+    } finally {
+      if (requestId === itemsRequestRef.current) {
+        setLoadingItems(false);
+      }
+    }
+  }, [projectId, activeBoardId]);
+
+  useEffect(() => {
+    loadBoards();
+  }, [loadBoards]);
 
   useEffect(() => {
     loadItems();
   }, [loadItems]);
+
+  // Al cambiar de lámina se descarta el contenido de la anterior.
+  useEffect(() => {
+    setItems([]);
+  }, [activeBoardId]);
+
+  // La composición tipa las piezas como `MoodboardItemData`; el pie de
+  // reacciones necesita además los campos propios del listado.
+  const itemsById = new Map(items.map((item) => [item.id, item]));
 
   return (
     <section>
       <h1 className="type-title text-xl">Moodboard</h1>
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">
           {message}
         </p>
       )}
 
-      {loading && items.length === 0 ? (
-        <p className="mt-4 text-sm">Cargando…</p>
-      ) : items.length === 0 ? (
-        <p className="mt-4 text-sm">
-          Todavía no hay piezas en el moodboard.
-        </p>
+      {loadingBoards && boards.length === 0 ? (
+        <p className="type-ui mt-4 text-sm">Cargando…</p>
+      ) : boards.length === 0 ? (
+        <p className="type-ui mt-4 text-sm">Todavía no hay moodboards.</p>
       ) : (
-        <div className="grid-brutal grid-brutal--2 mt-4">
-          {items.map((item) => (
-            <MoodboardPiece
-              key={item.id}
-              projectId={projectId}
-              item={item}
-              onChanged={loadItems}
-            />
-          ))}
-        </div>
+        <>
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            {boards.map((board, index) => {
+              const active = board.id === activeBoardId;
+              return (
+                <button
+                  key={board.id}
+                  type="button"
+                  onClick={() => setActiveBoardId(board.id)}
+                  aria-pressed={active}
+                  className={`btn-brutal min-h-[44px] shrink-0 px-3 text-xs ${
+                    active ? "bg-foreground text-background" : ""
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="label-mono">{boardNumber(index)}</span>
+                    {board.title}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {activeBoard && (
+            <>
+              <p className="label-mono mt-4">
+                {items.length} / {MAX_BOARD_IMAGES} IMÁGENES
+              </p>
+
+              <div className="mt-6">
+                {loadingItems && items.length === 0 ? (
+                  <p className="type-ui text-sm">Cargando piezas…</p>
+                ) : (
+                  <MoodboardComposition
+                    layout={activeBoard.layout_variant}
+                    projectId={projectId}
+                    board={{
+                      title: activeBoard.title,
+                      curatorial_note: activeBoard.curatorial_note,
+                    }}
+                    items={items}
+                    renderFooter={(piece) => {
+                      const item = itemsById.get(piece.id);
+                      if (!item) return null;
+                      return (
+                        <MoodboardReactionFooter
+                          projectId={projectId}
+                          item={item}
+                          onChanged={loadItems}
+                        />
+                      );
+                    }}
+                  />
+                )}
+
+                {!loadingItems && items.length === 0 && (
+                  <p className="type-ui mt-6 text-sm">
+                    Todavía no hay piezas en este moodboard.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </>
       )}
     </section>
   );

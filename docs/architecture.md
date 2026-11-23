@@ -990,15 +990,25 @@ Prohibido: `box-shadow`, degradados y colores saturados innecesarios.
 
 - **Portal `/portal`** (rol `CLIENT`): listado de los proyectos del cliente
   (`GET /api/v1/projects`), brief en `/portal/projects/{id}/brief` (responder
-  cuestionario, subir referencias, descargar archivos) y moodboard en
-  `/portal/projects/{id}/moodboard`. Las reacciones (me gusta / no me gusta /
-  comentar) son botones táctiles de ≥ 44×44px con `aria-pressed`, sin depender
+  cuestionario, subir referencias, descargar archivos) y moodboard multi-board
+  de solo lectura en `/portal/projects/{id}/moodboard`: pestañas numeradas
+  (`01`, `02`, …) con `aria-pressed` y ≥ 44×44px que cambian la lámina activa
+  —sin controles de creación, edición ni subida—, contador `label-mono`
+  `"{n} / 10 IMÁGENES"`, lámina compuesta por `MoodboardComposition` según su
+  layout editorial (`editorial_collage`, `atelier_grid`, `monograph_strip`) y
+  estados vacíos «Todavía no hay moodboards.» / «Todavía no hay piezas en este
+  moodboard.». Las reacciones (me gusta / no me gusta / comentar / quitar
+  reacción) son botones táctiles de ≥ 44×44px con `aria-pressed`, sin depender
   de `hover`; tocar una imagen abre un overlay a pantalla completa con
   `touch-action: pinch-zoom` y botón de cierre ≥ 44px.
 - **Gestión de equipo:** `/admin/projects/{id}/brief` (crear preguntas, ver
   respuestas del cliente, descargar referencias) y
-  `/admin/projects/{id}/moodboard` (subir y eliminar piezas, ver conteos y
-  comentarios). La eliminación usa confirmación inline de dos pasos.
+  `/admin/projects/{id}/moodboard` (crear, editar y eliminar láminas, elegir su
+  layout editorial, subir piezas —máximo 10 por lámina, con aviso mientras no
+  se alcance el mínimo recomendado de 6—, eliminar piezas y ver conteos y
+  comentarios). La eliminación de láminas y piezas usa confirmación inline de
+  dos pasos; el portal y el back-office comparten `MoodboardComposition`, de
+  modo que la lámina pública y la de gestión se renderizan igual.
 - **Enrutado por rol:** el login redirige `CLIENT` → `/portal` y al equipo →
   `/admin`; el layout de admin reenvía a `/portal` cualquier `CLIENT`. Los
   `COLLABORATOR` cargan su lista de proyectos desde `GET /api/v1/projects`
