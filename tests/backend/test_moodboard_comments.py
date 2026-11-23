@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_storage
-from backend.app.core.security import create_access_token
+from backend.app.core.security import create_access_token, get_password_hash
 from backend.app.main import app
 from backend.app.models import (
     AuditLog,
@@ -20,6 +20,7 @@ from backend.app.models import (
     ProjectMember,
     ProjectRole,
     User,
+    UserRole,
 )
 from backend.app.services.storage import LocalStorage
 from tests.backend.test_moodboard import auth, create_board, upload_piece
@@ -495,6 +496,62 @@ async def test_author_name_in_read(
     assert entry["comment"] == "Me encanta"
     assert entry["user_id"] == str(client_user.id)
     assert entry["moodboard_item_id"] == item_id
+
+
+@pytest.mark.asyncio
+async def test_nameless_user_comment_uses_email_as_author_name(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    nameless = User(
+        id=uuid.uuid4(),
+        email="nameless@example.com",
+        hashed_password=get_password_hash("nameless123"),
+        full_name=None,
+        role=UserRole.CLIENT,
+        is_active=True,
+    )
+    db_session.add(nameless)
+    db_session.add(
+        ProjectMember(
+            id=uuid.uuid4(),
+            project_id=active_project.id,
+            user_id=nameless.id,
+            assigned_role=ProjectRole.CLIENT,
+        )
+    )
+    await db_session.commit()
+    token = create_access_token({"sub": str(nameless.id)})
+
+    piece = upload_piece(client, active_project.id, collaborator_token)
+    item_id = piece.json()["id"]
+
+    response = add_comment(
+        client, active_project.id, item_id, token, "Comentario sin nombre"
+    )
+    assert response.status_code == 201
+    assert response.json()["author_name"] == nameless.email
+    assert response.json()["comment"] == "Comentario sin nombre"
+
+    # The successful 201 committed exactly one row (no duplicate on retry).
+    result = await db_session.execute(
+        select(MoodboardComment).where(
+            MoodboardComment.moodboard_item_id == uuid.UUID(item_id),
+            MoodboardComment.user_id == nameless.id,
+        )
+    )
+    assert len(result.scalars().all()) == 1
+
+    listing = client.get(
+        comments_base(active_project.id, item_id), headers=auth(collaborator_token)
+    )
+    assert listing.status_code == 200
+    entries = listing.json()
+    assert len(entries) == 1
+    assert entries[0]["author_name"] == nameless.email
 
 
 @pytest.mark.asyncio

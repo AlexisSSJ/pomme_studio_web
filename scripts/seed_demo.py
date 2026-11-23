@@ -6,8 +6,8 @@ Run from the repository root AFTER applying migrations:
         backend/.venv/bin/python scripts/seed_demo.py
 
 Idempotent: exits early if the demo admin already exists. Creates demo users,
-one ACTIVE interior project (with brief questions/answers, a reference file and
-moodboard pieces + a client reaction) and one DRAFT branding project to show
+one ACTIVE interior project (with brief questions/answers, a reference file,
+moodboard pieces and a comment thread) and one DRAFT branding project to show
 the ACTIVE-only write gate. All passwords are demo-only.
 """
 
@@ -28,13 +28,12 @@ from backend.app.models import (  # noqa: E402
     BriefCategory,
     BriefItem,
     BriefItemType,
+    MoodboardComment,
     MoodboardItem,
-    MoodboardReaction,
     Project,
     ProjectMember,
     ProjectRole,
     ProjectStatus,
-    ReactionType,
     ServiceType,
     User,
     UserRole,
@@ -196,13 +195,21 @@ async def main() -> None:
                 first_item = item
 
         assert first_item is not None
-        db.add(
-            MoodboardReaction(
-                id=uuid.uuid4(),
-                moodboard_item_id=first_item.id,
-                user_id=users["cliente@pomme.studio"].id,
-                reaction=ReactionType.LIKE,
-            )
+        db.add_all(
+            [
+                MoodboardComment(
+                    id=uuid.uuid4(),
+                    moodboard_item_id=first_item.id,
+                    user_id=users["cliente@pomme.studio"].id,
+                    comment="Me encanta la paleta cálida de la sala.",
+                ),
+                MoodboardComment(
+                    id=uuid.uuid4(),
+                    moodboard_item_id=first_item.id,
+                    user_id=users["collab@pomme.studio"].id,
+                    comment="Probemos una variante con madera más oscura.",
+                ),
+            ]
         )
 
         await db.commit()

@@ -524,14 +524,14 @@ async def list_moodboard_comments(
     """List an item's comment thread in creation order (any member)."""
     item = await _get_scoped_item(db, project_id, item_id)
     result = await db.execute(
-        select(MoodboardComment, User.full_name)
+        select(MoodboardComment, User.full_name, User.email)
         .join(User, User.id == MoodboardComment.user_id)
         .where(MoodboardComment.moodboard_item_id == item.id)
         .order_by(MoodboardComment.created_at.asc())
     )
     return [
-        _comment_read(comment, author_name)
-        for comment, author_name in result.all()
+        _comment_read(comment, full_name or email)
+        for comment, full_name, email in result.all()
     ]
 
 
@@ -568,7 +568,7 @@ async def create_moodboard_comment(
         entity_id=comment.id,
         metadata={"project_id": str(project_id)},
     )
-    return _comment_read(comment, current_user.full_name)
+    return _comment_read(comment, current_user.full_name or current_user.email)
 
 
 @router.delete(
