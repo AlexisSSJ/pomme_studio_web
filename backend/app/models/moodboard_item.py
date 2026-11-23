@@ -1,4 +1,4 @@
-"""Moodboard item — an uploaded inspiration asset attached to a project."""
+"""Moodboard item — an uploaded inspiration asset attached to a board."""
 
 import uuid
 from datetime import datetime, timezone
@@ -28,6 +28,12 @@ class MoodboardItem(Base):
         Uuid(as_uuid=True),
         ForeignKey("projects.id"),
         nullable=False,
+        index=True,
+    )
+    moodboard_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("moodboards.id"),
+        nullable=True,
         index=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -19,6 +19,7 @@ from backend.app.models import (
     BriefCategory,
     BriefItem,
     BriefItemType,
+    Moodboard,
     MoodboardItem,
     Project,
     User,
@@ -60,7 +61,42 @@ FOREIGN_ENDPOINTS = [
     pytest.param("POST", "/brief/references", None, "brief-upload", id="brief-reference"),
     pytest.param("GET", "/brief/items/{item_id}/file", None, "json", id="brief-file"),
     pytest.param("GET", "/moodboard", None, "json", id="moodboard-list"),
-    pytest.param("POST", "/moodboard", None, "moodboard-upload", id="moodboard-upload"),
+    pytest.param("GET", "/moodboard/boards", None, "json", id="moodboard-boards-list"),
+    pytest.param(
+        "POST",
+        "/moodboard/boards",
+        {"title": "Board ajeno"},
+        "json",
+        id="moodboard-board-create",
+    ),
+    pytest.param(
+        "PATCH",
+        "/moodboard/boards/{board_id}",
+        {"layout_variant": "atelier_grid"},
+        "json",
+        id="moodboard-board-patch",
+    ),
+    pytest.param(
+        "DELETE",
+        "/moodboard/boards/{board_id}",
+        None,
+        "json",
+        id="moodboard-board-delete",
+    ),
+    pytest.param(
+        "GET",
+        "/moodboard/boards/{board_id}/items",
+        None,
+        "json",
+        id="moodboard-board-items",
+    ),
+    pytest.param(
+        "POST",
+        "/moodboard/boards/{board_id}/items",
+        None,
+        "moodboard-upload",
+        id="moodboard-board-upload",
+    ),
     pytest.param("DELETE", "/moodboard/items/{item_id}", None, "json", id="moodboard-delete"),
     pytest.param(
         "GET", "/moodboard/items/{item_id}/file", None, "json", id="moodboard-file"
@@ -159,7 +195,7 @@ async def test_foreign_member_gets_403(
     project = active_project if target_name == "active_project" else other_project
     path = (
         f"/api/v1/projects/{project.id}"
-        f"{path_template.format(item_id=uuid.uuid4())}"
+        f"{path_template.format(item_id=uuid.uuid4(), board_id=uuid.uuid4())}"
     )
 
     response = _foreign_request(client, method, path, tokens[caller], body, kind)
@@ -196,9 +232,16 @@ async def test_cross_project_item_ids_404(
         storage_key=f"{other_project.id}/foreign.png",
         created_by=other_client_user.id,
     )
+    foreign_board = Moodboard(
+        id=uuid.uuid4(),
+        project_id=other_project.id,
+        title="Board ajeno",
+        created_by=other_client_user.id,
+    )
     foreign_piece = MoodboardItem(
         id=uuid.uuid4(),
         project_id=other_project.id,
+        moodboard_id=foreign_board.id,
         title="Pin ajeno",
         file_name="pin.png",
         content_type="image/png",
@@ -206,7 +249,9 @@ async def test_cross_project_item_ids_404(
         storage_key=f"{other_project.id}/foreign-pin.png",
         created_by=other_client_user.id,
     )
-    db_session.add_all([foreign_question, foreign_reference, foreign_piece])
+    db_session.add_all(
+        [foreign_question, foreign_reference, foreign_board, foreign_piece]
+    )
     await db_session.commit()
 
     base = f"/api/v1/projects/{active_project.id}"
@@ -254,9 +299,37 @@ async def test_cross_project_item_ids_404(
     assert response.status_code == 404
     assert response.json()["detail"] == "Moodboard item not found"
 
+    # Boards: B's board id reads as missing under A's paths.
+    board_path = f"{base}/moodboard/boards/{foreign_board.id}"
+
+    response = client.get(f"{board_path}/items", headers=auth(collaborator_token))
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Moodboard not found"
+
+    response = client.patch(
+        board_path, json={"title": "Board invadido"}, headers=auth(collaborator_token)
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Moodboard not found"
+
+    response = client.delete(board_path, headers=auth(collaborator_token))
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Moodboard not found"
+
+    response = client.post(
+        f"{board_path}/items",
+        files={"file": ("pin.png", b"\x89PNG-fake-bytes", "image/png")},
+        data={"title": "Pin invasor", "sort_order": "0"},
+        headers=auth(collaborator_token),
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Moodboard not found"
+
     # Nothing in B was modified or deleted through A's paths.
     await db_session.refresh(foreign_question)
     assert foreign_question.answer is None
+    await db_session.refresh(foreign_board)
+    assert foreign_board.title == "Board ajeno"
     result = await db_session.execute(
         select(MoodboardItem).where(MoodboardItem.id == foreign_piece.id)
     )
@@ -272,8 +345,16 @@ async def test_assigned_collaborator_writes_in_a_201_in_b_403(
     collaborator_token: str,
 ):
     """A collaborator assigned to A uploads there (201) but not in B (403)."""
+    board = client.post(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards",
+        json={"title": "Board propio"},
+        headers=auth(collaborator_token),
+    )
+    assert board.status_code == 201
+
     response = client.post(
-        f"/api/v1/projects/{active_project.id}/moodboard",
+        f"/api/v1/projects/{active_project.id}/moodboard/boards/"
+        f"{board.json()['id']}/items",
         files={"file": ("pin.png", b"\x89PNG-fake-bytes", "image/png")},
         data={"title": "Pin propio", "sort_order": "0"},
         headers=auth(collaborator_token),
@@ -281,9 +362,8 @@ async def test_assigned_collaborator_writes_in_a_201_in_b_403(
     assert response.status_code == 201
 
     response = client.post(
-        f"/api/v1/projects/{other_project.id}/moodboard",
-        files={"file": ("pin.png", b"\x89PNG-fake-bytes", "image/png")},
-        data={"title": "Pin ajeno", "sort_order": "0"},
+        f"/api/v1/projects/{other_project.id}/moodboard/boards",
+        json={"title": "Board ajeno"},
         headers=auth(collaborator_token),
     )
     assert response.status_code == 403

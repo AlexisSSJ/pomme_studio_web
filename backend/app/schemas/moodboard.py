@@ -1,10 +1,11 @@
-"""Moodboard schemas: reaction validation and item reads."""
+"""Moodboard schemas: board validation, reaction validation and item reads."""
 
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..models.moodboard import MoodboardLayout
 from ..models.moodboard_reaction import ReactionType
 
 
@@ -55,6 +56,7 @@ class MoodboardItemRead(BaseModel):
 
     id: UUID
     project_id: UUID
+    moodboard_id: UUID | None = None
     title: str
     description: str | None
     file_name: str
@@ -68,3 +70,42 @@ class MoodboardItemRead(BaseModel):
     comment_count: int = 0
     my_reaction: ReactionType | None = None
     my_comment: str | None = None
+
+
+class MoodboardCreate(BaseModel):
+    """Payload for creating a moodboard board."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=255)
+    curatorial_note: str | None = Field(default=None, max_length=2000)
+    layout_variant: MoodboardLayout = MoodboardLayout.EDITORIAL_COLLAGE
+    position: int | None = None  # None -> max(position)+1, or 0 for the first
+
+
+class MoodboardUpdate(BaseModel):
+    """Partial update for a board; only provided fields are applied."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    curatorial_note: str | None = Field(default=None, max_length=2000)
+    layout_variant: MoodboardLayout | None = None
+    position: int | None = None
+
+
+class MoodboardRead(BaseModel):
+    """Public shape of a moodboard board, with its piece count."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    project_id: UUID
+    title: str
+    curatorial_note: str | None
+    layout_variant: MoodboardLayout
+    position: int
+    item_count: int = 0
+    created_by: UUID
+    created_at: datetime
+    updated_at: datetime

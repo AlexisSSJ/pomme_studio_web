@@ -187,7 +187,8 @@ exclusiones, debe rechazarse o reformularse como entregable de diseño.
 | `payments` | Pagos y liquidaciones sujetos a validación. | Sprint 1 |
 | `meetings` | Reuniones sincronizadas con Google Calendar. | **Sprint 2** |
 | `brief_items` | Brief del proyecto: preguntas del cuestionario y referencias subidas. | **Sprint 3** |
-| `moodboard_items` | Piezas de inspiración del moodboard cargadas por el equipo. | **Sprint 3** |
+| `moodboards` | Láminas curadas del moodboard, con título, nota curatorial, layout y orden. | **Extensión moodboard** |
+| `moodboard_items` | Piezas de inspiración del moodboard cargadas por el equipo (pertenecen a un board). | **Sprint 3** |
 | `moodboard_reactions` | Reacciones (`like`/`dislike`/`comment`) de los clientes a las piezas. | **Sprint 3** |
 | `project_stages` | Fases secuenciales del flujo de trabajo, con candado y aprobación del cliente. | **Sprint 4** |
 | `deliverables` | Entregables versionados dentro de una etapa, con pines/comentarios, drafts y handover final. | Sprint 1 → Sprint 4 → **Sprint 5** |
@@ -278,26 +279,50 @@ proyecto (migración `0004`).
 Restricción `ck_brief_item_shape`: una fila `question` exige `prompt` no nulo y
 una fila `reference` exige `storage_key` no nulo.
 
-#### 4.3.5 `moodboard_items`
+#### 4.3.5 `moodboards`
 
-Piezas de inspiración cargadas por el equipo para que el cliente reaccione
-(migración `0004`).
+Láminas curadas dentro de un proyecto, con layout editorial y nota curatorial
+(migración `0013`). Cada proyecto puede tener varios boards ordenados por
+`position`.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `id` | UUID | Clave primaria. |
 | `project_id` | UUID | FK a `projects.id` (indexada). |
+| `title` | string(255) | Título de la lámina. |
+| `curatorial_note` | text / null | Nota curatorial opcional. |
+| `layout_variant` | enum | `editorial_collage` \| `atelier_grid` \| `monograph_strip` (por defecto `editorial_collage`). |
+| `position` | int | Orden del board dentro del proyecto (por defecto `0`; el API asigna `max+1`). |
+| `created_by` | UUID | FK a `users.id` (autor de la creación). |
+| `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
+
+#### 4.3.6 `moodboard_items`
+
+Piezas de inspiración cargadas por el equipo para que el cliente reaccione
+(migración `0004`; `moodboard_id` añadido en `0013`).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | Clave primaria. |
+| `project_id` | UUID | FK a `projects.id` (indexada). |
+| `moodboard_id` | UUID / null | FK a `moodboards.id` (indexada). Solo es `NULL` en piezas legacy previas al backfill. |
 | `title` | string(255) | Título de la pieza. |
 | `description` | text / null | Descripción opcional. |
 | `file_name` | string(255) | Nombre original del archivo (metadato). |
 | `content_type` | string(100) | MIME (solo imágenes permitidas). |
 | `size_bytes` | int | Tamaño en bytes. |
 | `storage_key` | string(500) | Clave en el storage. |
-| `sort_order` | int | Orden de presentación (por defecto `0`). |
+| `sort_order` | int | Orden de presentación dentro del board (por defecto `0`). |
 | `created_by` | UUID | FK a `users.id` (autor de la carga). |
 | `created_at` / `updated_at` | timestamptz | Auditoría temporal. |
 
-#### 4.3.6 `moodboard_reactions`
+La migración `0013` enlaza cada pieza legacy (`moodboard_id IS NULL`) al primer
+board de su proyecto o crea un "Moodboard 01" (`editorial_collage`, `position 0`,
+autor = autor de la pieza más antigua). El API asigna siempre el board en las
+subidas nuevas y limita cada board a **10 imágenes** (409 al intentar la 11ª);
+el mínimo de **6** es solo una recomendación de presentación y nunca bloquea.
+
+#### 4.3.7 `moodboard_reactions`
 
 Reacción única por usuario y pieza (migración `0004`).
 
@@ -315,7 +340,7 @@ Restricciones: `uq_moodboard_reaction_user` hace única la pareja
 `ck_reaction_comment_required` exige texto no vacío cuando
 `reaction = 'comment'`.
 
-#### 4.3.7 `project_stages`
+#### 4.3.8 `project_stages`
 
 Fase ordenada del flujo de trabajo de un proyecto (migración `0005`).
 
@@ -335,7 +360,7 @@ Restricciones: `uq_project_stage_order` hace única la pareja
 `order_index >= 0`; `ck_stage_approval_shape` exige que una etapa
 `approved` tenga `approved_by` y `approved_at`.
 
-#### 4.3.8 `deliverables`
+#### 4.3.9 `deliverables`
 
 Versión de un entregable dentro de una etapa (migraciones `0005` y `0006`).
 
@@ -363,7 +388,7 @@ Restricciones: `uq_deliverable_stage_version` hace única la pareja
 `ck_deliverable_version_positive` exige `version >= 1`, y
 `fk_deliverables_published_by` enlaza `published_by` con `users.id`.
 
-#### 4.3.9 `deliverable_comments`
+#### 4.3.10 `deliverable_comments`
 
 Pin de revisión anclado a un punto porcentual de un entregable
 (migración `0005`).
@@ -385,7 +410,7 @@ Restricciones: `ck_comment_x_pct` y `ck_comment_y_pct` fijan el rango
 rechaza cuerpos whitespace-only a nivel de base (la capa de schema ya los
 rechaza con `422` antes de llegar aquí).
 
-#### 4.3.10 `project_specifications`
+#### 4.3.11 `project_specifications`
 
 Especificaciones de catálogo FF&E (mobiliario, luminarias, acabados, equipamiento)
 asociadas a un proyecto para ejecución externa sin inventario ni compras
@@ -430,6 +455,13 @@ En Sprint 3 se auditan además las acciones de brief y moodboard:
 `moodboard.item_create`, `moodboard.item_delete`, `moodboard.reaction` y
 `moodboard.reaction_delete`, con `entity_type` `brief_item`, `moodboard_item` o
 `moodboard_reaction` y `project_id` (como string) en los metadatos.
+
+La extensión multi-board añade `moodboard.board_create`,
+`moodboard.board_update` y `moodboard.board_delete` (entidad `moodboard`).
+`board_create` registra `project_id`, `title` y `layout_variant`; `board_update`
+registra los `fields` aplicados (ordenados); `board_delete` registra el
+`item_count` eliminado. `moodboard.item_create` añade `moodboard_id` a sus
+metadatos.
 
 En Sprint 4 se auditan las acciones del flujo de etapas, entregables y rondas:
 `stage.create`, `stage.approve` y `stage.unlock` (entidad `project_stage`),
@@ -655,13 +687,21 @@ usuario, brief y moodboard). Todos los paths usan el prefijo `/api/v1`.
 | `PATCH` | `/projects/{pid}/brief/items/{id}` | `CLIENT` con membresía `CLIENT` | Responder/actualizar la respuesta de una pregunta (proyecto `ACTIVE`). |
 | `POST` | `/projects/{pid}/brief/references` | Cualquier miembro | Subir un archivo de referencia (multipart; proyecto `ACTIVE`). |
 | `GET` | `/projects/{pid}/brief/items/{id}/file` | Cualquier miembro | Descargar el archivo de una referencia. |
-| `GET` | `/projects/{pid}/moodboard` | Cualquier miembro | Listar piezas con conteos (`like`/`dislike`/`comment`) y `my_reaction`. |
-| `POST` | `/projects/{pid}/moodboard` | Equipo | Subir una pieza (multipart, solo imágenes; proyecto `ACTIVE`). |
+| `GET` | `/projects/{pid}/moodboard` | Cualquier miembro | Lista plana legacy de todas las piezas del proyecto (incluye `moodboard_id`) con conteos (`like`/`dislike`/`comment`) y `my_reaction`. |
+| `GET` | `/projects/{pid}/moodboard/boards` | Cualquier miembro | Listar boards ordenados por `position`/`created_at` con `item_count`. |
+| `POST` | `/projects/{pid}/moodboard/boards` | Equipo | Crear un board (título, nota curatorial, layout; `position` = `max+1`; proyecto `ACTIVE`). |
+| `PATCH` | `/projects/{pid}/moodboard/boards/{id}` | Equipo | Actualizar solo los campos enviados (título, nota, layout, posición; proyecto `ACTIVE`). |
+| `DELETE` | `/projects/{pid}/moodboard/boards/{id}` | Equipo | Eliminar board con sus piezas, reacciones y archivos (proyecto `ACTIVE`). |
+| `GET` | `/projects/{pid}/moodboard/boards/{id}/items` | Cualquier miembro | Listar las piezas del board con conteos y `my_reaction`. |
+| `POST` | `/projects/{pid}/moodboard/boards/{id}/items` | Equipo | Subir una pieza al board (multipart, solo imágenes, máximo 10; proyecto `ACTIVE`). |
 | `DELETE` | `/projects/{pid}/moodboard/items/{id}` | Equipo | Eliminar pieza, sus reacciones y su archivo (proyecto `ACTIVE`). |
 | `GET` | `/projects/{pid}/moodboard/items/{id}/file` | Cualquier miembro | Descargar la imagen de una pieza. |
 | `POST` | `/projects/{pid}/moodboard/items/{id}/reactions` | `CLIENT` con membresía `CLIENT` | Upsert de la reacción propia (201 nueva, 200 reemplaza; proyecto `ACTIVE`). |
 | `DELETE` | `/projects/{pid}/moodboard/items/{id}/reactions` | `CLIENT` con membresía `CLIENT` | Eliminar la reacción propia (proyecto `ACTIVE`). |
 | `GET` | `/projects/{pid}/moodboard/items/{id}/reactions` | Cualquier miembro | Listar las reacciones de una pieza (más antiguas primero). |
+
+El antiguo `POST /projects/{pid}/moodboard` (subida plana) se **eliminó**: toda
+subida debe dirigirse a un board concreto, por lo que esa ruta responde `405`.
 
 Reglas de acceso específicas de Sprint 3:
 

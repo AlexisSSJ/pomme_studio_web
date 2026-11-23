@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_storage
@@ -37,11 +37,34 @@ def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def create_board(
+    client: TestClient,
+    project_id: uuid.UUID,
+    token: str,
+    *,
+    title: str = "Moodboard 01",
+    curatorial_note: str | None = None,
+    layout_variant: str | None = None,
+):
+    """Create a moodboard board with the given bearer token."""
+    body: dict = {"title": title}
+    if curatorial_note is not None:
+        body["curatorial_note"] = curatorial_note
+    if layout_variant is not None:
+        body["layout_variant"] = layout_variant
+    return client.post(
+        f"/api/v1/projects/{project_id}/moodboard/boards",
+        json=body,
+        headers=auth(token),
+    )
+
+
 def upload_piece(
     client: TestClient,
     project_id: uuid.UUID,
     token: str,
     *,
+    board_id: uuid.UUID | None = None,
     title: str = "Paleta cálida",
     description: str | None = "Referencia de tonos tierra",
     sort_order: int = 0,
@@ -49,16 +72,25 @@ def upload_piece(
     payload: bytes = b"\x89PNG-fake-bytes",
     content_type: str = "image/png",
 ):
-    """Upload a moodboard piece with the given bearer token."""
+    """Upload a moodboard piece, creating a board first when none is given."""
+    if board_id is None:
+        board = create_board(client, project_id, token)
+        if board.status_code != 201:
+            # Surfaces the board-create guard (403/409/401) to the caller.
+            return board
+        board_id = uuid.UUID(board.json()["id"])
+
     data = {"title": title, "sort_order": str(sort_order)}
     if description is not None:
         data["description"] = description
-    return client.post(
-        f"/api/v1/projects/{project_id}/moodboard",
+    response = client.post(
+        f"/api/v1/projects/{project_id}/moodboard/boards/{board_id}/items",
         files={"file": (file_name, payload, content_type)},
         data=data,
         headers=auth(token),
     )
+    response.moodboard_id = board_id  # held so callers can target the board
+    return response
 
 
 @pytest.mark.asyncio
@@ -589,7 +621,11 @@ async def test_write_on_draft_409(
 
     base = f"/api/v1/projects/{draft.id}/moodboard"
 
-    response = upload_piece(client, draft.id, collaborator_token)
+    # A board cannot be auto-created on a DRAFT project (create itself 409s),
+    # so target a random board id: the team/active guards run before the lookup.
+    response = upload_piece(
+        client, draft.id, collaborator_token, board_id=uuid.uuid4()
+    )
     assert response.status_code == 409
     assert response.json()["detail"] == "Project is not active"
 
@@ -641,6 +677,13 @@ async def test_inactive_user_403(
     assert response.status_code == 403
     assert response.json()["detail"] == "Inactive user"
 
+    response = client.get(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards",
+        headers=auth(token),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Inactive user"
+
     response = upload_piece(client, active_project.id, token)
     assert response.status_code == 403
     assert response.json()["detail"] == "Inactive user"
@@ -656,8 +699,10 @@ async def test_unauthenticated_401(
 
     assert client.get(base).status_code == 401
 
+    assert client.get(f"{base}/boards").status_code == 401
+    assert client.post(f"{base}/boards", json={"title": "Board"}).status_code == 401
     response = client.post(
-        base,
+        f"{base}/boards/{uuid.uuid4()}/items",
         files={"file": ("pin.png", b"\x89PNG-fake-bytes", "image/png")},
         data={"title": "Pin"},
     )
@@ -671,3 +716,459 @@ async def test_unauthenticated_401(
     )
     assert client.delete(f"{base}/items/{item_id}/reactions").status_code == 401
     assert client.get(f"{base}/items/{item_id}/reactions").status_code == 401
+
+
+def _stored_files(storage: LocalStorage) -> list[Path]:
+    return [path for path in storage.root.rglob("*") if path.is_file()]
+
+
+@pytest.mark.asyncio
+async def test_create_board_201(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_user: User,
+    collaborator_token: str,
+):
+    response = create_board(client, active_project.id, collaborator_token)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["project_id"] == str(active_project.id)
+    assert data["title"] == "Moodboard 01"
+    assert data["curatorial_note"] is None
+    assert data["layout_variant"] == "editorial_collage"
+    assert data["position"] == 0
+    assert data["item_count"] == 0
+    assert data["created_by"] == str(collaborator_user.id)
+    assert uuid.UUID(data["id"])
+
+    result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "moodboard.board_create",
+            AuditLog.entity_id == uuid.UUID(data["id"]),
+        )
+    )
+    log = result.scalar_one()
+    assert log.entity_type == "moodboard"
+    assert log.actor_user_id == collaborator_user.id
+    assert log.metadata_json == {
+        "project_id": str(active_project.id),
+        "title": "Moodboard 01",
+        "layout_variant": "editorial_collage",
+    }
+
+
+@pytest.mark.asyncio
+async def test_second_board_position_and_list_order(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    first = create_board(client, active_project.id, collaborator_token)
+    second = create_board(
+        client, active_project.id, collaborator_token, title="Moodboard 02"
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["position"] == 0
+    assert second.json()["position"] == 1
+
+    listing = client.get(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards",
+        headers=auth(collaborator_token),
+    )
+    assert listing.status_code == 200
+    boards = listing.json()
+    assert [board["title"] for board in boards] == ["Moodboard 01", "Moodboard 02"]
+    assert [board["position"] for board in boards] == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_create_board_403(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    client_token: str,
+):
+    response = create_board(client, active_project.id, client_token)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient permissions"
+
+
+@pytest.mark.asyncio
+async def test_unassigned_collaborator_create_board_403(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_two_token: str,
+):
+    response = create_board(client, active_project.id, collaborator_two_token)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "No access to this project"
+
+
+@pytest.mark.asyncio
+async def test_patch_board_fields_and_layout(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    board = create_board(client, active_project.id, collaborator_token)
+    board_id = uuid.UUID(board.json()["id"])
+    base = f"/api/v1/projects/{active_project.id}/moodboard/boards/{board_id}"
+
+    response = client.patch(
+        base,
+        json={
+            "title": "Moodboard Renombrado",
+            "curatorial_note": "Una nota curatorial.",
+            "layout_variant": "atelier_grid",
+        },
+        headers=auth(collaborator_token),
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Moodboard Renombrado"
+    assert data["curatorial_note"] == "Una nota curatorial."
+    assert data["layout_variant"] == "atelier_grid"
+
+    listing = client.get(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards",
+        headers=auth(collaborator_token),
+    )
+    board_payload = next(b for b in listing.json() if b["id"] == str(board_id))
+    assert board_payload["title"] == "Moodboard Renombrado"
+    assert board_payload["curatorial_note"] == "Una nota curatorial."
+    assert board_payload["layout_variant"] == "atelier_grid"
+
+    result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "moodboard.board_update",
+            AuditLog.entity_id == board_id,
+        )
+    )
+    log = result.scalar_one()
+    assert log.entity_type == "moodboard"
+    assert log.metadata_json == {
+        "project_id": str(active_project.id),
+        "fields": ["curatorial_note", "layout_variant", "title"],
+    }
+
+    # Explicit null clears the note; an empty body is a no-op.
+    response = client.patch(
+        base, json={"curatorial_note": None}, headers=auth(collaborator_token)
+    )
+    assert response.status_code == 200
+    assert response.json()["curatorial_note"] is None
+
+    response = client.patch(base, json={}, headers=auth(collaborator_token))
+    assert response.status_code == 200
+    assert response.json()["title"] == "Moodboard Renombrado"
+    assert response.json()["layout_variant"] == "atelier_grid"
+
+    response = client.patch(
+        base, json={"layout_variant": "bogus"}, headers=auth(collaborator_token)
+    )
+    assert response.status_code == 422
+
+    response = client.patch(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards/{uuid.uuid4()}",
+        json={"title": "Fantasma"},
+        headers=auth(collaborator_token),
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Moodboard not found"
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_patch_or_delete_board_403(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    board = create_board(client, active_project.id, collaborator_token)
+    base = (
+        f"/api/v1/projects/{active_project.id}/moodboard/boards/"
+        f"{board.json()['id']}"
+    )
+
+    response = client.patch(
+        base, json={"title": "No permitido"}, headers=auth(client_token)
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient permissions"
+
+    response = client.delete(base, headers=auth(client_token))
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient permissions"
+
+
+@pytest.mark.asyncio
+async def test_upload_cap_10_then_409(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    board = create_board(client, active_project.id, collaborator_token)
+    board_id = uuid.UUID(board.json()["id"])
+
+    for index in range(10):
+        response = upload_piece(
+            client,
+            active_project.id,
+            collaborator_token,
+            board_id=board_id,
+            title=f"Pieza {index}",
+            sort_order=index,
+        )
+        assert response.status_code == 201
+
+    files_before = len(_stored_files(media_storage))
+    response = upload_piece(
+        client,
+        active_project.id,
+        collaborator_token,
+        board_id=board_id,
+        title="Pieza 11",
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Moodboard already has 10 images"
+    assert len(_stored_files(media_storage)) == files_before
+
+
+@pytest.mark.asyncio
+async def test_upload_under_6_allowed(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    # The first upload auto-creates a board; its id is held for the rest.
+    first = upload_piece(
+        client, active_project.id, collaborator_token, title="Pieza 0"
+    )
+    assert first.status_code == 201
+    board_id = first.moodboard_id
+
+    for index in range(1, 3):
+        response = upload_piece(
+            client,
+            active_project.id,
+            collaborator_token,
+            board_id=board_id,
+            title=f"Pieza {index}",
+            sort_order=index,
+        )
+        assert response.status_code == 201
+
+    listing = client.get(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards",
+        headers=auth(collaborator_token),
+    )
+    board_payload = next(b for b in listing.json() if b["id"] == str(board_id))
+    assert board_payload["item_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_board_items_isolated(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+):
+    board_a = uuid.UUID(
+        create_board(
+            client, active_project.id, collaborator_token, title="Board A"
+        ).json()["id"]
+    )
+    board_b = uuid.UUID(
+        create_board(
+            client, active_project.id, collaborator_token, title="Board B"
+        ).json()["id"]
+    )
+    piece_a = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_a
+    )
+    piece_b = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_b
+    )
+    assert piece_a.status_code == 201
+    assert piece_b.status_code == 201
+
+    base = f"/api/v1/projects/{active_project.id}/moodboard"
+    items_a = client.get(
+        f"{base}/boards/{board_a}/items", headers=auth(collaborator_token)
+    ).json()
+    items_b = client.get(
+        f"{base}/boards/{board_b}/items", headers=auth(collaborator_token)
+    ).json()
+    assert [item["id"] for item in items_a] == [piece_a.json()["id"]]
+    assert [item["id"] for item in items_b] == [piece_b.json()["id"]]
+    assert items_a[0]["moodboard_id"] == str(board_a)
+    assert items_b[0]["moodboard_id"] == str(board_b)
+
+    flat = client.get(base, headers=auth(collaborator_token)).json()
+    assert {item["id"] for item in flat} == {
+        piece_a.json()["id"],
+        piece_b.json()["id"],
+    }
+    assert {item["moodboard_id"] for item in flat} == {str(board_a), str(board_b)}
+
+
+@pytest.mark.asyncio
+async def test_delete_board_cascades(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    board_a = uuid.UUID(
+        create_board(
+            client, active_project.id, collaborator_token, title="Board A"
+        ).json()["id"]
+    )
+    board_b = uuid.UUID(
+        create_board(
+            client, active_project.id, collaborator_token, title="Board B"
+        ).json()["id"]
+    )
+    piece_a = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_a
+    )
+    piece_b = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_b
+    )
+    item_a_id = uuid.UUID(piece_a.json()["id"])
+
+    react = client.post(
+        f"/api/v1/projects/{active_project.id}/moodboard/items/"
+        f"{item_a_id}/reactions",
+        json={"reaction": "like"},
+        headers=auth(client_token),
+    )
+    assert react.status_code == 201
+
+    result = await db_session.execute(
+        select(MoodboardItem).where(MoodboardItem.id == item_a_id)
+    )
+    item_a = result.scalar_one()
+    stored_a = media_storage.resolve(item_a.storage_key)
+    result = await db_session.execute(
+        select(MoodboardItem).where(
+            MoodboardItem.id == uuid.UUID(piece_b.json()["id"])
+        )
+    )
+    item_b = result.scalar_one()
+    stored_b = media_storage.resolve(item_b.storage_key)
+    assert stored_a.is_file()
+    assert stored_b.is_file()
+
+    response = client.delete(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards/{board_a}",
+        headers=auth(collaborator_token),
+    )
+    assert response.status_code == 204
+
+    assert not stored_a.exists()
+    assert stored_b.is_file()
+
+    result = await db_session.execute(
+        select(MoodboardItem).where(MoodboardItem.moodboard_id == board_a)
+    )
+    assert result.scalars().all() == []
+    result = await db_session.execute(
+        select(func.count()).select_from(MoodboardReaction)
+    )
+    assert result.scalar_one() == 0
+    result = await db_session.execute(
+        select(MoodboardItem).where(MoodboardItem.moodboard_id == board_b)
+    )
+    assert len(result.scalars().all()) == 1
+
+    listing = client.get(
+        f"/api/v1/projects/{active_project.id}/moodboard/boards",
+        headers=auth(collaborator_token),
+    )
+    assert [board["id"] for board in listing.json()] == [str(board_b)]
+
+    result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "moodboard.board_delete",
+            AuditLog.entity_id == board_a,
+        )
+    )
+    log = result.scalar_one()
+    assert log.entity_type == "moodboard"
+    assert log.metadata_json == {
+        "project_id": str(active_project.id),
+        "item_count": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_board_routes_on_draft_409(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    client_user: User,
+    collaborator_user: User,
+    collaborator_token: str,
+):
+    draft = Project(id=uuid.uuid4(), title="Draft Board Project", client_id=client_user.id)
+    db_session.add(draft)
+    db_session.add_all(
+        [
+            ProjectMember(
+                id=uuid.uuid4(),
+                project_id=draft.id,
+                user_id=client_user.id,
+                assigned_role=ProjectRole.CLIENT,
+            ),
+            ProjectMember(
+                id=uuid.uuid4(),
+                project_id=draft.id,
+                user_id=collaborator_user.id,
+                assigned_role=ProjectRole.COLLABORATOR,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    base = f"/api/v1/projects/{draft.id}/moodboard"
+    board_id = uuid.uuid4()
+
+    response = create_board(client, draft.id, collaborator_token)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Project is not active"
+
+    response = client.patch(
+        f"{base}/boards/{board_id}",
+        json={"title": "No activo"},
+        headers=auth(collaborator_token),
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Project is not active"
+
+    response = client.delete(f"{base}/boards/{board_id}", headers=auth(collaborator_token))
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Project is not active"
+
+    response = upload_piece(
+        client, draft.id, collaborator_token, board_id=board_id
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Project is not active"
+
+    # Reads stay open to members on DRAFT projects.
+    response = client.get(f"{base}/boards", headers=auth(collaborator_token))
+    assert response.status_code == 200
+    assert response.json() == []

@@ -1,4 +1,4 @@
-"""Moodboard endpoints: inspiration uploads and client reactions."""
+"""Moodboard endpoints: boards, inspiration uploads and client reactions."""
 
 from uuid import UUID
 
@@ -25,14 +25,18 @@ from ....api.deps import (
     require_team_member,
 )
 from ....db.session import get_db
+from ....models.moodboard import Moodboard
 from ....models.moodboard_item import MoodboardItem
 from ....models.moodboard_reaction import MoodboardReaction, ReactionType
 from ....models.project_member import ProjectRole
 from ....models.user import User, UserRole
 from ....schemas.moodboard import (
+    MoodboardCreate,
     MoodboardItemRead,
+    MoodboardRead,
     MoodboardReactionCreate,
     MoodboardReactionRead,
+    MoodboardUpdate,
 )
 from ....services.audit import log_audit
 from ....services.storage import (
@@ -43,6 +47,10 @@ from ....services.storage import (
 )
 
 router = APIRouter()
+
+# Hard ceiling of pieces per board (the minimum of 6 is a presentation rule;
+# only the upper bound blocks API writes).
+MAX_BOARD_IMAGES = 10
 
 
 async def _get_scoped_item(
@@ -68,36 +76,35 @@ async def _get_scoped_item(
     return item
 
 
-async def _require_client_member(
-    db: AsyncSession, project_id: UUID, current_user: User
-) -> None:
-    """Require a CLIENT membership on the project (client-only actions)."""
-    member = await get_membership(db, project_id, current_user.id)
-    if member is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No access to this project",
-        )
-    if member.assigned_role != ProjectRole.CLIENT:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions",
-        )
+async def _get_scoped_board(
+    db: AsyncSession, project_id: UUID, board_id: UUID
+) -> Moodboard:
+    """Return the board for `board_id` within `project_id` or raise 404.
 
-
-@router.get("", response_model=list[MoodboardItemRead])
-async def list_moodboard_items(
-    project_id: UUID,
-    current_user: User = Depends(require_project_access_from_path),
-    db: AsyncSession = Depends(get_db),
-) -> list[MoodboardItemRead]:
-    """List moodboard pieces with reaction counts (any member, any status)."""
+    Like `_get_scoped_item`, filtering on both ids makes cross-project board
+    ids indistinguishable from missing ones.
+    """
     result = await db.execute(
-        select(MoodboardItem)
-        .where(MoodboardItem.project_id == project_id)
-        .order_by(MoodboardItem.sort_order.asc(), MoodboardItem.created_at.asc())
+        select(Moodboard).where(
+            Moodboard.id == board_id,
+            Moodboard.project_id == project_id,
+        )
     )
-    items = list(result.scalars().all())
+    board = result.scalar_one_or_none()
+    if board is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Moodboard not found",
+        )
+    return board
+
+
+async def _item_reads(
+    db: AsyncSession,
+    items: list[MoodboardItem],
+    current_user: User,
+) -> list[MoodboardItemRead]:
+    """Attach reaction counts and the caller's reaction to each item."""
     if not items:
         return []
 
@@ -146,13 +153,238 @@ async def list_moodboard_items(
     return reads
 
 
+async def _board_read(db: AsyncSession, board: Moodboard) -> MoodboardRead:
+    """Return a board read model with its current piece count."""
+    count = await db.scalar(
+        select(func.count())
+        .select_from(MoodboardItem)
+        .where(MoodboardItem.moodboard_id == board.id)
+    )
+    return MoodboardRead.model_validate(board).model_copy(
+        update={"item_count": count or 0}
+    )
+
+
+async def _require_client_member(
+    db: AsyncSession, project_id: UUID, current_user: User
+) -> None:
+    """Require a CLIENT membership on the project (client-only actions)."""
+    member = await get_membership(db, project_id, current_user.id)
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    if member.assigned_role != ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+
+@router.get("", response_model=list[MoodboardItemRead])
+async def list_moodboard_items(
+    project_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+) -> list[MoodboardItemRead]:
+    """List every piece of the project (flat), with reaction counts."""
+    result = await db.execute(
+        select(MoodboardItem)
+        .where(MoodboardItem.project_id == project_id)
+        .order_by(MoodboardItem.sort_order.asc(), MoodboardItem.created_at.asc())
+    )
+    return await _item_reads(db, list(result.scalars().all()), current_user)
+
+
+@router.get("/boards", response_model=list[MoodboardRead])
+async def list_moodboard_boards(
+    project_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+) -> list[MoodboardRead]:
+    """List the project's boards ordered by position (any member, any status)."""
+    result = await db.execute(
+        select(Moodboard)
+        .where(Moodboard.project_id == project_id)
+        .order_by(Moodboard.position.asc(), Moodboard.created_at.asc())
+    )
+    boards = list(result.scalars().all())
+    if not boards:
+        return []
+
+    counts: dict[UUID, int] = {}
+    count_rows = await db.execute(
+        select(MoodboardItem.moodboard_id, func.count())
+        .where(MoodboardItem.moodboard_id.in_([board.id for board in boards]))
+        .group_by(MoodboardItem.moodboard_id)
+    )
+    for board_id, count in count_rows.all():
+        counts[board_id] = count
+
+    return [
+        MoodboardRead.model_validate(board).model_copy(
+            update={"item_count": counts.get(board.id, 0)}
+        )
+        for board in boards
+    ]
+
+
 @router.post(
-    "",
+    "/boards",
+    response_model=MoodboardRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_moodboard_board(
+    project_id: UUID,
+    payload: MoodboardCreate,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+) -> MoodboardRead:
+    """Create a board (studio team only, ACTIVE projects only)."""
+    await require_active_project(project_id, db)
+
+    if payload.position is None:
+        max_position = await db.scalar(
+            select(func.max(Moodboard.position)).where(
+                Moodboard.project_id == project_id
+            )
+        )
+        position = 0 if max_position is None else max_position + 1
+    else:
+        position = payload.position
+
+    board = Moodboard(
+        project_id=project_id,
+        title=payload.title,
+        curatorial_note=payload.curatorial_note,
+        layout_variant=payload.layout_variant,
+        position=position,
+        created_by=current_user.id,
+    )
+    db.add(board)
+    await db.commit()
+    await db.refresh(board)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="moodboard.board_create",
+        entity_type="moodboard",
+        entity_id=board.id,
+        metadata={
+            "project_id": str(project_id),
+            "title": board.title,
+            "layout_variant": board.layout_variant.value,
+        },
+    )
+    return MoodboardRead.model_validate(board)
+
+
+@router.patch("/boards/{board_id}", response_model=MoodboardRead)
+async def update_moodboard_board(
+    project_id: UUID,
+    board_id: UUID,
+    payload: MoodboardUpdate,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+) -> MoodboardRead:
+    """Patch a board's fields (team, ACTIVE only).
+
+    Only fields present in the request are applied, so an empty body is a
+    no-op and an explicit ``null`` clears a nullable field.
+    """
+    await require_active_project(project_id, db)
+    board = await _get_scoped_board(db, project_id, board_id)
+
+    fields = sorted(payload.model_fields_set)
+    for field in fields:
+        setattr(board, field, getattr(payload, field))
+
+    await db.commit()
+    await db.refresh(board)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="moodboard.board_update",
+        entity_type="moodboard",
+        entity_id=board.id,
+        metadata={"project_id": str(project_id), "fields": fields},
+    )
+    return await _board_read(db, board)
+
+
+@router.delete("/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_moodboard_board(
+    project_id: UUID,
+    board_id: UUID,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> None:
+    """Delete a board with every piece, reaction and file it holds."""
+    await require_active_project(project_id, db)
+    board = await _get_scoped_board(db, project_id, board_id)
+
+    result = await db.execute(
+        select(MoodboardItem).where(MoodboardItem.moodboard_id == board.id)
+    )
+    items = list(result.scalars().all())
+
+    if items:
+        item_ids = [item.id for item in items]
+        # Reactions first (explicit delete, no ORM cascade), then the stored
+        # files, then the items themselves.
+        await db.execute(
+            delete(MoodboardReaction).where(
+                MoodboardReaction.moodboard_item_id.in_(item_ids)
+            )
+        )
+        for item in items:
+            await storage.delete(item.storage_key)
+        await db.execute(
+            delete(MoodboardItem).where(MoodboardItem.moodboard_id == board.id)
+        )
+
+    await db.delete(board)
+    await db.commit()
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="moodboard.board_delete",
+        entity_type="moodboard",
+        entity_id=board.id,
+        metadata={"project_id": str(project_id), "item_count": len(items)},
+    )
+
+
+@router.get("/boards/{board_id}/items", response_model=list[MoodboardItemRead])
+async def list_board_items(
+    project_id: UUID,
+    board_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+) -> list[MoodboardItemRead]:
+    """List one board's pieces with reaction counts (any member)."""
+    board = await _get_scoped_board(db, project_id, board_id)
+    result = await db.execute(
+        select(MoodboardItem)
+        .where(MoodboardItem.moodboard_id == board.id)
+        .order_by(MoodboardItem.sort_order.asc(), MoodboardItem.created_at.asc())
+    )
+    return await _item_reads(db, list(result.scalars().all()), current_user)
+
+
+@router.post(
+    "/boards/{board_id}/items",
     response_model=MoodboardItemRead,
     status_code=status.HTTP_201_CREATED,
 )
-async def upload_moodboard_item(
+async def upload_board_item(
     project_id: UUID,
+    board_id: UUID,
     file: UploadFile = File(...),
     title: str = Form(..., min_length=1, max_length=255),
     description: str | None = Form(None),
@@ -161,8 +393,21 @@ async def upload_moodboard_item(
     db: AsyncSession = Depends(get_db),
     storage: LocalStorage = Depends(get_storage),
 ) -> MoodboardItem:
-    """Upload a moodboard piece (studio team only, ACTIVE projects only)."""
+    """Upload a piece into a board (team, ACTIVE only, max 10 pieces)."""
     await require_active_project(project_id, db)
+    board = await _get_scoped_board(db, project_id, board_id)
+
+    # Reject the 11th piece before writing anything to storage.
+    count = await db.scalar(
+        select(func.count())
+        .select_from(MoodboardItem)
+        .where(MoodboardItem.moodboard_id == board.id)
+    )
+    if (count or 0) >= MAX_BOARD_IMAGES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Moodboard already has 10 images",
+        )
 
     data = await file.read()
     try:
@@ -182,6 +427,7 @@ async def upload_moodboard_item(
 
     item = MoodboardItem(
         project_id=project_id,
+        moodboard_id=board.id,
         title=title,
         description=description,
         file_name=(file.filename or "piece")[:255],
@@ -205,6 +451,7 @@ async def upload_moodboard_item(
             "project_id": str(project_id),
             "file_name": item.file_name,
             "size_bytes": item.size_bytes,
+            "moodboard_id": str(board.id),
         },
     )
     return item
