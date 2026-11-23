@@ -14,6 +14,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from sqlalchemy import desc, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import (
@@ -52,6 +53,7 @@ from ....services.storage import (
     UploadTooLargeError,
     UploadValidationError,
 )
+from ....services.transcription import transcribe_audio
 
 router = APIRouter()
 client_brief_router = APIRouter()
@@ -713,13 +715,30 @@ async def upload_response_file(
 
     media_url = f"/api/v1/projects/{project_id}/brief/items/{item.id}/media"
 
+    previous_audio_key: str | None = None
     if is_audio:
+        # A re-upload replaces the previous recording; text and images stay.
+        previous_audio_key = item.audio_storage_key
+        if previous_audio_key == storage_key:
+            previous_audio_key = None
+        if previous_audio_key:
+            try:
+                await storage.delete(previous_audio_key)
+            except UploadValidationError:
+                pass
+
         item.audio_storage_key = storage_key
         item.audio_url = media_url
         item.response_type = "audio"
+
         if transcription:
             item.audio_transcription = transcription
             item.transcription = transcription
+        else:
+            text = await transcribe_audio(data, file.content_type or "")
+            if text:
+                item.audio_transcription = text
+                item.transcription = text
     else:
         # A legacy key that never reached the child table would be orphaned by
         # this upload, so drop its file (migrated keys are kept).
@@ -740,7 +759,19 @@ async def upload_response_file(
                 position=max((image.position for image in existing_images), default=0) + 1,
             )
         )
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError as exc:
+            # A concurrent upload claimed the same position after our count.
+            await db.rollback()
+            try:
+                await storage.delete(storage_key)
+            except UploadValidationError:
+                pass
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Maximum of 2 images per question",
+            ) from exc
 
         _sync_legacy_image_fields(item, await _get_item_images(db, item.id))
         item.response_type = "image"

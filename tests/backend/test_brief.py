@@ -9,6 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import get_storage
+from backend.app.api.v1.endpoints import brief as brief_module
+from backend.app.core.config import settings as app_settings
 from backend.app.core.security import create_access_token
 from backend.app.main import app
 from backend.app.models import (
@@ -33,6 +35,14 @@ def media_storage(tmp_path: Path) -> LocalStorage:
     app.dependency_overrides[get_storage] = lambda: storage
     yield storage
     app.dependency_overrides.pop(get_storage, None)
+
+
+def _media_files(storage: LocalStorage, suffix: str | None = None) -> list[Path]:
+    """Return the files stored under the media root, optionally by extension."""
+    files = sorted(path for path in storage.root.rglob("*") if path.is_file())
+    if suffix is not None:
+        files = [path for path in files if path.suffix == suffix]
+    return files
 
 
 @pytest.mark.asyncio
@@ -1170,3 +1180,452 @@ async def test_delete_image_cross_project_404(
     assert res.status_code == 404
 
 
+
+
+class _FakeTranscriptionResponse:
+    """Minimal httpx response stand-in for transcription service tests."""
+
+    def __init__(
+        self,
+        status_code: int = 200,
+        payload: object = None,
+        json_error: bool = False,
+    ) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self._json_error = json_error
+
+    def json(self) -> object:
+        if self._json_error:
+            raise ValueError("invalid JSON")
+        return self._payload
+
+
+class _FakeTranscriptionClient:
+    """Async-context-manager httpx stand-in that records the outgoing request."""
+
+    def __init__(self, response: _FakeTranscriptionResponse, captured: dict) -> None:
+        self._response = response
+        self._captured = captured
+
+    def __call__(self, *, timeout=None, **_kwargs) -> "_FakeTranscriptionClient":
+        self._captured["timeout"] = timeout
+        return self
+
+    async def __aenter__(self) -> "_FakeTranscriptionClient":
+        return self
+
+    async def __aexit__(self, *_exc_info) -> bool:
+        return False
+
+    async def post(self, url: str, **kwargs) -> _FakeTranscriptionResponse:
+        self._captured["url"] = url
+        self._captured["post"] = kwargs
+        return self._response
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_posts_multipart_and_returns_text(monkeypatch):
+    from backend.app.services import transcription as transcription_module
+
+    monkeypatch.setattr(app_settings, "TRANSCRIPTION_API_KEY", "test-key")
+    captured: dict = {}
+    response = _FakeTranscriptionResponse(payload={"text": "  Hola desde el audio.  "})
+    monkeypatch.setattr(
+        transcription_module.httpx,
+        "AsyncClient",
+        _FakeTranscriptionClient(response, captured),
+    )
+
+    result = await transcription_module.transcribe_audio(b"audio-bytes", "audio/webm")
+
+    assert result == "Hola desde el audio."
+    assert captured["url"] == app_settings.TRANSCRIPTION_API_URL
+    assert captured["timeout"] == 30.0
+    assert captured["post"]["headers"] == {"Authorization": "Bearer test-key"}
+    assert captured["post"]["data"] == {"model": app_settings.TRANSCRIPTION_MODEL}
+    filename, payload, content_type = captured["post"]["files"]["file"]
+    assert filename == "audio.webm"
+    assert payload == b"audio-bytes"
+    assert content_type == "audio/webm"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_without_key_returns_none_without_network(monkeypatch):
+    from backend.app.services import transcription as transcription_module
+
+    monkeypatch.setattr(app_settings, "TRANSCRIPTION_API_KEY", "")
+
+    class _ExplodingClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise AssertionError(
+                "transcription must not touch the network without an API key"
+            )
+
+    monkeypatch.setattr(transcription_module.httpx, "AsyncClient", _ExplodingClient)
+
+    assert (
+        await transcription_module.transcribe_audio(b"audio-bytes", "audio/mpeg") is None
+    )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        _FakeTranscriptionResponse(status_code=500),
+        _FakeTranscriptionResponse(json_error=True),
+        _FakeTranscriptionResponse(payload={"text": 42}),
+        _FakeTranscriptionResponse(payload={"unexpected": "shape"}),
+    ],
+    ids=["http-error", "invalid-json", "non-string-text", "missing-text"],
+)
+@pytest.mark.asyncio
+async def test_transcribe_audio_returns_none_on_bad_response(monkeypatch, response):
+    from backend.app.services import transcription as transcription_module
+
+    monkeypatch.setattr(app_settings, "TRANSCRIPTION_API_KEY", "test-key")
+    monkeypatch.setattr(
+        transcription_module.httpx,
+        "AsyncClient",
+        _FakeTranscriptionClient(response, {}),
+    )
+
+    assert (
+        await transcription_module.transcribe_audio(b"audio-bytes", "audio/mpeg") is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_returns_none_on_transport_error(monkeypatch):
+    import httpx
+
+    from backend.app.services import transcription as transcription_module
+
+    monkeypatch.setattr(app_settings, "TRANSCRIPTION_API_KEY", "test-key")
+
+    class _FailingClient(_FakeTranscriptionClient):
+        async def post(self, url: str, **kwargs):
+            raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(
+        transcription_module.httpx,
+        "AsyncClient",
+        _FailingClient(_FakeTranscriptionResponse(), {}),
+    )
+
+    assert (
+        await transcription_module.transcribe_audio(b"audio-bytes", "audio/mpeg") is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_audio_upload_transcribes_via_service(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+    monkeypatch,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "Describe el concepto en voz alta", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    calls: list[tuple[bytes, str]] = []
+
+    async def fake_transcribe(data: bytes, content_type: str) -> str:
+        calls.append((data, content_type))
+        return "Transcripción automática del audio."
+
+    monkeypatch.setattr(brief_module, "transcribe_audio", fake_transcribe)
+
+    audio_bytes = b"ID3fake-mp3-audio-data"
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("recording.mp3", audio_bytes, "audio/mpeg")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["response_type"] == "audio"
+    assert data["audio_url"] is not None
+    assert data["audio_transcription"] == "Transcripción automática del audio."
+    assert data["transcription"] == "Transcripción automática del audio."
+    assert calls == [(audio_bytes, "audio/mpeg")]
+    assert [path.read_bytes() for path in _media_files(media_storage)] == [audio_bytes]
+
+
+@pytest.mark.asyncio
+async def test_audio_upload_without_key_fallback_none(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+    monkeypatch,
+):
+    monkeypatch.setattr(app_settings, "TRANSCRIPTION_API_KEY", "")
+
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "Cuéntanos tu rutina en audio", "category": "general"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    audio_bytes = b"ID3fake-mp3-no-key"
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("recording.mp3", audio_bytes, "audio/mpeg")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["audio_url"] is not None
+    assert data["audio_transcription"] is None
+    assert data["transcription"] is None
+    assert [path.read_bytes() for path in _media_files(media_storage)] == [audio_bytes]
+
+
+@pytest.mark.asyncio
+async def test_audio_upload_service_error_still_saves_audio(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+    monkeypatch,
+):
+    async def failing_transcribe(_data: bytes, _content_type: str) -> None:
+        return None
+
+    monkeypatch.setattr(brief_module, "transcribe_audio", failing_transcribe)
+
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Qué te inspira del espacio?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    audio_bytes = b"ID3fake-mp3-service-error"
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("recording.mp3", audio_bytes, "audio/mpeg")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["audio_url"] is not None
+    assert data["audio_transcription"] is None
+    assert data["transcription"] is None
+    assert [path.read_bytes() for path in _media_files(media_storage)] == [audio_bytes]
+
+
+@pytest.mark.asyncio
+async def test_form_transcription_wins_over_service(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+    monkeypatch,
+):
+    calls = {"count": 0}
+
+    async def fake_transcribe(_data: bytes, _content_type: str) -> str:
+        calls["count"] += 1
+        return "Transcripción del servicio."
+
+    monkeypatch.setattr(brief_module, "transcribe_audio", fake_transcribe)
+
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Cómo describirías el ambiente?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("recording.mp3", b"ID3fake-mp3-form", "audio/mpeg")},
+        data={"transcription": "hola"},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["audio_transcription"] == "hola"
+    assert data["transcription"] == "hola"
+    assert calls["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_audio_reupload_replaces_old_file(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "Describe los materiales deseados", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    answer_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}",
+        json={"answer": "Respuesta escrita previa."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert answer_res.status_code == 200
+
+    image_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("ref.png", b"png-bytes-image", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert image_res.status_code == 200
+
+    first_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("first.mp3", b"first-audio", "audio/mpeg")},
+        data={"transcription": "Primera toma."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert first_res.status_code == 200
+    first_files = _media_files(media_storage, ".mp3")
+    assert len(first_files) == 1
+    first_path = first_files[0]
+    assert first_path.read_bytes() == b"first-audio"
+
+    second_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("second.mp3", b"second-audio", "audio/mpeg")},
+        data={"transcription": "Segunda toma."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert second_res.status_code == 200
+
+    second_files = _media_files(media_storage, ".mp3")
+    assert len(second_files) == 1
+    assert second_files[0] != first_path
+    assert not first_path.exists()
+    assert second_files[0].read_bytes() == b"second-audio"
+
+    brief_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert brief_res.status_code == 200
+    item = next(i for i in brief_res.json() if i["id"] == item_id)
+    assert item["answer"] == "Respuesta escrita previa."
+    assert item["audio_transcription"] == "Segunda toma."
+    assert item["transcription"] == "Segunda toma."
+    assert len(item["images"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_image_insert_conflict_returns_409(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+    monkeypatch,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Referencias de textura?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    real_get_item_images = brief_module._get_item_images
+    state = {"counted": False}
+
+    async def racing_get_item_images(db, question_id):
+        if not state["counted"]:
+            state["counted"] = True
+            # A concurrent upload commits position=1 right after our count.
+            db.add(
+                BriefItemImage(
+                    id=uuid.uuid4(),
+                    item_id=question_id,
+                    storage_key=f"{active_project.id}/raced.png",
+                    content_type="image/png",
+                    size_bytes=9,
+                    position=1,
+                )
+            )
+            await db.commit()
+            return []
+        return await real_get_item_images(db, question_id)
+
+    monkeypatch.setattr(brief_module, "_get_item_images", racing_get_item_images)
+
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("img.png", b"png-bytes-race", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+
+    assert res.status_code == 409
+    assert res.json()["detail"] == "Maximum of 2 images per question"
+
+    result = await db_session.execute(
+        select(BriefItemImage).where(BriefItemImage.item_id == uuid.UUID(item_id))
+    )
+    images = result.scalars().all()
+    assert len(images) == 1
+    assert images[0].position == 1
+    # The rejected upload's file is not left orphaned in storage.
+    assert _media_files(media_storage) == []
+
+
+@pytest.mark.asyncio
+async def test_media_legacy_image_branch(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Paleta preferida para el comedor?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    image_bytes = b"png-bytes-legacy-media"
+    upload_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("ref.png", image_bytes, "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert upload_res.status_code == 200
+
+    dl_res = client.get(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/media",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert dl_res.status_code == 200
+    assert dl_res.headers["content-type"].split(";")[0] == "image/png"
+    assert dl_res.content == image_bytes
