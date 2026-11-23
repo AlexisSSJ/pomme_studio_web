@@ -191,6 +191,9 @@ export default function AdminMoodboardPage() {
 
   // Descarta respuestas de una lámina ya abandonada al cambiar de pestaña.
   const itemsRequestRef = useRef(0);
+  // Ref espejo de las piezas en memoria: distingue el fallo de la carga
+  // inicial del fallo de una recarga que aún tiene datos válidos que mostrar.
+  const itemsRef = useRef<MoodboardItem[]>([]);
 
   const activeBoard =
     boards.find((board) => board.id === activeBoardId) ?? null;
@@ -250,12 +253,14 @@ export default function AdminMoodboardPage() {
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al cargar las piezas"));
-        setItemsFailed(true);
+        // Si ya hay piezas válidas en memoria, la recarga fallida no las
+        // invalida: se mantiene la composición y solo se muestra el aviso.
+        if (itemsRef.current.length === 0) setItemsFailed(true);
       }
     } catch {
       if (requestId === itemsRequestRef.current) {
         setMessage("Error de conexión con el servidor");
-        setItemsFailed(true);
+        if (itemsRef.current.length === 0) setItemsFailed(true);
       }
     } finally {
       if (requestId === itemsRequestRef.current) {
@@ -297,6 +302,12 @@ export default function AdminMoodboardPage() {
     };
   }, []);
 
+  // Espejo de `items` para que `loadItems` consulte el contenido actual sin
+  // recrearse en cada cambio de lista.
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
   // Al cambiar de lámina se descarta cualquier edición, confirmación o
   // selección pendiente de la anterior.
   useEffect(() => {
@@ -307,6 +318,7 @@ export default function AdminMoodboardPage() {
     setConfirmingDelete(false);
     setUploadMessage("");
     setSelectedItemId(null);
+    itemsRef.current = [];
     setItems([]);
   }, [activeBoardId]);
 

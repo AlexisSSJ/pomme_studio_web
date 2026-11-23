@@ -43,6 +43,9 @@ export default function PortalMoodboardPage() {
   const [itemsFailed, setItemsFailed] = useState(false);
   // Descarta respuestas de una lámina ya abandonada al cambiar de pestaña.
   const itemsRequestRef = useRef(0);
+  // Ref espejo de las piezas en memoria: distingue el fallo de la carga
+  // inicial del fallo de una recarga que aún tiene datos válidos que mostrar.
+  const itemsRef = useRef<MoodboardItemData[]>([]);
 
   // Identidad del usuario actual: el cliente comenta y borra solo sus
   // propios comentarios (el backend impone el resto).
@@ -109,12 +112,14 @@ export default function PortalMoodboardPage() {
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al cargar las piezas"));
-        setItemsFailed(true);
+        // Si ya hay piezas válidas en memoria, la recarga fallida no las
+        // invalida: se mantiene la composición y solo se muestra el aviso.
+        if (itemsRef.current.length === 0) setItemsFailed(true);
       }
     } catch {
       if (requestId === itemsRequestRef.current) {
         setMessage("Error de conexión con el servidor");
-        setItemsFailed(true);
+        if (itemsRef.current.length === 0) setItemsFailed(true);
       }
     } finally {
       if (requestId === itemsRequestRef.current) {
@@ -152,10 +157,17 @@ export default function PortalMoodboardPage() {
     };
   }, []);
 
+  // Espejo de `items` para que `loadItems` consulte el contenido actual sin
+  // recrearse en cada cambio de lista.
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
   // Al cambiar de lámina se descarta el contenido y cualquier selección
   // pendiente de la anterior.
   useEffect(() => {
     setSelectedItemId(null);
+    itemsRef.current = [];
     setItems([]);
   }, [activeBoardId]);
 
@@ -208,9 +220,11 @@ export default function PortalMoodboardPage() {
               estado honesto: no simular una lámina vacía. */}
           {activeBoard && !itemsFailed && (
             <>
-              <p className="label-mono mt-4">
-                {items.length} / {MAX_BOARD_IMAGES} IMÁGENES
-              </p>
+              {!loadingItems && (
+                <p className="label-mono mt-4">
+                  {items.length} / {MAX_BOARD_IMAGES} IMÁGENES
+                </p>
+              )}
 
               <div className="mt-6">
                 {loadingItems && items.length === 0 ? (

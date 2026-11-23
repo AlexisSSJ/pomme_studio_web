@@ -527,7 +527,7 @@ async def list_moodboard_comments(
         select(MoodboardComment, User.full_name, User.email)
         .join(User, User.id == MoodboardComment.user_id)
         .where(MoodboardComment.moodboard_item_id == item.id)
-        .order_by(MoodboardComment.created_at.asc())
+        .order_by(MoodboardComment.created_at.asc(), MoodboardComment.id.asc())
     )
     return [
         _comment_read(comment, full_name or email)

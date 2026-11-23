@@ -197,7 +197,7 @@ export function MoodboardCommentPanel({
       role="dialog"
       aria-modal="true"
       aria-label="Comentarios de la pieza"
-      className="fixed inset-0 z-40 flex flex-col bg-background md:inset-y-0 md:left-auto md:right-0 md:w-[400px] md:border-l md:border-border"
+      className="fixed inset-0 z-[60] flex flex-col bg-background md:inset-y-0 md:left-auto md:right-0 md:w-[400px] md:border-l md:border-border"
     >
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
         <p className="label-mono">HILO DE COMENTARIOS</p>
@@ -339,7 +339,7 @@ export function MoodboardCommentPanel({
           role="dialog"
           aria-modal="true"
           aria-label={item.title}
-          className="fixed inset-0 z-50 flex flex-col bg-background"
+          className="fixed inset-0 z-[70] flex flex-col bg-background"
         >
           <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
             <p className="type-ui truncate text-sm">{item.title}</p>
