@@ -311,6 +311,21 @@ async def test_list_team_forbidden_for_client(
     assert response.status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_list_team_allowed_for_lead_designer(
+    client: TestClient,
+    lead_designer_token: str,
+    lead_designer_user: User,
+    collaborator_user: User,
+):
+    """A non-SUPER_ADMIN caller can read the assignable team list."""
+    response = client.get("/api/v1/admin/team", headers=_auth(lead_designer_token))
+    assert response.status_code == 200, response.text
+    emails = [row["email"] for row in response.json()]
+    assert lead_designer_user.email in emails
+    assert collaborator_user.email in emails
+
+
 # ---------------------------------------------------------------------------
 # POST /admin/projects/{project_id}/members
 # ---------------------------------------------------------------------------
@@ -497,12 +512,13 @@ async def test_add_lead_designer_for_current_lead(
 
 
 @pytest.mark.asyncio
-async def test_add_lead_designer_for_unassigned_project(
+async def test_add_lead_designer_for_unassigned_project_409(
     client: TestClient,
     super_admin_token: str,
     lead_designer_user: User,
     db_session: AsyncSession,
 ):
+    """A leadless project cannot gain a lead membership through this endpoint."""
     project = await _create_project(db_session, "No lead project")
 
     response = client.post(
@@ -513,7 +529,9 @@ async def test_add_lead_designer_for_unassigned_project(
             "assigned_role": ProjectRole.LEAD_DESIGNER.value,
         },
     )
-    assert response.status_code == 201, response.text
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Use the lead reassignment endpoint"
+    assert await _memberships(db_session, project) == []
 
 
 @pytest.mark.asyncio
@@ -578,6 +596,63 @@ async def test_add_duplicate_member_409(
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "User is already a member"
+
+
+@pytest.mark.asyncio
+async def test_add_duplicate_member_race_integrity_error_409(
+    client: TestClient,
+    super_admin_token: str,
+    active_project: Project,
+    collaborator_user: User,
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The commit-time unique constraint also yields the duplicate-member 409.
+
+    Forcing the pre-check to miss reproduces two concurrent callers: the
+    insert hits `uq_project_member` and surfaces as IntegrityError, which must
+    roll back the membership *and* the notification and answer the same 409.
+    """
+    import backend.app.api.v1.endpoints.admin_projects as admin_projects_module
+
+    async def blind_membership_lookup(db, project_id, user_id):
+        return None
+
+    monkeypatch.setattr(
+        admin_projects_module, "get_membership", blind_membership_lookup
+    )
+
+    project_id = active_project.id
+    user_id = collaborator_user.id
+    members_before = [m.id for m in await _memberships(db_session, active_project)]
+
+    response = client.post(
+        f"/api/v1/admin/projects/{project_id}/members",
+        headers=_auth(super_admin_token),
+        json={
+            "user_id": str(user_id),
+            "assigned_role": ProjectRole.COLLABORATOR.value,
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "User is already a member"
+
+    # The endpoint rolled the shared session back; query by the captured ids.
+    result = await db_session.execute(
+        select(ProjectMember)
+        .where(ProjectMember.project_id == project_id)
+        .order_by(ProjectMember.created_at, ProjectMember.id)
+    )
+    members_after = list(result.scalars().all())
+    assert [m.id for m in members_after] == members_before
+
+    result = await db_session.execute(
+        select(Notification).where(
+            Notification.user_id == user_id,
+            Notification.event_type == "project.assigned",
+        )
+    )
+    assert result.scalars().all() == []
 
 
 @pytest.mark.asyncio
@@ -665,6 +740,51 @@ async def test_remove_collaborator(
     )
     log = result.scalar_one()
     assert log.metadata_json == {"user_id": str(collaborator_user.id)}
+
+
+@pytest.mark.asyncio
+async def test_remove_member_from_another_project_404(
+    client: TestClient,
+    super_admin_token: str,
+    active_project: Project,
+    other_project: Project,
+    other_client_user: User,
+    db_session: AsyncSession,
+):
+    """A membership id belonging to another project is indistinguishable from none."""
+    response = client.delete(
+        f"/api/v1/admin/projects/{active_project.id}/members/{other_client_user.id}",
+        headers=_auth(super_admin_token),
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Membership not found"
+
+    other_memberships = await _memberships(db_session, other_project)
+    assert other_client_user.id in [m.user_id for m in other_memberships]
+
+
+@pytest.mark.asyncio
+async def test_remove_collaborator_by_project_lead(
+    client: TestClient,
+    lead_designer_token: str,
+    lead_designer_user: User,
+    collaborator_two_user: User,
+    db_session: AsyncSession,
+):
+    """The assigned lead (non-SUPER_ADMIN) can remove a collaborator."""
+    project = await _create_project(
+        db_session, "Lead removes member", lead_designer_id=lead_designer_user.id
+    )
+    await _add_member(
+        db_session, project, collaborator_two_user, ProjectRole.COLLABORATOR
+    )
+
+    response = client.delete(
+        f"/api/v1/admin/projects/{project.id}/members/{collaborator_two_user.id}",
+        headers=_auth(lead_designer_token),
+    )
+    assert response.status_code == 204, response.text
+    assert await _memberships(db_session, project) == []
 
 
 @pytest.mark.asyncio
@@ -873,6 +993,33 @@ async def test_reassign_lead_requires_global_lead_role(
 
 
 @pytest.mark.asyncio
+async def test_reassign_lead_inactive_target_403(
+    client: TestClient,
+    super_admin_token: str,
+    active_project: Project,
+    db_session: AsyncSession,
+):
+    """PATCH /lead rejects inactive targets, matching POST /members."""
+    inactive_lead = await _create_user(
+        db_session,
+        "inactive-lead@pomme.studio",
+        UserRole.LEAD_DESIGNER,
+        is_active=False,
+    )
+
+    response = client.patch(
+        f"/api/v1/admin/projects/{active_project.id}/lead",
+        headers=_auth(super_admin_token),
+        json={"lead_designer_id": str(inactive_lead.id)},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Inactive user"
+
+    await db_session.refresh(active_project)
+    assert active_project.lead_designer_id is None
+
+
+@pytest.mark.asyncio
 async def test_reassign_lead_unknown_user_404(
     client: TestClient,
     super_admin_token: str,
@@ -915,6 +1062,30 @@ async def test_reassign_lead_by_assigned_lead(
     project = await _create_project(
         db_session, "Lead self reassignment", lead_designer_id=lead_designer_user.id
     )
+    await _add_member(db_session, project, lead_designer_user, ProjectRole.LEAD_DESIGNER)
+
+    response = client.patch(
+        f"/api/v1/admin/projects/{project.id}/lead",
+        headers=_auth(lead_designer_token),
+        json={"lead_designer_id": str(new_lead.id)},
+    )
+    assert response.status_code == 200, response.text
+    await db_session.refresh(project)
+    assert project.lead_designer_id == new_lead.id
+
+
+@pytest.mark.asyncio
+async def test_reassign_lead_by_lead_designer_member(
+    client: TestClient,
+    lead_designer_token: str,
+    lead_designer_user: User,
+    db_session: AsyncSession,
+):
+    """A LEAD_DESIGNER membership holder (not the assigned lead) can reassign."""
+    new_lead = await _create_user(
+        db_session, "new-lead-3@pomme.studio", UserRole.LEAD_DESIGNER
+    )
+    project = await _create_project(db_session, "Lead membership reassigns")
     await _add_member(db_session, project, lead_designer_user, ProjectRole.LEAD_DESIGNER)
 
     response = client.patch(
@@ -1010,6 +1181,30 @@ async def test_client_assignment_without_change_keeps_membership(
     memberships = await _memberships(db_session, active_project)
     roles_by_user = {m.user_id: m.assigned_role for m in memberships}
     assert roles_by_user[client_user.id] == ProjectRole.CLIENT
+
+
+@pytest.mark.asyncio
+async def test_client_assignment_promotes_existing_membership_row(
+    client: TestClient,
+    super_admin_token: str,
+    client_user: User,
+    db_session: AsyncSession,
+):
+    """An incoming client with an existing COLLABORATOR row is shown as CLIENT."""
+    project = await _create_project(db_session, "Client was a collaborator")
+    await _add_member(db_session, project, client_user, ProjectRole.COLLABORATOR)
+
+    response = client.patch(
+        f"/api/v1/admin/projects/{project.id}/client",
+        headers=_auth(super_admin_token),
+        json={"client_id": str(client_user.id)},
+    )
+    assert response.status_code == 200, response.text
+
+    memberships = await _memberships(db_session, project)
+    assert [(m.user_id, m.assigned_role) for m in memberships] == [
+        (client_user.id, ProjectRole.CLIENT)
+    ]
 
 
 @pytest.mark.asyncio

@@ -287,7 +287,9 @@ async def assign_project_client(
 
     project.client_id = client_id
 
-    # Ensure client membership in project_members if client_id is set
+    # Ensure client membership in project_members if client_id is set. An
+    # existing row for the incoming client is updated in place, otherwise the
+    # project's client would be listed under a stale role.
     if client_id is not None:
         existing_member = await db.execute(
             select(ProjectMember).where(
@@ -295,7 +297,8 @@ async def assign_project_client(
                 ProjectMember.user_id == client_id,
             )
         )
-        if not existing_member.scalar_one_or_none():
+        existing_row = existing_member.scalar_one_or_none()
+        if existing_row is None:
             db.add(
                 ProjectMember(
                     project_id=project.id,
@@ -303,6 +306,8 @@ async def assign_project_client(
                     assigned_role=ProjectRole.CLIENT,
                 )
             )
+        elif existing_row.assigned_role != ProjectRole.CLIENT:
+            existing_row.assigned_role = ProjectRole.CLIENT
 
     # Changing the client revokes the previous client's membership (and with
     # it their access to the project). A previous client that holds another
@@ -458,10 +463,9 @@ async def add_project_member(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Incompatible role",
             )
-        if (
-            project.lead_designer_id is not None
-            and project.lead_designer_id != target_user.id
-        ):
+        # The lead column is the single canonical source: a LEAD_DESIGNER
+        # membership can only mirror an already assigned lead.
+        if project.lead_designer_id != target_user.id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Use the lead reassignment endpoint",
@@ -605,7 +609,7 @@ async def assign_project_lead(
     """Reassign the project's lead designer.
 
     SUPER_ADMIN or LEAD_DESIGNER (assigned lead or project member). The
-    target must be an active-safe global LEAD_DESIGNER. The previous lead
+    target must be an active global LEAD_DESIGNER. The previous lead
     loses their LEAD_DESIGNER membership; the new lead gains one unless a
     membership row already exists (the unique constraint allows only one row
     per user and project, and the project's `lead_designer_id` already grants
@@ -630,6 +634,12 @@ async def assign_project_lead(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="User is not a lead designer",
+        )
+
+    if not new_lead.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user",
         )
 
     previous_lead_id = project.lead_designer_id
