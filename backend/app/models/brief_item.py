@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
@@ -23,6 +24,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -147,6 +149,15 @@ class BriefItem(Base):
     audio_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     audio_transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
     transcription: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Explicit client seal: "this question is finished" (independent from the
+    # automatic answered-based status; toggled via POST /items/{id}/confirm).
+    client_confirmed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+    )
 
     created_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

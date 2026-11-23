@@ -71,6 +71,14 @@ class BriefAutosavePayload(BaseModel):
     items: list[BriefAutosaveItem] | None = None
 
 
+class BriefConfirmPayload(BaseModel):
+    """Explicit client seal: mark a question as finished (or reopen it)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: bool
+
+
 class BriefImageRead(BaseModel):
     """Public shape of a reference image attached to a brief question; never exposes storage key."""
 
@@ -107,6 +115,7 @@ class BriefItemRead(BaseModel):
     audio_url: str | None = None
     audio_transcription: str | None = None
     transcription: str | None = None
+    client_confirmed: bool = False
     progress: float | None = None
     created_by: UUID
     created_at: datetime

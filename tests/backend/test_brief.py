@@ -1751,3 +1751,222 @@ async def test_edited_transcription_survives_reload_both_fields(
     saved = brief_item(answer_item_id)
     assert saved["transcription"] == edited
     assert saved["audio_transcription"] == edited
+
+
+@pytest.mark.asyncio
+async def test_delete_audio_removes_file_and_transcriptions_keeps_text_and_images(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Qué atmósfera buscas?", "category": "interior"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert q_res.status_code == 201
+    item_id = q_res.json()["id"]
+
+    answer_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}",
+        json={"answer": "Respuesta escrita que debe sobrevivir."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert answer_res.status_code == 200
+
+    image_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("ref.png", b"png-bytes-image", "image/png")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert image_res.status_code == 200
+
+    audio_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("note.mp3", b"voice-note-bytes", "audio/mpeg")},
+        data={"transcription": "Toma que el cliente quiere borrar."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert audio_res.status_code == 200
+    audio_files = _media_files(media_storage, ".mp3")
+    assert len(audio_files) == 1
+    audio_path = audio_files[0]
+
+    # The client seals the question, then changes their mind about the audio.
+    confirm_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/confirm",
+        json={"confirmed": True},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert confirm_res.status_code == 200
+    assert confirm_res.json()["client_confirmed"] is True
+
+    del_res = client.delete(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/audio",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert del_res.status_code == 200
+    data = del_res.json()
+    assert data["audio_url"] is None
+    assert data["audio_transcription"] is None
+    assert data["transcription"] is None
+    # Removing part of the answer invalidates the "finished" seal.
+    assert data["client_confirmed"] is False
+    assert data["answer"] == "Respuesta escrita que debe sobrevivir."
+    assert len(data["images"]) == 1
+    assert not audio_path.exists()
+    # The reference image file must survive the audio delete.
+    assert len(_media_files(media_storage, ".png")) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_audio_without_audio_404(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Sin audio?", "category": "general"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    res = client.delete(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/audio",
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_audio_by_collaborator_forbidden(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+    media_storage: LocalStorage,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Audio del cliente?", "category": "general"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    audio_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/response-file",
+        files={"file": ("note.mp3", b"voice-note-bytes", "audio/mpeg")},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert audio_res.status_code == 200
+
+    res = client.delete(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/audio",
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert res.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_confirm_requires_response_409(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Pregunta vacía?", "category": "general"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/confirm",
+        json={"confirmed": True},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert res.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_confirm_and_reopen_toggles_seal_with_audit(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Confirmación explícita?", "category": "branding"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    answer_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}",
+        json={"answer": "Respuesta lista para sellar."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert answer_res.status_code == 200
+
+    confirm_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/confirm",
+        json={"confirmed": True},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert confirm_res.status_code == 200
+    assert confirm_res.json()["client_confirmed"] is True
+
+    reopen_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/confirm",
+        json={"confirmed": False},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert reopen_res.status_code == 200
+    assert reopen_res.json()["client_confirmed"] is False
+
+    result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "brief.confirm",
+            AuditLog.entity_id == uuid.UUID(item_id),
+        )
+    )
+    logs = result.scalars().all()
+    assert len(logs) == 2
+    assert {log.metadata_json["confirmed"] for log in logs} == {True, False}
+
+
+@pytest.mark.asyncio
+async def test_confirm_by_collaborator_forbidden(
+    client: TestClient,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    q_res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/questions",
+        json={"prompt": "¿Sello del equipo?", "category": "general"},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    item_id = q_res.json()["id"]
+
+    answer_res = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}",
+        json={"answer": "Respuesta del cliente."},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert answer_res.status_code == 200
+
+    res = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}/confirm",
+        json={"confirmed": True},
+        headers={"Authorization": f"Bearer {collaborator_token}"},
+    )
+    assert res.status_code == 403

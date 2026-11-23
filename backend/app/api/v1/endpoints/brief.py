@@ -38,6 +38,7 @@ from ....schemas.brief import (
     BriefAutosaveItem,
     BriefAutosavePayload,
     BriefAutosaveResponse,
+    BriefConfirmPayload,
     BriefImageRead,
     BriefItemRead,
     BriefPendingResponse,
@@ -934,6 +935,138 @@ async def delete_item_image(
             "project_id": str(project_id),
             "image_id": str(image_id),
             "remaining_images": len(remaining),
+        },
+    )
+    return item
+
+
+@router.delete(
+    "/items/{item_id}/audio",
+    response_model=BriefItemRead,
+    status_code=status.HTTP_200_OK,
+)
+async def delete_item_audio(
+    project_id: UUID,
+    item_id: UUID,
+    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> BriefItem:
+    """Remove the voice note from a question; text and images are preserved."""
+    member = await get_membership(db, project_id, current_user.id)
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    if member.assigned_role != ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    await require_active_project(project_id, db)
+
+    item = await _get_question_or_404(db, project_id, item_id)
+    if not item.audio_storage_key and not item.audio_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Audio not found",
+        )
+
+    if item.audio_storage_key:
+        try:
+            await storage.delete(item.audio_storage_key)
+        except UploadValidationError:
+            # A malformed legacy key must not turn a delete into a 500.
+            pass
+
+    item.audio_storage_key = None
+    item.audio_url = None
+    # The transcription belongs to the removed recording; drop both mirrors.
+    item.audio_transcription = None
+    item.transcription = None
+    if item.response_type == "audio":
+        item.response_type = None
+    # Removing part of the answer invalidates the client's "finished" seal.
+    item.client_confirmed = False
+    if not _has_any_response(item):
+        item.status = BriefStatus.PENDING
+
+    await db.commit()
+    await db.refresh(item)
+
+    progress, _, _, _, _ = await compute_brief_progress(project_id, db)
+    setattr(item, "progress", progress)
+    await _populate_images_for_items(db, project_id, [item])
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.audio_delete",
+        entity_type="brief_item",
+        entity_id=item.id,
+        metadata={"project_id": str(project_id)},
+    )
+    return item
+
+
+@router.post(
+    "/items/{item_id}/confirm",
+    response_model=BriefItemRead,
+    status_code=status.HTTP_200_OK,
+)
+async def confirm_item(
+    project_id: UUID,
+    item_id: UUID,
+    payload: BriefConfirmPayload,
+    current_user: User = Depends(require_roles(UserRole.CLIENT)),
+    db: AsyncSession = Depends(get_db),
+) -> BriefItem:
+    """Explicit client seal: mark a question as finished, or reopen it.
+
+    Independent from the automatic answered-based status and progress: the
+    seal only records the client's declaration that the answer is final.
+    """
+    member = await get_membership(db, project_id, current_user.id)
+    if member is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to this project",
+        )
+    if member.assigned_role != ProjectRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    await require_active_project(project_id, db)
+
+    item = await _get_question_or_404(db, project_id, item_id)
+    if payload.confirmed and not is_question_answered(item):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Question has no response to confirm",
+        )
+
+    item.client_confirmed = payload.confirmed
+
+    await db.commit()
+    await db.refresh(item)
+
+    progress, _, _, _, _ = await compute_brief_progress(project_id, db)
+    setattr(item, "progress", progress)
+    await _populate_images_for_items(db, project_id, [item])
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.confirm",
+        entity_type="brief_item",
+        entity_id=item.id,
+        metadata={
+            "project_id": str(project_id),
+            "confirmed": payload.confirmed,
         },
     )
     return item

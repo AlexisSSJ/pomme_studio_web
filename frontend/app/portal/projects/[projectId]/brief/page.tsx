@@ -45,6 +45,7 @@ interface BriefItem {
   transcription?: string | null;
   response_type: string | null;
   progress?: number | null;
+  client_confirmed?: boolean;
   status: string;
   created_by: string;
   created_at: string;
@@ -125,6 +126,8 @@ export default function BriefPage() {
   const transcriptionsRef = useRef<Record<string, string>>({});
   const [itemFeedback, setItemFeedback] = useState<Record<string, string>>({});
   const [deletingImageId, setDeletingImageId] = useState<string | null>(null);
+  const [deletingAudioId, setDeletingAudioId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [zoomedImage, setZoomedImage] = useState<{ src: string; alt: string } | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -409,6 +412,64 @@ export default function BriefPage() {
     }
   }
 
+  async function deleteAudioResponse(itemId: string) {
+    setDeletingAudioId(itemId);
+    setItemFeedback((prev) => ({ ...prev, [itemId]: "Eliminando nota de voz…" }));
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/brief/items/${itemId}/audio`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        const updated: BriefItem = await res.json();
+        setItems((prev) => prev.map((it) => it.id === updated.id ? updated : it));
+        // The server dropped the transcription mirrors; drop the local ones
+        // too so a reload (or a pending autosave) does not revive them.
+        const nextTranscriptions = { ...transcriptionsRef.current };
+        delete nextTranscriptions[itemId];
+        transcriptionsRef.current = nextTranscriptions;
+        setTranscriptions(nextTranscriptions);
+        if (typeof updated?.progress === "number") {
+          setProgressData((prev) => prev ? { ...prev, progress: updated.progress! } : null);
+        }
+        setItemFeedback((prev) => ({ ...prev, [itemId]: "Nota de voz eliminada" }));
+        load();
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setItemFeedback((prev) => ({ ...prev, [itemId]: extractDetail(data, "Error al eliminar la nota de voz") }));
+      }
+    } catch {
+      setItemFeedback((prev) => ({ ...prev, [itemId]: "Error de red al eliminar la nota de voz" }));
+    } finally {
+      setDeletingAudioId(null);
+    }
+  }
+
+  async function confirmQuestion(itemId: string, confirmed: boolean) {
+    setConfirmingId(itemId);
+    try {
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/brief/items/${itemId}/confirm`,
+        { method: "POST", body: JSON.stringify({ confirmed }) }
+      );
+      if (res.ok) {
+        const updated: BriefItem = await res.json();
+        setItems((prev) => prev.map((it) => it.id === updated.id ? updated : it));
+        setItemFeedback((prev) => ({
+          ...prev,
+          [itemId]: confirmed ? "Pregunta confirmada" : "Pregunta reabierta",
+        }));
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setItemFeedback((prev) => ({ ...prev, [itemId]: extractDetail(data, "Error al confirmar la pregunta") }));
+      }
+    } catch {
+      setItemFeedback((prev) => ({ ...prev, [itemId]: "Error de red al confirmar" }));
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
   async function uploadReference(event: React.FormEvent) {
     event.preventDefault();
     if (!file) {
@@ -495,9 +556,9 @@ export default function BriefPage() {
     progressData?.answered_questions ??
     questions.filter(questionAnswered).length;
   const totalCount = progressData?.total_questions ?? questions.length;
-  const briefCompleted =
-    progressData?.status === "completed" ||
-    (questions.length > 0 && questions.every(questionAnswered));
+  const confirmedCount = questions.filter((q) => q.client_confirmed).length;
+  const allConfirmed =
+    questions.length > 0 && questions.every((q) => q.client_confirmed);
   const isSaving = Object.values(autosaveStatus).some(
     (status) => status === "Guardando…"
   );
@@ -595,19 +656,20 @@ export default function BriefPage() {
   }
 
   // The backend completes the brief and notifies collaborators automatically
-  // once every question is answered; there is no separate submit endpoint.
+  // once every question is answered; the client's explicit confirmation seal
+  // is what gates the "Enviar Brief" button in the UI.
   function handleSendBrief() {
-    if (briefCompleted) {
+    if (allConfirmed) {
       setFlowMessage("Brief enviado ✓ — el estudio ya fue notificado");
       return;
     }
-    const unanswered = questions.filter((q) => !questionAnswered(q));
-    const target = unanswered[0];
+    const unconfirmed = questions.filter((q) => !q.client_confirmed);
+    const target = unconfirmed[0];
     if (target) {
       setExpandedId(target.id);
       scrollToQuestion(target.id);
       setFlowMessage(
-        `Faltan ${unanswered.length} pregunta${unanswered.length === 1 ? "" : "s"} por responder`
+        `Faltan ${unconfirmed.length} pregunta${unconfirmed.length === 1 ? "" : "s"} por confirmar`
       );
     }
   }
@@ -631,7 +693,8 @@ export default function BriefPage() {
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-mono text-xs tabular-nums text-stone-500">
-              {answeredCount} / {totalCount} respondidas · {progressPercent}%
+              {answeredCount} / {totalCount} respondidas · {progressPercent}% ·{" "}
+              {confirmedCount} confirmadas
             </span>
             <span className="font-serif text-[11px] italic text-stone-500">
               {isSaving ? "Guardando…" : "Progreso autoguardado"}
@@ -678,6 +741,7 @@ export default function BriefPage() {
                 const hasTranscription = Boolean(transcription.trim());
                 const expanded = expandedId === item.id;
                 const answered = questionAnswered(item);
+                const confirmed = Boolean(item.client_confirmed);
                 const isLast = index === questions.length - 1;
                 return (
                   <div
@@ -685,8 +749,12 @@ export default function BriefPage() {
                     id={`brief-question-${item.id}`}
                     className={`scroll-mt-4 rounded-2xl border transition-all duration-300 ${
                       expanded
-                        ? "border-stone-900/35 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
-                        : "border-stone-900/10 bg-[#EFECE6]/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
+                        ? confirmed
+                          ? "border-[#5F7161]/45 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                          : "border-stone-900/35 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                        : confirmed
+                          ? "border-[#5F7161]/30 bg-[#EEF2EC]/75 px-5 py-4 hover:bg-[#E5EBE2] md:px-6 md:py-5"
+                          : "border-stone-900/10 bg-[#EFECE6]/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
                     }`}
                   >
                     {/* Full-row header button: touch target far above 44px. */}
@@ -709,7 +777,16 @@ export default function BriefPage() {
                       >
                         {item.prompt}
                       </span>
-                      {!expanded && answered && (
+                      {!expanded && confirmed && (
+                        <span className="hidden items-center gap-2 font-serif text-[11px] italic text-[#44544A] sm:flex">
+                          <span
+                            aria-hidden="true"
+                            className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
+                          />
+                          Confirmada
+                        </span>
+                      )}
+                      {!expanded && !confirmed && answered && (
                         <span className="hidden font-serif text-[11px] italic text-stone-500 sm:inline">
                           Respondida
                         </span>
@@ -829,17 +906,29 @@ export default function BriefPage() {
                           {(item.audio_url || hasTranscription) && (
                             <div className="flex flex-col gap-3 rounded-xl border border-stone-900/15 bg-[#F4F1EA]/50 p-4">
                               {item.audio_url && (
-                                <>
-                                  <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
-                                    Nota de voz
-                                  </p>
+                                <div className="flex flex-col gap-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                                      Nota de voz
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteAudioResponse(item.id)}
+                                      disabled={deletingAudioId === item.id}
+                                      className="min-h-[44px] rounded-lg border border-stone-900/20 px-3 text-[11px] uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
+                                    >
+                                      {deletingAudioId === item.id
+                                        ? "Eliminando…"
+                                        : "Eliminar ✕"}
+                                    </button>
+                                  </div>
                                   {/* key forces a remount (fresh blob fetch) after re-recording:
                                       the /media URL is stable across uploads. */}
                                   <VoiceNotePlayer
                                     key={item.updated_at ?? item.id}
                                     url={item.audio_url}
                                   />
-                                </>
+                                </div>
                               )}
                               <div className="flex flex-col gap-2 border-t border-stone-900/10 pt-3">
                                 <label
@@ -876,15 +965,39 @@ export default function BriefPage() {
                           </p>
                         )}
 
-                        {!isLast && (
+                        {!confirmed && !answered && (
+                          <p className="font-serif text-[11px] italic text-stone-500">
+                            Añade una respuesta para poder confirmar la pregunta.
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-3 border-t border-stone-900/10 pt-4">
                           <button
                             type="button"
-                            onClick={() => goToNextQuestion(item.id)}
-                            className="min-h-[44px] self-start rounded-lg border border-stone-900/20 px-4 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white"
+                            onClick={() => confirmQuestion(item.id, !confirmed)}
+                            disabled={confirmingId === item.id || (!confirmed && !answered)}
+                            className={`min-h-[44px] rounded-lg px-4 py-2 text-xs uppercase tracking-wider transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-50 ${
+                              confirmed
+                                ? "bg-[#5F7161] text-[#FAF8F5] hover:bg-[#4E5D50]"
+                                : "border border-[#5F7161]/50 text-[#44544A] hover:bg-[#5F7161] hover:text-white"
+                            }`}
                           >
-                            Siguiente pregunta →
+                            {confirmingId === item.id
+                              ? "Guardando…"
+                              : confirmed
+                                ? "Confirmada ✓ — reabrir"
+                                : "Confirmar respuesta ✓"}
                           </button>
-                        )}
+                          {!isLast && (
+                            <button
+                              type="button"
+                              onClick={() => goToNextQuestion(item.id)}
+                              className="min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white"
+                            >
+                              Siguiente pregunta →
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -910,7 +1023,7 @@ export default function BriefPage() {
                   onClick={handleSendBrief}
                   className="min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs uppercase tracking-wider text-[#FAF8F5] transition-colors duration-300 hover:bg-stone-800"
                 >
-                  {briefCompleted ? "Brief enviado ✓" : "Enviar Brief"}
+                  {allConfirmed ? "Brief enviado ✓" : "Enviar Brief"}
                 </button>
               </div>
               {flowMessage && (

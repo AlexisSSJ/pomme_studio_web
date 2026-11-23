@@ -34,6 +34,7 @@ interface BriefItem {
   audio_url: string | null;
   audio_transcription: string | null;
   transcription?: string | null;
+  client_confirmed?: boolean;
   status: string;
   created_at: string;
   updated_at?: string;
@@ -273,6 +274,7 @@ export default function AdminBriefPage() {
       : answeredQuestions > 0
         ? "in_progress"
         : "pending");
+  const confirmedCount = questions.filter((q) => q.client_confirmed).length;
 
   return (
     <section className="brief-editorial">
@@ -301,7 +303,8 @@ export default function AdminBriefPage() {
             />
           </div>
           <span className="font-mono text-xs tabular-nums text-stone-500">
-            {answeredQuestions} / {totalQuestions} respondidas · {progressPercent}%
+            {answeredQuestions} / {totalQuestions} respondidas · {progressPercent}% ·{" "}
+            {confirmedCount} confirmadas
           </span>
         </div>
       </div>
@@ -397,14 +400,19 @@ export default function AdminBriefPage() {
                   answer || transcription || item?.audio_url || imageCount > 0
                 );
                 const expanded = expandedId === item.id;
+                const confirmed = Boolean(item.client_confirmed);
 
                 return (
                   <div
                     key={item.id}
                     className={`rounded-2xl border transition-all duration-300 ${
                       expanded
-                        ? "border-stone-900/35 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
-                        : "border-stone-900/10 bg-[#EFECE6]/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
+                        ? confirmed
+                          ? "border-[#5F7161]/45 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                          : "border-stone-900/35 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                        : confirmed
+                          ? "border-[#5F7161]/30 bg-[#EEF2EC]/75 px-5 py-4 hover:bg-[#E5EBE2] md:px-6 md:py-5"
+                          : "border-stone-900/10 bg-[#EFECE6]/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
                     }`}
                   >
                     {/* Full-row header button: touch target far above 44px. */}
@@ -427,7 +435,16 @@ export default function AdminBriefPage() {
                       >
                         {item.prompt}
                       </span>
-                      {!expanded && (
+                      {!expanded && confirmed && (
+                        <span className="hidden items-center gap-2 font-serif text-[11px] italic text-[#44544A] sm:flex">
+                          <span
+                            aria-hidden="true"
+                            className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
+                          />
+                          Confirmada
+                        </span>
+                      )}
+                      {!expanded && !confirmed && (
                         <span className="hidden font-serif text-[11px] italic text-stone-500 sm:inline">
                           {hasResponse ? "Respondida" : "Sin respuesta"}
                         </span>
@@ -449,10 +466,25 @@ export default function AdminBriefPage() {
                         id={`admin-brief-panel-${item.id}`}
                         className="mt-5 flex flex-col gap-4"
                       >
-                        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
-                          {item.category ?? "general"} ·{" "}
-                          {hasResponse ? "Respuesta del cliente" : "Sin respuesta"}
-                        </p>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                            {item.category ?? "general"} ·{" "}
+                            {hasResponse ? "Respuesta del cliente" : "Sin respuesta"}
+                          </p>
+                          {confirmed ? (
+                            <span className="flex items-center gap-2 rounded-lg bg-[#EEF2EC] px-3 py-1 font-serif text-[11px] italic text-[#44544A]">
+                              <span
+                                aria-hidden="true"
+                                className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
+                              />
+                              Confirmada por el cliente ✓
+                            </span>
+                          ) : (
+                            <span className="font-serif text-[11px] italic text-stone-500">
+                              Sin confirmar por el cliente
+                            </span>
+                          )}
+                        </div>
 
                         {answer && (
                           <p className="text-[15px] leading-relaxed text-stone-800">
