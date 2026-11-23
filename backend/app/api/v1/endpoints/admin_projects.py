@@ -1,6 +1,7 @@
 """Admin project activation and internal listing endpoints."""
 
 from uuid import UUID
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -12,7 +13,7 @@ from ....db.session import get_db
 from ....models.project import Project, ProjectStatus
 from ....models.project_member import ProjectMember, ProjectRole
 from ....models.user import User, UserRole
-from ....schemas.project import ProjectRead
+from ....schemas.project import ProjectCreate, ProjectRead
 from ....services.audit import log_audit
 
 router = APIRouter()
@@ -46,6 +47,56 @@ async def list_projects(
             .order_by(Project.created_at.desc())
         )
     return list(result.scalars().all())
+
+
+@router.post("/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
+async def create_project(
+    payload: ProjectCreate,
+    current_user: User = Depends(require_roles(UserRole.SUPER_ADMIN, UserRole.LEAD_DESIGNER)),
+    db: AsyncSession = Depends(get_db),
+) -> Project:
+    """Create a new project directly without a lead.
+
+    SUPER_ADMIN or LEAD_DESIGNER.
+    """
+    project = Project(
+        id=uuid.uuid4(),
+        title=payload.title,
+        scope_type=payload.scope_type,
+        client_id=payload.client_id,
+        lead_designer_id=payload.lead_designer_id or (current_user.id if current_user.role == UserRole.LEAD_DESIGNER else None),
+        included_rounds=payload.included_rounds,
+        remaining_rounds=payload.remaining_rounds,
+        status=ProjectStatus.DRAFT,
+        balance_paid=False,
+    )
+    db.add(project)
+
+    if project.client_id:
+        db.add(ProjectMember(project_id=project.id, user_id=project.client_id, assigned_role=ProjectRole.CLIENT))
+    if project.lead_designer_id:
+        db.add(ProjectMember(project_id=project.id, user_id=project.lead_designer_id, assigned_role=ProjectRole.LEAD_DESIGNER))
+
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Project creation conflict",
+        ) from exc
+    await db.refresh(project)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="project.create_direct",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={"title": project.title},
+    )
+
+    return project
 
 
 @router.post("/projects/{project_id}/activate", response_model=ProjectRead)
@@ -260,6 +311,9 @@ async def list_clients(
         }
         for c in clients
     ]
+
+
+@router.post("/projects/{project_id}/extra-round", response_model=ProjectRead)
 async def grant_extra_round(
     project_id: UUID,
     current_user: User = Depends(

@@ -9,6 +9,15 @@ from ..models.lead import ServiceType
 from ..models.project import ProjectStatus
 
 
+class ProjectCreate(BaseModel):
+    title: str
+    scope_type: ServiceType | None = None
+    client_id: UUID | None = None
+    lead_designer_id: UUID | None = None
+    included_rounds: int = 3
+    remaining_rounds: int = 3
+
+
 class ProjectRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

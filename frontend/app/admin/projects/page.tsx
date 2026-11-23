@@ -39,6 +39,13 @@ export default function ProjectsPage() {
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [assigningClientId, setAssigningClientId] = useState<string | null>(null);
 
+  // New project modal state
+  const [showModal, setShowModal] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newScope, setNewScope] = useState<string>("branding");
+  const [newClientId, setNewClientId] = useState<string>("");
+  const [creatingProject, setCreatingProject] = useState(false);
+
   const loadProjects = useCallback(async (path: string) => {
     setLoading(true);
     try {
@@ -150,9 +157,124 @@ export default function ProjectsPage() {
     }
   }
 
+  async function handleCreateProject(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTitle.trim()) {
+      setMessage("El título del proyecto es obligatorio");
+      return;
+    }
+    setCreatingProject(true);
+    setMessage("");
+    try {
+      const res = await apiFetch("/api/v1/admin/projects", {
+        method: "POST",
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          scope_type: newScope,
+          client_id: newClientId || null,
+          included_rounds: 3,
+          remaining_rounds: 3,
+        }),
+      });
+      if (res.ok) {
+        setMessage("Proyecto creado exitosamente");
+        setNewTitle("");
+        setNewClientId("");
+        setShowModal(false);
+        loadProjects(me?.role === "COLLABORATOR" ? "/api/v1/projects" : "/api/v1/admin/projects");
+      } else {
+        const data: unknown = await res.json().catch(() => ({}));
+        setMessage(extractDetail(data, "Error al crear el proyecto"));
+      }
+    } catch {
+      setMessage("Error de conexión con el servidor");
+    } finally {
+      setCreatingProject(false);
+    }
+  }
+
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Proyectos</h1>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-xl tracking-tightest">Proyectos</h1>
+        {(me?.role === "SUPER_ADMIN" || me?.role === "LEAD_DESIGNER") && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="btn-brutal min-h-[44px] px-4 text-xs bg-foreground text-background self-start"
+          >
+            + Nuevo proyecto
+            <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+          </button>
+        )}
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg border border-border bg-surface p-6 shadow-none">
+            <h2 className="text-lg tracking-tightest mb-4">Crear nuevo proyecto</h2>
+            <form onSubmit={handleCreateProject} className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1">
+                <span className="label-mono">Título del proyecto</span>
+                <input
+                  type="text"
+                  required
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="Ej: Residencia Polanco / Rebranding Estudio"
+                  className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="label-mono">Tipo de alcance (Scope)</span>
+                <select
+                  value={newScope}
+                  onChange={(e) => setNewScope(e.target.value)}
+                  className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                >
+                  <option value="branding">Branding</option>
+                  <option value="interior">Interior</option>
+                  <option value="integral">Integral</option>
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="label-mono">Cliente inicial (opcional)</span>
+                <select
+                  value={newClientId}
+                  onChange={(e) => setNewClientId(e.target.value)}
+                  className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                >
+                  <option value="">-- Sin cliente asignado --</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.full_name ? `${c.full_name} (${c.email})` : c.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex items-center justify-end gap-3 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="btn-brutal min-h-[44px] px-4 text-xs bg-background"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingProject}
+                  className="btn-brutal min-h-[44px] px-4 text-xs bg-foreground text-background"
+                >
+                  {creatingProject ? "Creando…" : "Crear proyecto"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {message && (
         <p className="mt-4 border border-border bg-surface p-3 text-sm">{message}</p>

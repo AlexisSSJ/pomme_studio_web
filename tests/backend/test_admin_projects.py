@@ -111,6 +111,58 @@ async def test_activate_ok(
 
 
 @pytest.mark.asyncio
+async def test_create_project_direct_without_lead(
+    client: TestClient,
+    super_admin_token: str,
+    lead_designer_token: str,
+    client_user: User,
+    db_session: AsyncSession,
+):
+    """Projects can be created directly from the projects view, without a lead."""
+    payload = {
+        "title": "Proyecto directo sin lead",
+        "scope_type": "interior",
+        "client_id": str(client_user.id),
+        "included_rounds": 3,
+        "remaining_rounds": 3,
+    }
+
+    # SUPER_ADMIN creates a project with no lead
+    response = client.post(
+        "/api/v1/admin/projects",
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+        json=payload,
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["title"] == payload["title"]
+    assert data["lead_id"] is None
+    assert data["client_id"] == str(client_user.id)
+    assert data["status"] == "draft"
+
+    # Membership for the client was created automatically
+    result = await db_session.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == uuid.UUID(data["id"]),
+            ProjectMember.user_id == client_user.id,
+        )
+    )
+    member = result.scalar_one()
+    assert member.assigned_role == ProjectRole.CLIENT
+
+    # LEAD_DESIGNER can also create directly; becomes lead designer by default
+    response = client.post(
+        "/api/v1/admin/projects",
+        headers={"Authorization": f"Bearer {lead_designer_token}"},
+        json={"title": "Proyecto del diseñador"},
+    )
+    assert response.status_code == 201
+    data2 = response.json()
+    assert data2["lead_id"] is None
+    assert data2["lead_designer_id"] is not None
+
+
+@pytest.mark.asyncio
 async def test_assign_client_and_list_clients(
     client: TestClient,
     super_admin_token: str,
