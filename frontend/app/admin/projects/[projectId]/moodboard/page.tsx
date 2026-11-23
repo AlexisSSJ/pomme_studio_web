@@ -5,6 +5,8 @@ import {
   useEffect,
   useRef,
   useState,
+  type ChangeEvent,
+  type DragEvent,
   type FormEvent,
 } from "react";
 import { useParams } from "next/navigation";
@@ -14,6 +16,7 @@ import {
   type MoodboardItemData,
   type MoodboardLayout,
 } from "@/components/MoodboardComposition";
+import { MoodboardCommentPanel } from "@/components/MoodboardCommentPanel";
 
 interface MoodboardBoard {
   id: string;
@@ -40,26 +43,21 @@ interface MoodboardItem {
   sort_order: number;
   created_by: string;
   created_at: string;
-  like_count: number;
-  dislike_count: number;
   comment_count: number;
-  my_reaction: "like" | "dislike" | "comment" | null;
-  my_comment: string | null;
-}
-
-interface MoodboardReaction {
-  id: string;
-  moodboard_item_id: string;
-  user_id: string;
-  reaction: "like" | "dislike" | "comment";
-  comment: string | null;
-  created_at: string;
 }
 
 const MAX_BOARD_IMAGES = 10;
 const RECOMMENDED_IMAGES = 6;
 const MAX_REACHED_MESSAGE =
   "Este moodboard ya tiene el máximo de 10 imágenes";
+const NOT_IMAGE_MESSAGE =
+  "Solo se pueden agregar imágenes (JPG, PNG, WEBP o GIF)";
+const SUPPORTED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
 
 const LAYOUT_OPTIONS: { value: MoodboardLayout; label: string }[] = [
   {
@@ -78,31 +76,26 @@ function boardNumber(index: number): string {
 }
 
 /**
- * Pie de pieza del back-office: eliminar en dos pasos y comentarios
- * (misma lógica que la pieza plana anterior), sin intervenir en la
- * composición visual de la lámina.
+ * Eliminación de la pieza seleccionada en dos pasos, dentro de la cabecera
+ * del panel de comentarios (misma lógica que el pie anterior).
  */
-function MoodboardPieceFooter({
+function MoodboardPieceDelete({
   projectId,
   item,
-  onChanged,
+  onDeleted,
 }: {
   projectId: string;
-  item: MoodboardItemData;
-  onChanged: () => void;
+  item: MoodboardItem;
+  onDeleted: () => void;
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [feedback, setFeedback] = useState("");
 
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const [reactions, setReactions] = useState<MoodboardReaction[] | null>(null);
-  const [loadingReactions, setLoadingReactions] = useState(false);
-  const [reactionsMessage, setReactionsMessage] = useState("");
-
   async function removePiece() {
     if (!confirmingDelete) {
       setConfirmingDelete(true);
+      setFeedback("");
       return;
     }
 
@@ -114,12 +107,12 @@ function MoodboardPieceFooter({
         { method: "DELETE" }
       );
       if (res.ok) {
-        onChanged();
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setFeedback(extractDetail(data, "Error al eliminar la pieza"));
-        setConfirmingDelete(false);
+        onDeleted();
+        return;
       }
+      const data: unknown = await res.json().catch(() => ({}));
+      setFeedback(extractDetail(data, "Error al eliminar la pieza"));
+      setConfirmingDelete(false);
     } catch {
       setFeedback("Error de conexión con el servidor");
       setConfirmingDelete(false);
@@ -128,103 +121,27 @@ function MoodboardPieceFooter({
     }
   }
 
-  async function toggleComments() {
-    if (commentsOpen) {
-      setCommentsOpen(false);
-      return;
-    }
-
-    setCommentsOpen(true);
-    setLoadingReactions(true);
-    setReactionsMessage("");
-    try {
-      const res = await apiFetch(
-        `/api/v1/projects/${projectId}/moodboard/items/${item.id}/reactions`
-      );
-      if (res.ok) {
-        setReactions(await res.json());
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setReactionsMessage(
-          extractDetail(data, "Error al cargar los comentarios")
-        );
-      }
-    } catch {
-      setReactionsMessage("Error de conexión con el servidor");
-    } finally {
-      setLoadingReactions(false);
-    }
-  }
-
   return (
-    <div className="flex flex-col gap-2 pt-1">
-      <p className="label-mono">
-        {item.like_count} ME GUSTA · {item.dislike_count} NO ·{" "}
-        {item.comment_count} COMENTARIOS
-      </p>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={removePiece}
-          disabled={deleting}
-          className="btn-brutal min-h-[44px] px-3 text-xs"
-        >
-          {deleting
-            ? "Eliminando…"
-            : confirmingDelete
-              ? "Confirmar eliminación"
-              : "Eliminar"}
-          <span className="btn-brutal__arrow" aria-hidden="true">
-            ↗
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={toggleComments}
-          aria-expanded={commentsOpen}
-          className="btn-brutal min-h-[44px] px-3 text-xs"
-        >
-          Comentarios
-          <span className="btn-brutal__arrow" aria-hidden="true">
-            ↗
-          </span>
-        </button>
-      </div>
-
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={removePiece}
+        disabled={deleting}
+        className="btn-brutal min-h-[44px] px-3 text-xs"
+      >
+        {deleting
+          ? "Eliminando…"
+          : confirmingDelete
+            ? "Confirmar eliminación"
+            : "Eliminar pieza"}
+        <span className="btn-brutal__arrow" aria-hidden="true">
+          ↗
+        </span>
+      </button>
       {feedback && (
-        <p className="type-ui border border-border bg-surface p-3 text-sm">
+        <p className="type-ui border border-border bg-surface p-2 text-sm">
           {feedback}
         </p>
-      )}
-
-      {commentsOpen && (
-        <div className="flex flex-col gap-2">
-          {loadingReactions ? (
-            <p className="type-ui text-sm">Cargando…</p>
-          ) : reactionsMessage ? (
-            <p className="type-ui border border-border bg-surface p-3 text-sm">
-              {reactionsMessage}
-            </p>
-          ) : reactions !== null && reactions.length === 0 ? (
-            <p className="type-ui text-sm">Todavía no hay reacciones.</p>
-          ) : (
-            reactions?.map((reaction) => (
-              <div
-                key={reaction.id}
-                className="flex flex-col gap-1 border border-border bg-background p-3"
-              >
-                <p className="label-mono">
-                  {reaction.reaction} ·{" "}
-                  {new Date(reaction.created_at).toLocaleString("es")}
-                </p>
-                {reaction.comment && (
-                  <p className="type-editorial text-sm">{reaction.comment}</p>
-                )}
-              </div>
-            ))
-          )}
-        </div>
       )}
     </div>
   );
@@ -238,8 +155,10 @@ export default function AdminMoodboardPage() {
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [items, setItems] = useState<MoodboardItem[]>([]);
   const [message, setMessage] = useState("");
-  const [loadingBoards, setLoadingBoards] = useState(false);
-  const [loadingItems, setLoadingItems] = useState(false);
+  const [loadingBoards, setLoadingBoards] = useState(true);
+  const [loadingItems, setLoadingItems] = useState(true);
+  // La lista puede fallar sin que la lámina esté vacía: no confundir ambos estados.
+  const [itemsFailed, setItemsFailed] = useState(false);
 
   const [newTitle, setNewTitle] = useState("");
   const [newNote, setNewNote] = useState("");
@@ -259,22 +178,31 @@ export default function AdminMoodboardPage() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletingBoard, setDeletingBoard] = useState(false);
 
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [sortOrder, setSortOrder] = useState("0");
-  const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+  const uploadingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>(
+    undefined
+  );
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
   // Descarta respuestas de una lámina ya abandonada al cambiar de pestaña.
   const itemsRequestRef = useRef(0);
 
   const activeBoard =
     boards.find((board) => board.id === activeBoardId) ?? null;
   const atCap = items.length >= MAX_BOARD_IMAGES;
+  const selectedItem =
+    items.find((item) => item.id === selectedItemId) ?? null;
 
   const loadBoards = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId) {
+      setLoadingBoards(false);
+      return;
+    }
     setLoadingBoards(true);
     setMessage("");
     try {
@@ -304,9 +232,13 @@ export default function AdminMoodboardPage() {
     const requestId = ++itemsRequestRef.current;
     if (!projectId || !activeBoardId) {
       setItems([]);
+      setItemsFailed(false);
       setLoadingItems(false);
       return;
     }
+    // Limpia el aviso anterior: una recarga correcta no debe arrastrarlo.
+    setMessage("");
+    setItemsFailed(false);
     setLoadingItems(true);
     try {
       const res = await apiFetch(
@@ -318,10 +250,12 @@ export default function AdminMoodboardPage() {
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al cargar las piezas"));
+        setItemsFailed(true);
       }
     } catch {
       if (requestId === itemsRequestRef.current) {
         setMessage("Error de conexión con el servidor");
+        setItemsFailed(true);
       }
     } finally {
       if (requestId === itemsRequestRef.current) {
@@ -329,6 +263,10 @@ export default function AdminMoodboardPage() {
       }
     }
   }, [projectId, activeBoardId]);
+
+  const refreshActiveBoard = useCallback(async () => {
+    await Promise.all([loadItems(), loadBoards()]);
+  }, [loadItems, loadBoards]);
 
   useEffect(() => {
     loadBoards();
@@ -338,8 +276,29 @@ export default function AdminMoodboardPage() {
     loadItems();
   }, [loadItems]);
 
-  // Al cambiar de lámina se descarta cualquier edición o confirmación
-  // pendiente de la anterior.
+  // Identidad del usuario actual: habilita borrar solo los comentarios propios.
+  useEffect(() => {
+    let active = true;
+
+    async function loadMe() {
+      try {
+        const res = await apiFetch("/api/v1/auth/me");
+        if (!res.ok) return;
+        const data = (await res.json()) as { id: string };
+        if (active) setCurrentUserId(data.id);
+      } catch {
+        // Sin identidad el panel sigue operativo: solo se oculta el borrado.
+      }
+    }
+
+    void loadMe();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Al cambiar de lámina se descarta cualquier edición, confirmación o
+  // selección pendiente de la anterior.
   useEffect(() => {
     setEditing(false);
     setEditTitle("");
@@ -347,11 +306,130 @@ export default function AdminMoodboardPage() {
     setBoardMessage("");
     setConfirmingDelete(false);
     setUploadMessage("");
+    setSelectedItemId(null);
     setItems([]);
   }, [activeBoardId]);
 
-  async function refreshActiveBoard() {
-    await Promise.all([loadItems(), loadBoards()]);
+  // Si la pieza seleccionada desaparece (borrado o recarga), cierra el panel.
+  useEffect(() => {
+    if (selectedItemId && !items.some((item) => item.id === selectedItemId)) {
+      setSelectedItemId(null);
+    }
+  }, [items, selectedItemId]);
+
+  const uploadFiles = useCallback(
+    async (incoming: FileList | File[]) => {
+      if (!activeBoard) return;
+      if (uploadingRef.current) {
+        setUploadMessage("Espera a que termine la carga en curso");
+        return;
+      }
+      const files = Array.from(incoming);
+      if (files.length === 0) return;
+      if (items.length >= MAX_BOARD_IMAGES) {
+        setUploadMessage(MAX_REACHED_MESSAGE);
+        return;
+      }
+
+      const images = files.filter((file) =>
+        SUPPORTED_IMAGE_TYPES.includes(file.type)
+      );
+      const rejectedCount = files.length - images.length;
+      if (images.length === 0) {
+        setUploadMessage(NOT_IMAGE_MESSAGE);
+        return;
+      }
+
+      uploadingRef.current = true;
+      setUploading(true);
+      setUploadMessage("Subiendo imágenes…");
+
+      let uploaded = 0;
+      let capped = false;
+      let failure = "";
+      try {
+        for (const image of images) {
+          const form = new FormData();
+          form.append("file", image);
+          const res = await apiFetch(
+            `/api/v1/projects/${projectId}/moodboard/boards/${activeBoard.id}/items`,
+            { method: "POST", body: form }
+          );
+          if (res.status === 409) {
+            capped = true;
+            break;
+          }
+          if (!res.ok) {
+            const data: unknown = await res.json().catch(() => ({}));
+            failure = extractDetail(data, "Error al subir la imagen");
+            break;
+          }
+          uploaded += 1;
+        }
+      } catch {
+        failure = "Error de conexión con el servidor";
+      } finally {
+        uploadingRef.current = false;
+        setUploading(false);
+        if (uploaded > 0) {
+          await refreshActiveBoard();
+        }
+      }
+
+      if (capped) {
+        setUploadMessage(MAX_REACHED_MESSAGE);
+        return;
+      }
+      if (failure) {
+        setUploadMessage(failure);
+        return;
+      }
+      setUploadMessage(rejectedCount > 0 ? NOT_IMAGE_MESSAGE : "");
+    },
+    [activeBoard, items.length, projectId, refreshActiveBoard]
+  );
+
+  // Pegar con Ctrl+V en cualquier punto de la página sube las imágenes del
+  // portapapeles; el texto pegado en un campo no trae archivos y se ignora.
+  useEffect(() => {
+    function handlePaste(event: ClipboardEvent) {
+      const files = event.clipboardData?.files;
+      if (!files || files.length === 0) return;
+      event.preventDefault();
+      void uploadFiles(files);
+    }
+
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [uploadFiles]);
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setDragActive(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    const files = event.dataTransfer?.files;
+    if (files && files.length > 0) {
+      void uploadFiles(files);
+    }
+  }
+
+  function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      void uploadFiles(files);
+    }
+    // Permite volver a elegir los mismos archivos.
+    event.target.value = "";
   }
 
   async function createBoard(event: FormEvent) {
@@ -499,67 +577,6 @@ export default function AdminMoodboardPage() {
     }
   }
 
-  async function uploadPiece(event: FormEvent) {
-    event.preventDefault();
-    if (!activeBoard) return;
-    if (atCap) {
-      setUploadMessage(MAX_REACHED_MESSAGE);
-      return;
-    }
-
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) {
-      setUploadMessage("El título no puede estar vacío");
-      return;
-    }
-    if (!file) {
-      setUploadMessage("Selecciona un archivo");
-      return;
-    }
-
-    setUploading(true);
-    setUploadMessage("Subiendo…");
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("title", trimmedTitle);
-      if (description.trim()) {
-        form.append("description", description.trim());
-      }
-      const parsedOrder = Number.parseInt(sortOrder, 10);
-      form.append(
-        "sort_order",
-        Number.isNaN(parsedOrder) ? "0" : String(parsedOrder)
-      );
-
-      const res = await apiFetch(
-        `/api/v1/projects/${projectId}/moodboard/boards/${activeBoard.id}/items`,
-        { method: "POST", body: form }
-      );
-      if (res.ok) {
-        setUploadMessage("Pieza subida");
-        setTitle("");
-        setDescription("");
-        setSortOrder("0");
-        setFile(null);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-        await refreshActiveBoard();
-      } else if (res.status === 409) {
-        setUploadMessage(MAX_REACHED_MESSAGE);
-        await refreshActiveBoard();
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setUploadMessage(extractDetail(data, "Error al subir la pieza"));
-      }
-    } catch {
-      setUploadMessage("Error de conexión con el servidor");
-    } finally {
-      setUploading(false);
-    }
-  }
-
   return (
     <section>
       <h1 className="type-title text-xl">Moodboard</h1>
@@ -613,9 +630,7 @@ export default function AdminMoodboardPage() {
           </select>
         </label>
 
-        {createMessage && (
-          <p className="type-ui text-sm">{createMessage}</p>
-        )}
+        {createMessage && <p className="type-ui text-sm">{createMessage}</p>}
 
         <button
           type="submit"
@@ -665,19 +680,7 @@ export default function AdminMoodboardPage() {
             <>
               <div className="mt-6 flex flex-col gap-4 border border-border bg-surface p-4 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="label-mono">LÁMINA ACTIVA</p>
-                    <p className="label-mono mt-2">
-                      {items.length} / {MAX_BOARD_IMAGES} IMÁGENES
-                    </p>
-                    {items.length < RECOMMENDED_IMAGES && (
-                      <p className="type-ui mt-1 text-sm">
-                        Faltan {RECOMMENDED_IMAGES - items.length} imágenes para
-                        completar la lámina (mínimo recomendado:{" "}
-                        {RECOMMENDED_IMAGES})
-                      </p>
-                    )}
-                  </div>
+                  <p className="label-mono">LÁMINA ACTIVA</p>
 
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -796,107 +799,113 @@ export default function AdminMoodboardPage() {
                 )}
               </div>
 
-              <div className="mt-8">
-                {loadingItems && items.length === 0 ? (
-                  <p className="type-ui text-sm">Cargando piezas…</p>
-                ) : (
-                  <MoodboardComposition
-                    layout={activeBoard.layout_variant}
-                    projectId={projectId}
-                    board={{
-                      title: activeBoard.title,
-                      curatorial_note: activeBoard.curatorial_note,
-                    }}
-                    items={items}
-                    renderFooter={(item) => (
-                      <MoodboardPieceFooter
-                        projectId={projectId}
-                        item={item}
-                        onChanged={refreshActiveBoard}
-                      />
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`mt-6 ${
+                  dragActive ? "outline outline-2 outline-foreground" : ""
+                }`}
+              >
+                <div className="flex flex-col gap-3 border border-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="label-mono">
+                    ARRASTRA IMÁGENES AQUÍ · O PEGA CON CTRL+V
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {!loadingItems && !itemsFailed && (
+                      <p className="label-mono">
+                        {items.length} / {MAX_BOARD_IMAGES} IMÁGENES
+                      </p>
                     )}
-                  />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading || atCap}
+                      className="btn-brutal min-h-[44px] px-3 text-xs"
+                    >
+                      Elegir imágenes
+                      <span className="btn-brutal__arrow" aria-hidden="true">
+                        ↗
+                      </span>
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      multiple
+                      onChange={handleFileSelection}
+                      className="sr-only"
+                    />
+                  </div>
+                </div>
+
+                {!loadingItems &&
+                  !itemsFailed &&
+                  items.length < RECOMMENDED_IMAGES && (
+                    <p className="type-ui mt-2 text-sm">
+                      Faltan {RECOMMENDED_IMAGES - items.length} imágenes para
+                      completar la lámina (mínimo recomendado:{" "}
+                      {RECOMMENDED_IMAGES})
+                    </p>
+                  )}
+
+                {uploadMessage && (
+                  <p className="type-ui mt-2 border border-border bg-surface p-3 text-sm">
+                    {uploadMessage}
+                  </p>
                 )}
 
-                {!loadingItems && items.length === 0 && (
-                  <p className="type-ui mt-6 text-sm">
-                    Todavía no hay piezas en este moodboard.
-                  </p>
+                {/* Si la carga de piezas falló, el aviso de error de arriba es
+                    el estado honesto: no simular una lámina vacía. */}
+                {!itemsFailed && (
+                  <div className="mt-6">
+                    {loadingItems && items.length === 0 ? (
+                      <p className="type-ui text-sm">Cargando piezas…</p>
+                    ) : (
+                      <MoodboardComposition
+                        layout={activeBoard.layout_variant}
+                        projectId={projectId}
+                        board={{
+                          title: activeBoard.title,
+                          curatorial_note: activeBoard.curatorial_note,
+                        }}
+                        items={items}
+                        selectedItemId={selectedItemId}
+                        onSelect={(item: MoodboardItemData) =>
+                          setSelectedItemId(item.id)
+                        }
+                      />
+                    )}
+
+                    {!loadingItems && items.length === 0 && (
+                      <p className="type-ui mt-6 text-sm">
+                        Todavía no hay piezas en este moodboard.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <h2 className="type-subtitle-caps mt-8 text-lg">Nueva pieza</h2>
-              <form
-                onSubmit={uploadPiece}
-                className="mt-3 flex flex-col gap-3 border border-border bg-surface p-4 sm:p-6"
-              >
-                <label className="flex flex-col gap-1">
-                  <span className="type-ui text-sm">Título</span>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    maxLength={255}
-                    className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="type-ui text-sm">Descripción (opcional)</span>
-                  <input
-                    type="text"
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                    maxLength={1000}
-                    className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="type-ui text-sm">Orden</span>
-                  <input
-                    type="number"
-                    step={1}
-                    value={sortOrder}
-                    onChange={(event) => setSortOrder(event.target.value)}
-                    className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-                  />
-                </label>
-
-                <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 border border-border bg-background px-3">
-                  <span className="type-ui truncate text-sm">
-                    {file ? file.name : "Elegir imagen"}
-                  </span>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,.gif"
-                    onChange={(event) =>
-                      setFile(event.target.files?.[0] ?? null)
-                    }
-                    className="sr-only"
-                  />
-                </label>
-
-                {atCap && (
-                  <p className="type-ui text-sm">{MAX_REACHED_MESSAGE}</p>
-                )}
-
-                {uploadMessage && (
-                  <p className="type-ui text-sm">{uploadMessage}</p>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={uploading || atCap}
-                  className="btn-brutal min-h-[44px] self-start px-3 text-xs"
-                >
-                  {uploading ? "Subiendo…" : "Subir pieza"}
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
-                </button>
-              </form>
+              <MoodboardCommentPanel
+                projectId={projectId}
+                item={selectedItem}
+                currentUserId={currentUserId}
+                onClose={() => setSelectedItemId(null)}
+                onChanged={refreshActiveBoard}
+                headerExtra={
+                  selectedItem ? (
+                    <MoodboardPieceDelete
+                      key={selectedItem.id}
+                      projectId={projectId}
+                      item={selectedItem}
+                      onDeleted={() => {
+                        setSelectedItemId(null);
+                        void refreshActiveBoard();
+                      }}
+                    />
+                  ) : null
+                }
+              />
             </>
           )}
         </>

@@ -30,205 +30,12 @@ interface MoodboardItem extends MoodboardItemData {
   sort_order: number;
   created_by: string;
   created_at: string;
-  my_reaction: "like" | "dislike" | "comment" | null;
-  my_comment: string | null;
 }
 
 const MAX_BOARD_IMAGES = 10;
 
 function boardNumber(index: number): string {
   return String(index + 1).padStart(2, "0");
-}
-
-/**
- * Pie de pieza del portal: conteos públicos y controles de reacción del
- * cliente (me gusta / no me gusta / comentar / quitar), sin acciones de
- * equipo.
- */
-function MoodboardReactionFooter({
-  projectId,
-  item,
-  onChanged,
-}: {
-  projectId: string;
-  item: MoodboardItem;
-  onChanged: () => void;
-}) {
-  const [commentOpen, setCommentOpen] = useState(false);
-  const [comment, setComment] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState("");
-
-  async function react(reaction: "like" | "dislike") {
-    if (busy) return;
-    setBusy(true);
-    setFeedback("");
-    try {
-      const res = await apiFetch(
-        `/api/v1/projects/${projectId}/moodboard/items/${item.id}/reactions`,
-        { method: "POST", body: JSON.stringify({ reaction }) }
-      );
-      if (res.ok) {
-        onChanged();
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setFeedback(extractDetail(data, "Error al guardar la reacción"));
-      }
-    } catch {
-      setFeedback("Error de conexión con el servidor");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function sendComment() {
-    if (busy) return;
-    if (!comment.trim()) {
-      setFeedback("El comentario no puede estar vacío");
-      return;
-    }
-    setBusy(true);
-    setFeedback("");
-    try {
-      const res = await apiFetch(
-        `/api/v1/projects/${projectId}/moodboard/items/${item.id}/reactions`,
-        {
-          method: "POST",
-          body: JSON.stringify({ reaction: "comment", comment: comment.trim() }),
-        }
-      );
-      if (res.ok) {
-        setCommentOpen(false);
-        setComment("");
-        onChanged();
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setFeedback(extractDetail(data, "Error al enviar el comentario"));
-      }
-    } catch {
-      setFeedback("Error de conexión con el servidor");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeReaction() {
-    if (busy) return;
-    setBusy(true);
-    setFeedback("");
-    try {
-      const res = await apiFetch(
-        `/api/v1/projects/${projectId}/moodboard/items/${item.id}/reactions`,
-        { method: "DELETE" }
-      );
-      if (res.ok) {
-        onChanged();
-      } else {
-        const data: unknown = await res.json().catch(() => ({}));
-        setFeedback(extractDetail(data, "Error al quitar la reacción"));
-      }
-    } catch {
-      setFeedback("Error de conexión con el servidor");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-2 pt-1">
-      <p className="label-mono">
-        {item.like_count} ME GUSTA · {item.dislike_count} NO ·{" "}
-        {item.comment_count} COMENTARIOS
-      </p>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => react("like")}
-          disabled={busy}
-          aria-pressed={item.my_reaction === "like"}
-          className={`btn-brutal min-h-[44px] min-w-[44px] justify-center px-3 text-xs ${
-            item.my_reaction === "like" ? "bg-foreground text-background" : ""
-          }`}
-        >
-          Me gusta
-        </button>
-        <button
-          type="button"
-          onClick={() => react("dislike")}
-          disabled={busy}
-          aria-pressed={item.my_reaction === "dislike"}
-          className={`btn-brutal min-h-[44px] min-w-[44px] justify-center px-3 text-xs ${
-            item.my_reaction === "dislike"
-              ? "bg-foreground text-background"
-              : ""
-          }`}
-        >
-          No me gusta
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setCommentOpen((open) => !open);
-            setComment(
-              item.my_reaction === "comment" ? item.my_comment ?? "" : ""
-            );
-            setFeedback("");
-          }}
-          disabled={busy}
-          aria-pressed={commentOpen}
-          className="btn-brutal min-h-[44px] px-3 text-xs"
-        >
-          Comentar
-        </button>
-        {item.my_reaction && (
-          <button
-            type="button"
-            onClick={removeReaction}
-            disabled={busy}
-            className="btn-brutal min-h-[44px] px-3 text-xs"
-          >
-            Quitar reacción
-          </button>
-        )}
-      </div>
-
-      {item.my_reaction === "comment" && item.my_comment && !commentOpen && (
-        <p className="type-ui border border-border bg-surface p-3 text-sm">
-          Tu comentario: {item.my_comment}
-        </p>
-      )}
-
-      {commentOpen && (
-        <div className="flex flex-col gap-2">
-          <textarea
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-            maxLength={2000}
-            placeholder="Escribe tu comentario"
-            className="type-ui min-h-[44px] border border-border bg-background p-3 text-sm"
-          />
-          <button
-            type="button"
-            onClick={sendComment}
-            disabled={busy}
-            className="btn-brutal min-h-[44px] self-start px-3 text-xs"
-          >
-            {busy ? "Enviando…" : "Enviar comentario"}
-            <span className="btn-brutal__arrow" aria-hidden="true">
-              ↗
-            </span>
-          </button>
-        </div>
-      )}
-
-      {feedback && (
-        <p className="type-ui border border-border bg-surface p-3 text-sm">
-          {feedback}
-        </p>
-      )}
-    </div>
-  );
 }
 
 export default function PortalMoodboardPage() {
@@ -328,10 +135,6 @@ export default function PortalMoodboardPage() {
     setItems([]);
   }, [activeBoardId]);
 
-  // La composición tipa las piezas como `MoodboardItemData`; el pie de
-  // reacciones necesita además los campos propios del listado.
-  const itemsById = new Map(items.map((item) => [item.id, item]));
-
   return (
     <section>
       <h1 className="type-title text-xl">Moodboard</h1>
@@ -390,17 +193,6 @@ export default function PortalMoodboardPage() {
                       curatorial_note: activeBoard.curatorial_note,
                     }}
                     items={items}
-                    renderFooter={(piece) => {
-                      const item = itemsById.get(piece.id);
-                      if (!item) return null;
-                      return (
-                        <MoodboardReactionFooter
-                          projectId={projectId}
-                          item={item}
-                          onChanged={loadItems}
-                        />
-                      );
-                    }}
                   />
                 )}
 

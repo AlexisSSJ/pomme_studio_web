@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement, type ReactNode } from "react";
+import type { ReactElement } from "react";
 import { useProtectedMedia } from "@/lib/useProtectedMediaUrl";
 
 export type MoodboardLayout =
@@ -13,8 +13,6 @@ export interface MoodboardItemData {
   moodboard_id: string | null;
   title: string;
   description: string | null;
-  like_count: number;
-  dislike_count: number;
   comment_count: number;
 }
 
@@ -35,39 +33,41 @@ function pieceNumber(index: number): string {
 
 /**
  * Lámina limpia: imagen a tamaño natural (sin bordes ni aspect-ratio
- * forzado), numeración mono, título y nota. El overlay replica el visor
- * existente con "Cerrar" y zoom táctil.
+ * forzado) y numeración mono. Un clic en la imagen selecciona la pieza
+ * (el hilo de comentarios se abre en el panel compartido).
  */
 function PieceFrame({
   projectId,
   item,
   index,
-  footer,
+  selected,
+  onSelect,
 }: {
   projectId: string;
   item: MoodboardItemData;
   index: number;
-  footer: ReactNode;
+  selected: boolean;
+  onSelect?: (item: MoodboardItemData) => void;
 }) {
   const { url, error } = useProtectedMedia(
     `/api/v1/projects/${projectId}/moodboard/items/${item.id}/file`
   );
-  const [overlayOpen, setOverlayOpen] = useState(false);
 
   return (
-    <figure className="flex flex-col gap-3">
+    <figure
+      className={`flex flex-col gap-2 ${
+        selected ? "outline outline-2 outline-foreground" : ""
+      }`}
+    >
       {url ? (
         <button
           type="button"
-          onClick={() => setOverlayOpen(true)}
-          aria-label={`Ampliar ${item.title}`}
+          onClick={() => onSelect?.(item)}
+          aria-pressed={selected}
+          aria-label={`Comentarios de ${item.title}`}
           className="block w-full"
         >
-          <img
-            src={url}
-            alt={item.title}
-            className="block h-auto w-full"
-          />
+          <img src={url} alt={item.title} className="block h-auto w-full" />
         </button>
       ) : error ? (
         <p className="type-ui border border-border bg-surface p-3 text-sm">
@@ -79,40 +79,7 @@ function PieceFrame({
 
       <figcaption className="flex flex-col gap-2">
         <p className="label-mono">{pieceNumber(index)}</p>
-        <p className="type-ui text-base font-semibold">{item.title}</p>
-        {item.description && (
-          <p className="type-editorial text-sm">{item.description}</p>
-        )}
-        {footer}
       </figcaption>
-
-      {overlayOpen && url && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={item.title}
-          className="fixed inset-0 z-50 flex flex-col bg-background"
-        >
-          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
-            <p className="type-ui truncate text-sm">{item.title}</p>
-            <button
-              type="button"
-              onClick={() => setOverlayOpen(false)}
-              className="btn-brutal min-h-[44px] px-3 text-xs"
-            >
-              Cerrar
-            </button>
-          </div>
-          <div className="flex flex-1 items-center justify-center overflow-auto p-4">
-            <img
-              src={url}
-              alt={item.title}
-              className="max-h-full max-w-full object-contain"
-              style={{ touchAction: "pinch-zoom" }}
-            />
-          </div>
-        </div>
-      )}
     </figure>
   );
 }
@@ -120,11 +87,13 @@ function PieceFrame({
 function CollageGrid({
   projectId,
   items,
-  renderFooter,
+  selectedItemId,
+  onSelect,
 }: {
   projectId: string;
   items: MoodboardItemData[];
-  renderFooter: (item: MoodboardItemData, index: number) => ReactNode;
+  selectedItemId?: string | null;
+  onSelect?: (item: MoodboardItemData) => void;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6 md:grid-cols-12 md:gap-8">
@@ -141,7 +110,8 @@ function CollageGrid({
             projectId={projectId}
             item={item}
             index={index}
-            footer={renderFooter(item, index)}
+            selected={item.id === selectedItemId}
+            onSelect={onSelect}
           />
         </div>
       ))}
@@ -152,11 +122,13 @@ function CollageGrid({
 function AtelierGrid({
   projectId,
   items,
-  renderFooter,
+  selectedItemId,
+  onSelect,
 }: {
   projectId: string;
   items: MoodboardItemData[];
-  renderFooter: (item: MoodboardItemData, index: number) => ReactNode;
+  selectedItemId?: string | null;
+  onSelect?: (item: MoodboardItemData) => void;
 }) {
   return (
     <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
@@ -166,7 +138,8 @@ function AtelierGrid({
           projectId={projectId}
           item={item}
           index={index}
-          footer={renderFooter(item, index)}
+          selected={item.id === selectedItemId}
+          onSelect={onSelect}
         />
       ))}
     </div>
@@ -176,11 +149,13 @@ function AtelierGrid({
 function MonographStrip({
   projectId,
   items,
-  renderFooter,
+  selectedItemId,
+  onSelect,
 }: {
   projectId: string;
   items: MoodboardItemData[];
-  renderFooter: (item: MoodboardItemData, index: number) => ReactNode;
+  selectedItemId?: string | null;
+  onSelect?: (item: MoodboardItemData) => void;
 }) {
   const [feature, ...rest] = items;
 
@@ -192,7 +167,8 @@ function MonographStrip({
           projectId={projectId}
           item={feature}
           index={0}
-          footer={renderFooter(feature, 0)}
+          selected={feature.id === selectedItemId}
+          onSelect={onSelect}
         />
       </div>
 
@@ -209,7 +185,8 @@ function MonographStrip({
                   projectId={projectId}
                   item={item}
                   index={index}
-                  footer={renderFooter(item, index)}
+                  selected={item.id === selectedItemId}
+                  onSelect={onSelect}
                 />
               </div>
             );
@@ -222,20 +199,23 @@ function MonographStrip({
 
 /**
  * Composición compartida del moodboard (admin y portal): cabecera de
- * lámina + piezas según el layout editorial elegido.
+ * lámina + piezas según el layout editorial elegido. La selección de una
+ * pieza la resuelve el consumidor (panel de comentarios compartido).
  */
 export function MoodboardComposition({
   layout,
   projectId,
   board,
   items,
-  renderFooter,
+  selectedItemId,
+  onSelect,
 }: {
   layout: MoodboardLayout;
   projectId: string;
   board: { title: string; curatorial_note: string | null };
   items: MoodboardItemData[];
-  renderFooter: (item: MoodboardItemData, index: number) => ReactNode;
+  selectedItemId?: string | null;
+  onSelect?: (item: MoodboardItemData) => void;
 }): ReactElement {
   return (
     <div className="flex flex-col">
@@ -255,19 +235,22 @@ export function MoodboardComposition({
         <CollageGrid
           projectId={projectId}
           items={items}
-          renderFooter={renderFooter}
+          selectedItemId={selectedItemId}
+          onSelect={onSelect}
         />
       ) : layout === "atelier_grid" ? (
         <AtelierGrid
           projectId={projectId}
           items={items}
-          renderFooter={renderFooter}
+          selectedItemId={selectedItemId}
+          onSelect={onSelect}
         />
       ) : (
         <MonographStrip
           projectId={projectId}
           items={items}
-          renderFooter={renderFooter}
+          selectedItemId={selectedItemId}
+          onSelect={onSelect}
         />
       )}
     </div>
