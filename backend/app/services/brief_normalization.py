@@ -6,6 +6,13 @@ Python helpers handle the work that cannot be expressed portably in plain SQL
 (generating UUIDs and formatting per-image URLs), mirroring migration 0007.
 
 Importing this module has no side effects: nothing connects to a database here.
+
+Enum-tolerance caveat (documentation only): the ``_missing_`` hooks defined in
+``app.models.brief_item`` protect Pydantic validation and incoming payloads, but
+they are not consulted by SQLAlchemy's ``SAEnum`` on ORM reads (it uses its own
+``_object_lookup`` and rejects raw uppercase values). The raw values that would
+break those reads are repaired in the database by migration 0009 on every
+deploy, which is exactly why all statements and helpers here are idempotent.
 """
 
 import uuid

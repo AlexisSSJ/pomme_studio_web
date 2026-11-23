@@ -1,4 +1,14 @@
-"""Brief item — an answered question or a reference file within a project brief."""
+"""Brief item — an answered question or a reference file within a project brief.
+
+Note on enum tolerance (documentation only): the ``_missing_`` hooks on the
+enums below make value parsing tolerant for Pydantic/schemas and for incoming
+request payloads (e.g. the brief autosave), but they do NOT make SQLAlchemy ORM
+reads tolerant. ``SAEnum(native_enum=False)`` resolves stored values through its
+own ``_object_lookup`` and rejects raw uppercase values left by legacy rows.
+The repair of those raw values in the database is guaranteed by migration 0009
+(``alembic/versions/0009_normalize_brief_data.py``), which runs on every deploy
+before uvicorn starts -- see also ``app/services/brief_normalization.py``.
+"""
 
 import enum
 import uuid
