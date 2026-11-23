@@ -5,6 +5,7 @@ from .project import Project, ProjectStatus
 from .project_member import ProjectMember, ProjectRole
 from .pricing_config import PricingConfig
 from .audit_log import AuditLog
+from .notification import Notification
 from .lead import (
     BudgetRange,
     Lead,
@@ -54,6 +55,7 @@ __all__ = [
     "ProjectRole",
     "PricingConfig",
     "AuditLog",
+    "Notification",
     "BudgetRange",
     "Lead",
     "LeadStatus",

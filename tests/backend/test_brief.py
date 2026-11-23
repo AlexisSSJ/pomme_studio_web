@@ -20,6 +20,7 @@ from backend.app.models import (
     BriefItemImage,
     BriefItemType,
     BriefStatus,
+    Notification,
     Project,
     ProjectMember,
     ProjectRole,
@@ -706,6 +707,58 @@ async def test_brief_autosave_item_id_route(
     assert body["progress"] == 100.0
     assert body["status"] == "completed"
     assert body["answered_questions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_completion_transition_triggers_notification(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    lead_designer_user: User,
+    collaborator_user: User,
+    collaborator_token: str,
+    client_token: str,
+):
+    """Only the in-progress -> completed transition notifies the studio team."""
+    active_project.lead_designer_id = lead_designer_user.id
+    await db_session.commit()
+
+    question_ids = []
+    for prompt in ["¿Nombre del proyecto?", "¿Estilo preferido?"]:
+        question = client.post(
+            f"/api/v1/projects/{active_project.id}/brief/questions",
+            json={"prompt": prompt, "category": "branding"},
+            headers={"Authorization": f"Bearer {collaborator_token}"},
+        )
+        assert question.status_code == 201, question.text
+        question_ids.append(question.json()["id"])
+
+    partial = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/autosave",
+        json={"items": [{"item_id": question_ids[0], "answer": "Pomme Cafe"}]},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert partial.status_code == 200, partial.text
+    assert partial.json()["status"] == "in_progress"
+    result = await db_session.execute(select(Notification))
+    assert result.scalars().all() == []
+
+    final = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/autosave",
+        json={"items": [{"item_id": question_ids[1], "answer": "Minimalismo cálido"}]},
+        headers={"Authorization": f"Bearer {client_token}"},
+    )
+    assert final.status_code == 200, final.text
+    assert final.json()["status"] == "completed"
+
+    result = await db_session.execute(select(Notification))
+    notifications = result.scalars().all()
+    assert len(notifications) == 2
+    assert {n.user_id for n in notifications} == {
+        lead_designer_user.id,
+        collaborator_user.id,
+    }
+    assert all(n.event_type == "brief.completed" for n in notifications)
 
 
 @pytest.mark.asyncio

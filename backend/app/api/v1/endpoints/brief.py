@@ -45,6 +45,7 @@ from ....schemas.brief import (
     PendingBriefProjectSummary,
 )
 from ....services.audit import log_audit
+from ....services.notifications import notify_project_team
 from ....services.storage import (
     BRIEF_REFERENCE_CONTENT_TYPES,
     BRIEF_RESPONSE_CONTENT_TYPES,
@@ -105,6 +106,50 @@ async def compute_brief_progress(
     else:
         status_val = BriefStatus.IN_PROGRESS
     return progress, status_val, total, answered, questions
+
+
+async def _is_brief_completed(project_id: UUID, db: AsyncSession) -> bool:
+    """Snapshot the brief's completion state before applying any changes."""
+    return (await compute_brief_progress(project_id, db))[1] == BriefStatus.COMPLETED
+
+
+async def _maybe_notify_completion(
+    db: AsyncSession,
+    project_id: UUID,
+    actor_id: UUID,
+    was_completed: bool,
+) -> None:
+    """Notify the studio team and audit a single False -> COMPLETED transition.
+
+    Called after the answer has been committed. Re-saving an already completed
+    brief is a no-op, so team members are never notified twice for one event.
+    """
+    if was_completed:
+        return
+    if not await _is_brief_completed(project_id, db):
+        return
+
+    project = await db.get(Project, project_id)
+    if project is None:
+        return
+
+    payload = {"project_id": str(project_id), "project_title": project.title}
+    await notify_project_team(
+        db,
+        project_id,
+        event_type="brief.completed",
+        payload=payload,
+        exclude_user_id=actor_id,
+    )
+    await db.commit()
+    await log_audit(
+        db,
+        actor_user_id=actor_id,
+        action="brief.completed",
+        entity_type="project",
+        entity_id=project_id,
+        metadata=payload,
+    )
 
 
 async def _populate_images_for_items(
@@ -308,6 +353,8 @@ async def answer_question(
             detail="Brief item not found",
         )
 
+    was_completed = await _is_brief_completed(project_id, db)
+
     if payload.answer is not None:
         item.answer = payload.answer
     if payload.image_url is not None:
@@ -339,6 +386,7 @@ async def answer_question(
             item.status = BriefStatus.IN_PROGRESS
 
     await db.commit()
+    await _maybe_notify_completion(db, project_id, current_user.id, was_completed)
     await db.refresh(item)
 
     progress, _, _, _, _ = await compute_brief_progress(project_id, db)
@@ -376,6 +424,8 @@ async def _apply_autosave(
         )
 
     await require_active_project(project_id, db)
+
+    was_completed = await _is_brief_completed(project_id, db)
 
     items_to_update: list[BriefAutosaveItem] = []
     if payload.items:
@@ -444,6 +494,7 @@ async def _apply_autosave(
         updated_brief_items.append(item)
 
     await db.commit()
+    await _maybe_notify_completion(db, project_id, current_user.id, was_completed)
 
     for item in updated_brief_items:
         await db.refresh(item)
@@ -687,6 +738,8 @@ async def upload_response_file(
 
     item = await _get_question_or_404(db, project_id, item_id)
 
+    was_completed = await _is_brief_completed(project_id, db)
+
     is_audio = (file.content_type or "").startswith("audio/")
     existing_images: list[BriefItemImage] = []
     if not is_audio:
@@ -778,6 +831,7 @@ async def upload_response_file(
 
     item.status = BriefStatus.COMPLETED
     await db.commit()
+    await _maybe_notify_completion(db, project_id, current_user.id, was_completed)
     await db.refresh(item)
 
     progress, _, _, _, _ = await compute_brief_progress(project_id, db)
