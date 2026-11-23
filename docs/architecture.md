@@ -1001,27 +1001,43 @@ Prohibido: `box-shadow`, degradados y colores saturados innecesarios.
   cuestionario, subir referencias, descargar archivos) y moodboard multi-board
   de solo lectura en `/portal/projects/{id}/moodboard`: pestañas numeradas
   (`01`, `02`, …) con `aria-pressed` y ≥ 44×44px que cambian la lámina activa
-  —sin controles de creación, edición ni subida—, contador `label-mono`
-  `"{n} / 10 IMÁGENES"`, lámina compuesta por `MoodboardComposition` según su
-  layout editorial (`editorial_collage`, `atelier_grid`, `monograph_strip`) y
-  estados vacíos «Todavía no hay moodboards.» / «Todavía no hay piezas en este
-  moodboard.». Las reacciones (me gusta / no me gusta / comentar / quitar
-  reacción) son botones táctiles de ≥ 44×44px con `aria-pressed`, sin depender
-  de `hover`; tocar una imagen abre un overlay a pantalla completa con
-  `touch-action: pinch-zoom` y botón de cierre ≥ 44px.
+  —sin controles de creación, edición, subida ni borrado de piezas—, contador
+  `label-mono` `"{n} / 10 IMÁGENES"`, lámina compuesta por
+  `MoodboardComposition` según su layout editorial (`editorial_collage`,
+  `atelier_grid`, `monograph_strip`) y estados vacíos «Todavía no hay
+  moodboards.» / «Todavía no hay piezas en este moodboard.». Las piezas se
+  muestran solo con su imagen y su numeración (`01.`, `02.`, …): no hay
+  títulos ni descripciones visibles. Tocar una pieza la selecciona y abre el
+  panel de comentarios tipo Notion (ver abajo), sin depender de `hover`.
+- **Comentarios tipo Notion (compartido):** `MoodboardCommentPanel` se abre al
+  seleccionar una pieza, como hoja completa en móvil y slide-over de 400px en
+  escritorio, con la imagen ampliable (`touch-action: pinch-zoom`) y el hilo en
+  orden cronológico. Cualquier miembro del proyecto —equipo o cliente— puede
+  comentar (texto no vacío, máximo 2000) y borrar únicamente sus propios
+  comentarios, con confirmación inline de dos pasos (el backend impone autor o
+  `SUPER_ADMIN` y responde 404 al resto). El portal no pasa `headerExtra`; el
+  back-office añade ahí la eliminación de la pieza seleccionada. Tras comentar
+  o borrar, `onChanged` recarga las piezas para refrescar `comment_count`. Las
+  reacciones (me gusta / no me gusta / quitar reacción), sus rutas y sus
+  columnas se **eliminaron**.
 - **Gestión de equipo:** `/admin/projects/{id}/brief` (crear preguntas, ver
   respuestas del cliente, descargar referencias) y
   `/admin/projects/{id}/moodboard` (crear, editar y eliminar láminas, elegir su
   layout editorial, subir piezas —máximo 10 por lámina, con aviso mientras no
-  se alcance el mínimo recomendado de 6—, eliminar piezas y ver conteos y
-  comentarios). La eliminación de láminas y piezas usa confirmación inline de
-  dos pasos; el portal y el back-office comparten `MoodboardComposition`, de
-  modo que la lámina pública y la de gestión se renderizan igual.
+  se alcance el mínimo recomendado de 6—, eliminar piezas y ver comentarios).
+  Las piezas se suben por tres vías equivalentes —arrastrar y soltar sobre la
+  lámina, pegar con Ctrl+V en cualquier punto de la página o el botón «Elegir
+  imágenes»— sin pedir título ni descripción: el servidor autocompleta el
+  título desde el nombre del archivo. La eliminación de láminas y piezas usa
+  confirmación inline de dos pasos; el portal y el back-office comparten
+  `MoodboardComposition` y `MoodboardCommentPanel`, de modo que la lámina
+  pública y la de gestión se renderizan y comentan igual.
 - **Enrutado por rol:** el login redirige `CLIENT` → `/portal` y al equipo →
   `/admin`; el layout de admin reenvía a `/portal` cualquier `CLIENT`. Los
   `COLLABORATOR` cargan su lista de proyectos desde `GET /api/v1/projects`
   (endpoint de membresía) en lugar de `/api/v1/admin/projects`.
-- **Pendiente:** focus trap y cierre con `Escape` en el overlay del moodboard.
+- **Pendiente:** focus trap y cierre con `Escape` en el panel de comentarios y
+  su visor ampliado.
 
 ### 7.7 Etapas, visor de pines y reuniones (Sprint 4)
 

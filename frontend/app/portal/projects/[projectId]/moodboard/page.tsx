@@ -8,6 +8,7 @@ import {
   type MoodboardItemData,
   type MoodboardLayout,
 } from "@/components/MoodboardComposition";
+import { MoodboardCommentPanel } from "@/components/MoodboardCommentPanel";
 
 interface MoodboardBoard {
   id: string;
@@ -22,16 +23,6 @@ interface MoodboardBoard {
   updated_at: string;
 }
 
-interface MoodboardItem extends MoodboardItemData {
-  project_id: string;
-  file_name: string;
-  content_type: string;
-  size_bytes: number;
-  sort_order: number;
-  created_by: string;
-  created_at: string;
-}
-
 const MAX_BOARD_IMAGES = 10;
 
 function boardNumber(index: number): string {
@@ -44,7 +35,7 @@ export default function PortalMoodboardPage() {
 
   const [boards, setBoards] = useState<MoodboardBoard[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
-  const [items, setItems] = useState<MoodboardItem[]>([]);
+  const [items, setItems] = useState<MoodboardItemData[]>([]);
   const [message, setMessage] = useState("");
   const [loadingBoards, setLoadingBoards] = useState(true);
   const [loadingItems, setLoadingItems] = useState(true);
@@ -53,8 +44,18 @@ export default function PortalMoodboardPage() {
   // Descarta respuestas de una lámina ya abandonada al cambiar de pestaña.
   const itemsRequestRef = useRef(0);
 
+  // Identidad del usuario actual: el cliente comenta y borra solo sus
+  // propios comentarios (el backend impone el resto).
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>(
+    undefined
+  );
+  // Pieza seleccionada = hilo de comentarios abierto.
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
   const activeBoard =
     boards.find((board) => board.id === activeBoardId) ?? null;
+  const selectedItem =
+    items.find((item) => item.id === selectedItemId) ?? null;
 
   const loadBoards = useCallback(async () => {
     if (!projectId) {
@@ -130,10 +131,40 @@ export default function PortalMoodboardPage() {
     loadItems();
   }, [loadItems]);
 
-  // Al cambiar de lámina se descarta el contenido de la anterior.
+  // Identidad del usuario actual: habilita borrar solo los comentarios propios.
   useEffect(() => {
+    let active = true;
+
+    async function loadMe() {
+      try {
+        const res = await apiFetch("/api/v1/auth/me");
+        if (!res.ok) return;
+        const data = (await res.json()) as { id: string };
+        if (active) setCurrentUserId(data.id);
+      } catch {
+        // Sin identidad el panel sigue operativo: solo se oculta el borrado.
+      }
+    }
+
+    void loadMe();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Al cambiar de lámina se descarta el contenido y cualquier selección
+  // pendiente de la anterior.
+  useEffect(() => {
+    setSelectedItemId(null);
     setItems([]);
   }, [activeBoardId]);
+
+  // Si la pieza seleccionada desaparece (recarga), cierra el panel.
+  useEffect(() => {
+    if (selectedItemId && !items.some((item) => item.id === selectedItemId)) {
+      setSelectedItemId(null);
+    }
+  }, [items, selectedItemId]);
 
   return (
     <section>
@@ -193,6 +224,10 @@ export default function PortalMoodboardPage() {
                       curatorial_note: activeBoard.curatorial_note,
                     }}
                     items={items}
+                    selectedItemId={selectedItemId}
+                    onSelect={(item: MoodboardItemData) =>
+                      setSelectedItemId(item.id)
+                    }
                   />
                 )}
 
@@ -204,6 +239,15 @@ export default function PortalMoodboardPage() {
               </div>
             </>
           )}
+
+          {/* Panel compartido sin `headerExtra`: el cliente no elimina piezas. */}
+          <MoodboardCommentPanel
+            projectId={projectId}
+            item={selectedItem}
+            currentUserId={currentUserId}
+            onClose={() => setSelectedItemId(null)}
+            onChanged={loadItems}
+          />
         </>
       )}
     </section>
