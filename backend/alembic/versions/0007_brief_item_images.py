@@ -4,6 +4,22 @@ Revision ID: 0007
 Revises: 0006
 Create Date: 2026-11-23
 
+Why the column reconciliation below exists
+------------------------------------------
+Production applied the *original* revision 0004 (``0004_sprint3_brief_moodboard``)
+before the multimodal columns were appended to that file. Alembic never re-runs
+an already-applied revision, so production's ``brief_items`` table is missing
+``image_storage_key`` and the other multimodal columns that the ORM model and
+the current 0004 file now declare. The legacy-image copy in this migration
+SELECTs ``brief_items.image_storage_key``, which made the 0007 upgrade fail in
+production with ``column brief_items.image_storage_key does not exist``.
+
+``_reconcile_brief_item_columns`` closes that schema drift by adding ONLY the
+missing nullable columns before the copy loop. It is self-contained (takes an
+explicit ``bind`` rather than relying on Alembic's ``op``), idempotent (an
+inspector check skips columns that already exist -- no ``IF NOT EXISTS``
+syntax, so it is portable across PostgreSQL and SQLite), and additive (it
+never alters or drops existing columns or data).
 """
 import uuid
 from typing import Sequence, Union
@@ -18,7 +34,51 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _reconcile_brief_item_columns(bind) -> list[str]:
+    """Add multimodal columns missing from a drifted ``brief_items`` table.
+
+    Production's 0004 predates these columns, so the table can be behind the
+    ORM model. The inspector check makes this idempotent and dialect-portable
+    (no ``IF NOT EXISTS``), and the plain ``ADD COLUMN`` statements are nullable
+    with no defaults so they are safe on tables that already hold rows.
+
+    Returns the list of column names that were actually added.
+    """
+    # (name, portable SQL type) -- exact types from app.models.brief_item.
+    # Core columns (id, project_id, item_type, category, status, prompt, answer,
+    # storage_key, created_by, created_at, updated_at) are deliberately omitted:
+    # they have existed since the original 0004 table creation.
+    multimodal_columns = (
+        ("note", "VARCHAR(1000)"),
+        ("file_name", "VARCHAR(255)"),
+        ("content_type", "VARCHAR(100)"),
+        ("size_bytes", "INTEGER"),
+        ("response_type", "VARCHAR(50)"),
+        ("image_url", "VARCHAR(500)"),
+        ("image_storage_key", "VARCHAR(500)"),
+        ("audio_url", "VARCHAR(500)"),
+        ("audio_storage_key", "VARCHAR(500)"),
+        ("audio_transcription", "TEXT"),
+        ("transcription", "TEXT"),
+    )
+
+    existing = {column["name"] for column in sa.inspect(bind).get_columns("brief_items")}
+    added: list[str] = []
+    for name, column_type in multimodal_columns:
+        if name in existing:
+            continue
+        bind.execute(
+            sa.text(f"ALTER TABLE brief_items ADD COLUMN {name} {column_type}")
+        )
+        added.append(name)
+    return added
+
+
 def upgrade() -> None:
+    # Reconcile production's drifted brief_items schema BEFORE the legacy-image
+    # copy below reads image_storage_key (see module docstring for the why).
+    _reconcile_brief_item_columns(op.get_bind())
+
     op.create_table(
         "brief_item_images",
         sa.Column("id", sa.Uuid(as_uuid=True), primary_key=True),
