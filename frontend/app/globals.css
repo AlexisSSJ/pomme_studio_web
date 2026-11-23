@@ -119,6 +119,35 @@
     text-transform: uppercase;
   }
 
+  /*
+   * Excepción editorial acotada al Brief: esquinas arquitectónicas
+   * y una única sombra sutil. Solo afecta a nodos dentro de
+   * .brief-editorial; el resto de la app conserva radio 0 y sin sombras.
+   */
+  .brief-editorial .rounded-md {
+    border-radius: 6px !important;
+  }
+
+  .brief-editorial .rounded-lg {
+    border-radius: 8px !important;
+  }
+
+  .brief-editorial .rounded-xl {
+    border-radius: 12px !important;
+  }
+
+  .brief-editorial .rounded-2xl {
+    border-radius: 16px !important;
+  }
+
+  .brief-editorial .rounded-full {
+    border-radius: 9999px !important;
+  }
+
+  .brief-editorial .shadow-editorial {
+    box-shadow: 0 6px 24px -12px rgba(28, 25, 23, 0.12) !important;
+  }
+
   .rule {
     border-top: 1px solid var(--border);
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch, apiFetchBlobUrl, extractDetail } from "@/lib/api";
 import { useProtectedMediaUrl } from "@/lib/useProtectedMediaUrl";
@@ -66,24 +66,31 @@ function AdminImagePreview({
   const alt = `Imagen de respuesta ${label}`;
 
   return (
-    <div className="flex flex-col bg-background">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-stone-900/10 bg-[#FAF8F5]">
       <button
         type="button"
         onClick={() => src && onZoom(src, alt)}
         disabled={!src}
         aria-label={`Ampliar imagen ${label}`}
-        className="flex min-h-[160px] w-full items-center justify-center border-b border-[#111111] bg-background p-2"
+        className="flex min-h-[160px] w-full items-center justify-center border-b border-stone-900/10 bg-[#F4F1EA]/50 p-2"
       >
         {src ? (
           <img src={src} alt={alt} className="max-h-48 w-full object-contain" />
         ) : (
-          <span className="label-mono">CARGANDO IMAGEN…</span>
+          <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
+            Cargando imagen…
+          </span>
         )}
       </button>
       <div className="flex min-h-[44px] items-center justify-between gap-2 p-2">
-        <span className="label-mono">{label}</span>
-        <span className="label-mono" aria-hidden="true">
-          ZOOM ↗
+        <span className="font-mono text-[11px] tabular-nums text-stone-500">
+          {label}
+        </span>
+        <span
+          className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-400"
+          aria-hidden="true"
+        >
+          Zoom ↗
         </span>
       </div>
     </div>
@@ -95,7 +102,9 @@ function AdminAudioPlayer({ url }: { url: string }) {
   return src ? (
     <audio controls src={src} className="mt-1 w-full" />
   ) : (
-    <p className="label-mono">CARGANDO AUDIO…</p>
+    <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
+      Cargando audio…
+    </p>
   );
 }
 
@@ -119,6 +128,10 @@ export default function AdminBriefPage() {
   const [zoomedImage, setZoomedImage] = useState<{ src: string; alt: string } | null>(
     null
   );
+
+  // Accordion UI state (pure view state; read-only review).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const expandInitRef = useRef(false);
 
   const isActive = project?.status === "active";
 
@@ -170,6 +183,15 @@ export default function AdminBriefPage() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [zoomedImage]);
+
+  // Open the first question once, after the initial load.
+  useEffect(() => {
+    if (expandInitRef.current) return;
+    const qs = items.filter((it) => it?.item_type === "question");
+    if (qs.length === 0) return;
+    expandInitRef.current = true;
+    setExpandedId(qs[0].id);
+  }, [items]);
 
   async function createQuestion(event: React.FormEvent) {
     event.preventDefault();
@@ -262,61 +284,77 @@ export default function AdminBriefPage() {
         : "pending");
 
   return (
-    <section>
-      <div className="mb-6 flex flex-col gap-2 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl tracking-tightest">Brief</h1>
-          {project && <p className="label-mono mt-1">{project.title}</p>}
+    <section className="brief-editorial">
+      {/* Editorial ficha header: micro-label, serif title, architectural progress line. */}
+      <div className="mb-8 border-b border-stone-900/15 pb-6">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">
+            01 · Brief del proyecto
+          </p>
+          <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+            <span
+              aria-hidden="true"
+              className="dot-organic h-1.5 w-1.5 shrink-0 bg-stone-800/70"
+            />
+            {briefStatus}
+          </p>
         </div>
-        <div className="flex flex-col gap-1 sm:text-right">
-          <p className="label-mono">ESTADO: {briefStatus}</p>
-          <p className="label-mono">PROGRESO: {progressPercent}%</p>
-          <div className="h-2 w-full overflow-hidden border border-border bg-background sm:w-48">
+        <h1 className="mt-2 font-serif text-3xl font-normal tracking-tight text-stone-900 md:text-4xl">
+          {project?.title ?? "Brief"}
+        </h1>
+        <div className="mt-5 flex flex-col gap-2">
+          <div className="h-[2px] w-full bg-stone-200">
             <div
-              className="h-full bg-foreground"
+              className="h-full bg-stone-800 transition-all duration-300"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <p className="label-mono">
-            {answeredQuestions} / {totalQuestions} RESPONDIDAS
-          </p>
+          <span className="font-mono text-xs tabular-nums text-stone-500">
+            {answeredQuestions} / {totalQuestions} respondidas · {progressPercent}%
+          </span>
         </div>
       </div>
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">
+        <p className="mb-4 rounded-xl border border-stone-900/15 bg-[#EFECE6]/75 p-4 text-sm text-stone-700">
           {message}
         </p>
       )}
 
       {project && !isActive && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">
+        <p className="mb-4 rounded-xl border border-stone-900/15 bg-[#EFECE6]/75 p-4 text-sm text-stone-700">
           Este proyecto no está activo: la creación de preguntas está
           deshabilitada.
         </p>
       )}
 
       {loading && items.length === 0 ? (
-        <p className="mt-4 text-sm">Cargando…</p>
+        <p className="mt-4 text-sm text-stone-500">Cargando…</p>
       ) : (
         <>
-          <h2 className="mt-6 text-lg tracking-tightest">Nueva pregunta</h2>
+          <h2 className="font-serif text-xl font-normal tracking-tight text-stone-900">
+            Nueva pregunta
+          </h2>
           <form
             onSubmit={createQuestion}
-            className="mt-3 flex flex-col gap-3 border border-border bg-surface p-4"
+            className="mt-4 flex flex-col gap-4 rounded-2xl border border-stone-900/10 bg-[#EFECE6]/75 p-5 md:p-6"
           >
             <label className="flex flex-col gap-1">
-              <span className="label-mono">Pregunta</span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                Pregunta
+              </span>
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 maxLength={500}
-                className="min-h-[44px] border border-border bg-background p-3 text-sm"
+                className="min-h-[80px] w-full rounded-xl border border-stone-900/15 bg-[#FAF8F5] p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-400 focus:border-stone-900/45 focus:bg-white"
               />
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="label-mono">Categoría</span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                Categoría
+              </span>
               <select
                 value={category}
                 onChange={(event) =>
@@ -324,7 +362,7 @@ export default function AdminBriefPage() {
                     event.target.value as "branding" | "interior" | "general"
                   )
                 }
-                className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                className="min-h-[44px] rounded-lg border border-stone-900/15 bg-[#FAF8F5] px-3 text-sm text-stone-900"
               >
                 <option value="branding">Branding</option>
                 <option value="interior">Interior</option>
@@ -332,27 +370,28 @@ export default function AdminBriefPage() {
               </select>
             </label>
 
-            {formMessage && <p className="text-sm">{formMessage}</p>}
+            {formMessage && (
+              <p className="text-sm text-stone-600">{formMessage}</p>
+            )}
 
             <button
               type="submit"
               disabled={creating || !isActive}
-              className="btn-brutal min-h-[44px] self-start px-3 text-xs"
+              className="min-h-[44px] self-start rounded-lg bg-stone-900 px-5 py-2 text-xs uppercase tracking-wider text-[#FAF8F5] transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {creating ? "Creando…" : "Crear pregunta"}
-              <span className="btn-brutal__arrow" aria-hidden="true">
-                ↗
-              </span>
             </button>
           </form>
 
-          <h2 className="mt-6 text-lg tracking-tightest">Cuestionario</h2>
+          <h2 className="mt-10 font-serif text-xl font-normal tracking-tight text-stone-900">
+            Cuestionario
+          </h2>
           {questions.length === 0 ? (
-            <p className="mt-3 text-sm">
+            <p className="mt-3 text-sm text-stone-500">
               Todavía no hay preguntas para este proyecto.
             </p>
           ) : (
-            <div className="grid-brutal mt-3">
+            <div className="mt-4 space-y-3">
               {questions.map((item, index) => {
                 // Render only from the canonical response fields.
                 const images = Array.isArray(item?.images) ? item.images : [];
@@ -366,87 +405,153 @@ export default function AdminBriefPage() {
                 const hasResponse = Boolean(
                   answer || transcription || item?.audio_url || imageCount > 0
                 );
+                const expanded = expandedId === item.id;
 
                 return (
                   <div
                     key={item.id}
-                    className="flex flex-col gap-3 border border-border bg-surface p-4"
+                    className={`rounded-2xl border transition-all duration-300 ${
+                      expanded
+                        ? "border-stone-900/35 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                        : "border-stone-900/10 bg-[#EFECE6]/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
+                    }`}
                   >
-                    <p className="label-mono">
-                      {item.category ?? "general"} ·{" "}
-                      {String(index + 1).padStart(2, "0")}
-                    </p>
-                    <p className="text-sm font-semibold">{item.prompt}</p>
-
-                    <p className="label-mono">
-                      {hasResponse ? "RESPUESTA DEL CLIENTE" : "SIN RESPUESTA"}
-                    </p>
-                    {answer && <p className="text-sm">{answer}</p>}
-
-                    <div className="flex flex-col gap-3 border-t border-[#111111] pt-3">
-                      <p className="label-mono">RESPUESTA MULTIMODAL</p>
-
-                      {imageCount > 0 && (
-                        <div className="grid grid-cols-2 gap-px border border-[#111111] bg-[#111111]">
-                          {images.slice(0, 2).map((image, imageIndex) => (
-                            <AdminImagePreview
-                              key={image?.id ?? imageIndex}
-                              image={image}
-                              index={imageIndex}
-                              onZoom={(src, alt) => setZoomedImage({ src, alt })}
-                            />
-                          ))}
-                        </div>
+                    {/* Full-row header button: touch target far above 44px. */}
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      aria-controls={`admin-brief-panel-${item.id}`}
+                      onClick={() => setExpandedId(expanded ? null : item.id)}
+                      className="flex min-h-[44px] w-full cursor-pointer items-center gap-4 text-left"
+                    >
+                      <span className="font-mono text-[11px] tabular-nums text-stone-400">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span
+                        className={`flex-1 ${
+                          expanded
+                            ? "font-serif text-lg leading-snug text-stone-950 md:text-xl"
+                            : "text-[15px] font-normal text-stone-800 md:text-base"
+                        }`}
+                      >
+                        {item.prompt}
+                      </span>
+                      {!expanded && (
+                        <span className="hidden font-serif text-[11px] italic text-stone-500 sm:inline">
+                          {hasResponse ? "Respondida" : "Sin respuesta"}
+                        </span>
                       )}
+                      <span
+                        aria-hidden="true"
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base transition-transform duration-300 ${
+                          expanded
+                            ? "border border-stone-900/25 bg-transparent text-stone-800 hover:border-stone-900"
+                            : "bg-stone-900 text-[#FAF8F5]"
+                        }`}
+                      >
+                        {expanded ? "×" : "+"}
+                      </span>
+                    </button>
 
-                      {item?.audio_url && (
-                        <div className="flex flex-col gap-1 border border-[#111111] bg-background p-3">
-                          <p className="label-mono">AUDIO ADJUNTO</p>
-                          <AdminAudioPlayer url={item.audio_url} />
-                        </div>
-                      )}
+                    {expanded && (
+                      <div
+                        id={`admin-brief-panel-${item.id}`}
+                        className="mt-5 flex flex-col gap-4"
+                      >
+                        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                          {item.category ?? "general"} ·{" "}
+                          {hasResponse ? "Respuesta del cliente" : "Sin respuesta"}
+                        </p>
 
-                      {transcription && (
-                        <div className="flex flex-col gap-1 border border-[#111111] bg-background p-3">
-                          <p className="label-mono">TRANSCRIPCIÓN</p>
-                          <p className="text-sm">{transcription}</p>
+                        {answer && (
+                          <p className="text-[15px] leading-relaxed text-stone-800">
+                            {answer}
+                          </p>
+                        )}
+
+                        <div className="flex flex-col gap-3 border-t border-stone-900/10 pt-4">
+                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                            Respuesta multimodal
+                          </p>
+
+                          {imageCount > 0 && (
+                            <div className="grid grid-cols-2 gap-3">
+                              {images.slice(0, 2).map((image, imageIndex) => (
+                                <AdminImagePreview
+                                  key={image?.id ?? imageIndex}
+                                  image={image}
+                                  index={imageIndex}
+                                  onZoom={(src, alt) => setZoomedImage({ src, alt })}
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          {item?.audio_url && (
+                            <div className="flex flex-col gap-1 rounded-xl border border-stone-900/15 bg-[#F4F1EA]/50 p-4">
+                              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                                Audio adjunto
+                              </p>
+                              <AdminAudioPlayer url={item.audio_url} />
+                            </div>
+                          )}
+
+                          {transcription && (
+                            <div className="flex flex-col gap-2 rounded-xl border border-stone-900/15 bg-[#F4F1EA]/50 p-4">
+                              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                                Transcripción
+                              </p>
+                              <p className="text-[15px] leading-relaxed text-stone-800">
+                                {transcription}
+                              </p>
+                            </div>
+                          )}
+
+                          {!hasResponse && (
+                            <p className="font-serif text-[13px] italic text-stone-500">
+                              El cliente todavía no ha respondido esta pregunta.
+                            </p>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           )}
 
-          <h2 className="mt-6 text-lg tracking-tightest">Referencias</h2>
+          <h2 className="mt-10 font-serif text-xl font-normal tracking-tight text-stone-900">
+            Referencias
+          </h2>
           {references.length === 0 ? (
-            <p className="mt-3 text-sm">Todavía no hay referencias.</p>
+            <p className="mt-3 text-sm text-stone-500">Todavía no hay referencias.</p>
           ) : (
-            <div className="grid-brutal mt-3">
+            <div className="mt-4 space-y-3">
               {references.map((item) => (
                 <div
                   key={item.id}
-                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-[#EFECE6]/60 p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="text-sm font-semibold">{item.file_name}</p>
-                    <p className="label-mono mt-1">
+                    <p className="text-[15px] font-normal text-stone-800">
+                      {item.file_name}
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
                       {item.category} · {item.content_type} ·{" "}
                       {formatBytes(item.size_bytes)}
                     </p>
-                    {item.note && <p className="mt-1 text-sm">{item.note}</p>}
+                    {item.note && (
+                      <p className="mt-1 text-sm text-stone-600">{item.note}</p>
+                    )}
                   </div>
                   <button
                     type="button"
                     onClick={() => downloadReference(item)}
                     disabled={downloadingId === item.id}
-                    className="btn-brutal min-h-[44px] px-3 text-xs"
+                    className="min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
                   >
                     {downloadingId === item.id ? "Descargando…" : "Descargar"}
-                    <span className="btn-brutal__arrow" aria-hidden="true">
-                      ↗
-                    </span>
                   </button>
                 </div>
               ))}
@@ -472,9 +577,9 @@ export default function AdminBriefPage() {
               setZoomedImage(null);
             }
           }}
-          className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-[#111111] p-4"
+          className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-stone-950/95 p-4"
         >
-          <div className="max-h-full max-w-full border border-background bg-background p-2">
+          <div className="max-h-full max-w-full rounded-xl border border-stone-900/10 bg-[#FAF8F5] p-2">
             <img
               src={zoomedImage.src}
               alt={zoomedImage.alt}
