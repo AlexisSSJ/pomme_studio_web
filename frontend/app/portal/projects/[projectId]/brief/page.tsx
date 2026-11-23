@@ -459,6 +459,11 @@ export default function BriefPage() {
           ...prev,
           [itemId]: confirmed ? "Pregunta confirmada" : "Pregunta reabierta",
         }));
+        // Confirming advances to the next question (like "Siguiente pregunta");
+        // on the last question the row stays open showing its confirmed state.
+        if (confirmed) {
+          goToNextQuestion(itemId);
+        }
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setItemFeedback((prev) => ({ ...prev, [itemId]: extractDetail(data, "Error al confirmar la pregunta") }));
