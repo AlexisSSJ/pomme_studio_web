@@ -6,6 +6,10 @@ from .project_member import ProjectMember, ProjectRole
 from .pricing_config import PricingConfig
 from .audit_log import AuditLog
 from .notification import Notification
+from .password_reset_request import (
+    PasswordResetRequest,
+    PasswordResetRequestStatus,
+)
 from .lead import (
     BudgetRange,
     Lead,
@@ -56,6 +60,8 @@ __all__ = [
     "PricingConfig",
     "AuditLog",
     "Notification",
+    "PasswordResetRequest",
+    "PasswordResetRequestStatus",
     "BudgetRange",
     "Lead",
     "LeadStatus",

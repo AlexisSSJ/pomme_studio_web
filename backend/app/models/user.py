@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, String, Uuid
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import Base
@@ -44,6 +44,12 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
+        nullable=False,
+    )
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=text("false"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(

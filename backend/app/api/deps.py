@@ -67,7 +67,34 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Reject users that have been deactivated (kill switch)."""
+    """Reject users that have been deactivated (kill switch).
+
+    A user holding a temporary password is also rejected here so that every
+    regular endpoint is blocked until the password is changed. Only the
+    flag-tolerant dependency (`get_current_active_user_allow_password_change`)
+    lets such a user reach `/auth/me` and `/auth/change-password`.
+    """
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user",
+        )
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="password_change_required",
+        )
+    return current_user
+
+
+async def get_current_active_user_allow_password_change(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Like `get_current_active_user` but tolerates `must_change_password`.
+
+    Used by `/auth/me` (so the client can read the flag) and by
+    `/auth/change-password` (so the user can clear it).
+    """
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
