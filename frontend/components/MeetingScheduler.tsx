@@ -202,16 +202,16 @@ export default function MeetingScheduler({
 
   return (
     <div className="flex flex-col gap-3 border border-border bg-surface p-4">
-      <h2 className="text-lg tracking-tightest">Agendar reunión</h2>
+      <h2 className="type-subtitle-caps text-lg">Agendar reunión</h2>
 
       <label className="flex flex-col gap-1">
-        <span className="label-mono">Tipo de reunión</span>
+        <span className="type-ui text-sm">Tipo de reunión</span>
         <select
           value={meetingType}
           onChange={(event) =>
             setMeetingType(event.target.value as MeetingTypeValue)
           }
-          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
         >
           {TYPE_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -223,11 +223,11 @@ export default function MeetingScheduler({
 
       {sortedStages.length > 0 && (
         <label className="flex flex-col gap-1">
-          <span className="label-mono">Etapa (opcional)</span>
+          <span className="type-ui text-sm">Etapa (opcional)</span>
           <select
             value={stageId}
             onChange={(event) => setStageId(event.target.value)}
-            className="min-h-[44px] border border-border bg-background px-3 text-sm"
+            className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
           >
             <option value="">Sin etapa específica</option>
             {sortedStages.map((stage) => (
@@ -240,7 +240,7 @@ export default function MeetingScheduler({
       )}
 
       <label className="flex flex-col gap-1">
-        <span className="label-mono">Fecha</span>
+        <span className="type-ui text-sm">Fecha</span>
         <input
           type="date"
           min={todayInputValue()}
@@ -250,7 +250,7 @@ export default function MeetingScheduler({
             setBooked(null);
             setSelectedDate(event.target.value);
           }}
-          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
         />
       </label>
 
@@ -267,13 +267,13 @@ export default function MeetingScheduler({
       </button>
 
       {slotsError && (
-        <p className="border border-border bg-background p-3 text-sm">
+        <p className="type-ui border border-border bg-background p-3 text-sm">
           {slotsError}
         </p>
       )}
 
       {!slotsLoading && hasChecked && slots.length === 0 && !slotsError && (
-        <p className="text-sm">
+        <p className="type-ui text-sm">
           No hay horarios disponibles para esta fecha. Prueba con otra.
         </p>
       )}
@@ -295,7 +295,7 @@ export default function MeetingScheduler({
                   role="radio"
                   aria-checked={selected}
                   onClick={() => setSelectedSlot(slot)}
-                  className={`min-h-[44px] w-full px-3 text-sm ${
+                  className={`type-tech min-h-[44px] w-full px-3 text-sm ${
                     selected ? "bg-surface font-semibold" : ""
                   }`}
                 >
@@ -319,7 +319,7 @@ export default function MeetingScheduler({
       )}
 
       {bookingError && (
-        <p className="border border-border bg-background p-3 text-sm">
+        <p className="type-ui border border-border bg-background p-3 text-sm">
           {bookingError}
         </p>
       )}
@@ -330,7 +330,7 @@ export default function MeetingScheduler({
             {meetingTypeLabel(booked.meeting_type)} ·{" "}
             {meetingStatusLabel(booked.status)}
           </p>
-          <p className="text-sm font-semibold">
+          <p className="type-tech text-sm font-semibold">
             {formatMeetingDateTime(booked.start_time)}
           </p>
           {booked.meet_link && (

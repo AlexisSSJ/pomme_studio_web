@@ -69,7 +69,7 @@ export default function PortalLayout({
   if (!checked) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="label-mono">Cargando…</p>
+        <p className="type-ui text-sm text-stone-600">Cargando…</p>
       </main>
     );
   }
@@ -85,7 +85,7 @@ export default function PortalLayout({
               clearToken();
               router.push("/login");
             }}
-            className="label-mono min-h-[44px] px-2 underline"
+            className="type-ui min-h-[44px] px-2 text-sm underline"
           >
             Salir
           </button>
@@ -95,7 +95,7 @@ export default function PortalLayout({
       <nav className="grid-brutal mt-4">
         <Link
           href="/portal"
-          className={`flex min-h-[44px] items-center justify-center p-3 text-sm ${
+          className={`type-ui flex min-h-[44px] items-center justify-center p-3 text-sm ${
             pathname === "/portal" ? "bg-surface font-semibold" : ""
           }`}
         >

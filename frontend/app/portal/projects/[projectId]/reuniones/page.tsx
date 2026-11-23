@@ -86,7 +86,7 @@ export default function ReunionesPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Reuniones</h1>
+      <h1 className="type-title text-xl">Reuniones</h1>
 
       {message && (
         <p className="mt-4 border border-border bg-surface p-3 text-sm">
@@ -94,7 +94,7 @@ export default function ReunionesPage() {
         </p>
       )}
 
-      <h2 className="mt-6 text-lg tracking-tightest">Reuniones agendadas</h2>
+      <h2 className="type-subtitle-caps mt-6 text-lg">Reuniones agendadas</h2>
       {loading && meetings.length === 0 && !message ? (
         <p className="mt-3 text-sm">Cargando…</p>
       ) : meetings.length === 0 && !message ? (
@@ -107,7 +107,7 @@ export default function ReunionesPage() {
                 {meetingTypeLabel(meeting.meeting_type)} ·{" "}
                 {meetingStatusLabel(meeting.status)}
               </p>
-              <p className="text-sm font-semibold">
+              <p className="type-tech">
                 {formatMeetingDateTime(meeting.start_time)}
               </p>
               {meeting.meet_link && (

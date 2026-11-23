@@ -61,7 +61,7 @@ export default function PortalProjectOverviewPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Resumen del proyecto</h1>
+      <h1 className="type-title text-xl">Resumen del proyecto</h1>
 
       {message && (
         <p className="mt-4 border border-border bg-surface p-3 text-sm">
@@ -94,23 +94,23 @@ export default function PortalProjectOverviewPage() {
         <div className="grid-brutal mt-4 grid-cols-1 sm:grid-cols-2">
           <div className="p-4">
             <p className="label-mono">01 · Estado</p>
-            <p className="mt-1 text-sm font-semibold">{project.status}</p>
+            <p className="type-tech mt-1">{project.status}</p>
           </div>
           <div className="p-4">
             <p className="label-mono">02 · Scope</p>
-            <p className="mt-1 text-sm font-semibold">
+            <p className="type-tech mt-1">
               {project.scope_type || "sin scope"}
             </p>
           </div>
           <div className="p-4">
             <p className="label-mono">03 · Rondas de cambios</p>
-            <p className="mt-1 text-sm font-semibold">
+            <p className="type-tech mt-1">
               {project.remaining_rounds}/{project.included_rounds}
             </p>
           </div>
           <div className="p-4">
             <p className="label-mono">04 · Pago final</p>
-            <p className="mt-1 text-sm font-semibold">
+            <p className="type-tech mt-1">
               {project.balance_paid ? "PAGADO" : "PENDIENTE"}
             </p>
           </div>

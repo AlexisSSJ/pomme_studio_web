@@ -69,28 +69,28 @@ function AdminImagePreview({
   const alt = `Imagen de respuesta ${label}`;
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-stone-900/10 bg-[#FAF8F5]">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-stone-900/10 bg-background">
       <button
         type="button"
         onClick={() => src && onZoom(src, alt)}
         disabled={!src}
         aria-label={`Ampliar imagen ${label}`}
-        className="flex min-h-[160px] w-full items-center justify-center border-b border-stone-900/10 bg-[#F4F1EA]/50 p-2"
+        className="flex min-h-[160px] w-full items-center justify-center border-b border-stone-900/10 bg-surface/50 p-2"
       >
         {src ? (
           <img src={src} alt={alt} className="max-h-48 w-full object-contain" />
         ) : (
-          <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
+          <span className="type-ui text-xs text-stone-600">
             Cargando imagen…
           </span>
         )}
       </button>
       <div className="flex min-h-[44px] items-center justify-between gap-2 p-2">
-        <span className="font-mono text-[11px] tabular-nums text-stone-500">
+        <span className="type-tech text-stone-500">
           {label}
         </span>
         <span
-          className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-400"
+          className="type-tech text-stone-600"
           aria-hidden="true"
         >
           Zoom ↗
@@ -281,10 +281,10 @@ export default function AdminBriefPage() {
       {/* Editorial ficha header: micro-label, serif title, architectural progress line. */}
       <div className="mb-8 border-b border-stone-900/15 pb-6">
         <div className="flex items-center justify-between gap-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">
+          <p className="type-tech text-stone-600">
             01 · Brief del proyecto
           </p>
-          <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+          <p className="type-tech flex items-center gap-2 text-stone-600">
             <span
               aria-hidden="true"
               className="dot-organic h-1.5 w-1.5 shrink-0 bg-stone-800/70"
@@ -292,7 +292,7 @@ export default function AdminBriefPage() {
             {briefStatus}
           </p>
         </div>
-        <h1 className="mt-2 font-serif text-3xl font-normal tracking-tight text-stone-900 md:text-4xl">
+        <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
           {project?.title ?? "Brief"}
         </h1>
         <div className="mt-5 flex flex-col gap-2">
@@ -302,7 +302,7 @@ export default function AdminBriefPage() {
               style={{ width: `${progressPercent}%` }}
             />
           </div>
-          <span className="font-mono text-xs tabular-nums text-stone-500">
+          <span className="type-tech text-stone-600">
             {answeredQuestions} / {totalQuestions} respondidas · {progressPercent}% ·{" "}
             {confirmedCount} confirmadas
           </span>
@@ -310,43 +310,43 @@ export default function AdminBriefPage() {
       </div>
 
       {message && (
-        <p className="mb-4 rounded-xl border border-stone-900/15 bg-[#EFECE6]/75 p-4 text-sm text-stone-700">
+        <p className="type-ui mb-4 rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
           {message}
         </p>
       )}
 
       {project && !isActive && (
-        <p className="mb-4 rounded-xl border border-stone-900/15 bg-[#EFECE6]/75 p-4 text-sm text-stone-700">
+        <p className="type-ui mb-4 rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
           Este proyecto no está activo: la creación de preguntas está
           deshabilitada.
         </p>
       )}
 
       {loading && items.length === 0 ? (
-        <p className="mt-4 text-sm text-stone-500">Cargando…</p>
+        <p className="type-ui mt-4 text-sm text-stone-600">Cargando…</p>
       ) : (
         <>
-          <h2 className="font-serif text-xl font-normal tracking-tight text-stone-900">
+          <h2 className="type-subtitle-caps text-xl text-stone-900">
             Nueva pregunta
           </h2>
           <form
             onSubmit={createQuestion}
-            className="mt-4 flex flex-col gap-4 rounded-2xl border border-stone-900/10 bg-[#EFECE6]/75 p-5 md:p-6"
+            className="mt-4 flex flex-col gap-4 rounded-2xl border border-stone-900/10 bg-surface/75 p-5 md:p-6"
           >
             <label className="flex flex-col gap-1">
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+              <span className="type-ui text-sm text-stone-600">
                 Pregunta
               </span>
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 maxLength={500}
-                className="min-h-[80px] w-full rounded-xl border border-stone-900/15 bg-[#FAF8F5] p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-400 focus:border-stone-900/45 focus:bg-white"
+                className="type-ui min-h-[80px] w-full rounded-xl border border-stone-900/15 bg-background p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
               />
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+              <span className="type-ui text-sm text-stone-600">
                 Categoría
               </span>
               <select
@@ -356,7 +356,7 @@ export default function AdminBriefPage() {
                     event.target.value as "branding" | "interior" | "general"
                   )
                 }
-                className="min-h-[44px] rounded-lg border border-stone-900/15 bg-[#FAF8F5] px-3 text-sm text-stone-900"
+                className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900"
               >
                 <option value="branding">Branding</option>
                 <option value="interior">Interior</option>
@@ -365,23 +365,23 @@ export default function AdminBriefPage() {
             </label>
 
             {formMessage && (
-              <p className="text-sm text-stone-600">{formMessage}</p>
+              <p className="type-ui text-sm text-stone-600">{formMessage}</p>
             )}
 
             <button
               type="submit"
               disabled={creating || !isActive}
-              className="min-h-[44px] self-start rounded-lg bg-stone-900 px-5 py-2 text-xs uppercase tracking-wider text-[#FAF8F5] transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="type-ui min-h-[44px] self-start rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {creating ? "Creando…" : "Crear pregunta"}
             </button>
           </form>
 
-          <h2 className="mt-10 font-serif text-xl font-normal tracking-tight text-stone-900">
+          <h2 className="type-subtitle-caps mt-10 text-xl text-stone-900">
             Cuestionario
           </h2>
           {questions.length === 0 ? (
-            <p className="mt-3 text-sm text-stone-500">
+            <p className="type-ui mt-3 text-sm text-stone-600">
               Todavía no hay preguntas para este proyecto.
             </p>
           ) : (
@@ -408,11 +408,11 @@ export default function AdminBriefPage() {
                     className={`rounded-2xl border transition-all duration-300 ${
                       expanded
                         ? confirmed
-                          ? "border-[#5F7161]/45 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
-                          : "border-stone-900/35 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                          ? "border-[#5F7161]/45 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                          : "border-stone-900/35 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
                         : confirmed
                           ? "border-[#5F7161]/30 bg-[#EEF2EC]/75 px-5 py-4 hover:bg-[#E5EBE2] md:px-6 md:py-5"
-                          : "border-stone-900/10 bg-[#EFECE6]/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
+                          : "border-stone-900/10 bg-surface/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
                     }`}
                   >
                     {/* Full-row header button: touch target far above 44px. */}
@@ -423,20 +423,20 @@ export default function AdminBriefPage() {
                       onClick={() => setExpandedId(expanded ? null : item.id)}
                       className="flex min-h-[44px] w-full cursor-pointer items-center gap-4 text-left"
                     >
-                      <span className="font-mono text-[11px] tabular-nums text-stone-400">
+                      <span className="type-tech text-stone-600">
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <span
                         className={`flex-1 ${
                           expanded
-                            ? "font-serif text-lg leading-snug text-stone-950 md:text-xl"
-                            : "text-[15px] font-normal text-stone-800 md:text-base"
+                            ? "type-editorial text-lg leading-snug text-stone-950 md:text-xl"
+                            : "type-editorial text-[15px] text-stone-800 md:text-base"
                         }`}
                       >
                         {item.prompt}
                       </span>
                       {!expanded && confirmed && (
-                        <span className="hidden items-center gap-2 font-serif text-[11px] italic text-[#44544A] sm:flex">
+                        <span className="type-editorial hidden items-center gap-2 text-[11px] italic text-[#44544A] sm:flex">
                           <span
                             aria-hidden="true"
                             className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
@@ -445,7 +445,7 @@ export default function AdminBriefPage() {
                         </span>
                       )}
                       {!expanded && !confirmed && (
-                        <span className="hidden font-serif text-[11px] italic text-stone-500 sm:inline">
+                        <span className="type-editorial hidden text-[11px] italic text-stone-500 sm:inline">
                           {hasResponse ? "Respondida" : "Sin respuesta"}
                         </span>
                       )}
@@ -454,7 +454,7 @@ export default function AdminBriefPage() {
                         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base transition-transform duration-300 ${
                           expanded
                             ? "border border-stone-900/25 bg-transparent text-stone-800 hover:border-stone-900"
-                            : "bg-stone-900 text-[#FAF8F5]"
+                            : "bg-stone-900 text-background"
                         }`}
                       >
                         {expanded ? "×" : "+"}
@@ -467,12 +467,12 @@ export default function AdminBriefPage() {
                         className="mt-5 flex flex-col gap-4"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                          <p className="type-tech text-stone-600">
                             {item.category ?? "general"} ·{" "}
                             {hasResponse ? "Respuesta del cliente" : "Sin respuesta"}
                           </p>
                           {confirmed ? (
-                            <span className="flex items-center gap-2 rounded-lg bg-[#EEF2EC] px-3 py-1 font-serif text-[11px] italic text-[#44544A]">
+                            <span className="type-editorial flex items-center gap-2 rounded-lg bg-[#EEF2EC] px-3 py-1 text-[11px] italic text-[#44544A]">
                               <span
                                 aria-hidden="true"
                                 className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
@@ -480,20 +480,20 @@ export default function AdminBriefPage() {
                               Confirmada por el cliente ✓
                             </span>
                           ) : (
-                            <span className="font-serif text-[11px] italic text-stone-500">
+                            <span className="type-editorial text-[11px] italic text-stone-500">
                               Sin confirmar por el cliente
                             </span>
                           )}
                         </div>
 
                         {answer && (
-                          <p className="text-[15px] leading-relaxed text-stone-800">
+                          <p className="type-editorial text-[15px] leading-relaxed text-stone-800">
                             {answer}
                           </p>
                         )}
 
                         <div className="flex flex-col gap-3 border-t border-stone-900/10 pt-4">
-                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                          <p className="type-tech text-stone-600">
                             Respuesta multimodal
                           </p>
 
@@ -511,8 +511,8 @@ export default function AdminBriefPage() {
                           )}
 
                           {item?.audio_url && (
-                            <div className="flex flex-col gap-1 rounded-xl border border-stone-900/15 bg-[#F4F1EA]/50 p-4">
-                              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                            <div className="flex flex-col gap-1 rounded-xl border border-stone-900/15 bg-surface/50 p-4">
+                              <p className="type-tech text-stone-600">
                                 Nota de voz
                               </p>
                               {/* key forces a remount (fresh blob fetch) after the client
@@ -525,18 +525,18 @@ export default function AdminBriefPage() {
                           )}
 
                           {transcription && (
-                            <div className="flex flex-col gap-2 rounded-xl border border-stone-900/15 bg-[#F4F1EA]/50 p-4">
-                              <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                            <div className="flex flex-col gap-2 rounded-xl border border-stone-900/15 bg-surface/50 p-4">
+                              <p className="type-tech text-stone-600">
                                 Transcripción
                               </p>
-                              <p className="text-[15px] leading-relaxed text-stone-800">
+                              <p className="type-editorial text-[15px] leading-relaxed text-stone-800">
                                 {transcription}
                               </p>
                             </div>
                           )}
 
                           {!hasResponse && (
-                            <p className="font-serif text-[13px] italic text-stone-500">
+                            <p className="type-editorial text-[13px] italic text-stone-500">
                               El cliente todavía no ha respondido esta pregunta.
                             </p>
                           )}
@@ -549,35 +549,35 @@ export default function AdminBriefPage() {
             </div>
           )}
 
-          <h2 className="mt-10 font-serif text-xl font-normal tracking-tight text-stone-900">
+          <h2 className="type-subtitle-caps mt-10 text-xl text-stone-900">
             Referencias
           </h2>
           {references.length === 0 ? (
-            <p className="mt-3 text-sm text-stone-500">Todavía no hay referencias.</p>
+            <p className="type-ui mt-3 text-sm text-stone-600">Todavía no hay referencias.</p>
           ) : (
             <div className="mt-4 space-y-3">
               {references.map((item) => (
                 <div
                   key={item.id}
-                  className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-[#EFECE6]/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-surface/60 p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="text-[15px] font-normal text-stone-800">
+                    <p className="type-ui text-[15px] text-stone-800">
                       {item.file_name}
                     </p>
-                    <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
+                    <p className="type-tech mt-1 text-stone-500">
                       {item.category} · {item.content_type} ·{" "}
                       {formatBytes(item.size_bytes)}
                     </p>
                     {item.note && (
-                      <p className="mt-1 text-sm text-stone-600">{item.note}</p>
+                      <p className="type-editorial mt-1 text-sm text-stone-600">{item.note}</p>
                     )}
                   </div>
                   <button
                     type="button"
                     onClick={() => downloadReference(item)}
                     disabled={downloadingId === item.id}
-                    className="min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
+                    className="type-ui min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
                   >
                     {downloadingId === item.id ? "Descargando…" : "Descargar"}
                   </button>
@@ -607,7 +607,7 @@ export default function AdminBriefPage() {
           }}
           className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-stone-950/95 p-4"
         >
-          <div className="max-h-full max-w-full rounded-xl border border-stone-900/10 bg-[#FAF8F5] p-2">
+          <div className="max-h-full max-w-full rounded-xl border border-stone-900/10 bg-background p-2">
             <img
               src={zoomedImage.src}
               alt={zoomedImage.alt}

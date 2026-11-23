@@ -89,7 +89,7 @@ export default function PortalEspecificacionesPage() {
     <section>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl tracking-tightest">Catálogo FF&E</h1>
+          <h1 className="type-title text-xl">Catálogo FF&E</h1>
           {project && <p className="label-mono mt-1">{project.title}</p>}
         </div>
         <div className="flex flex-wrap gap-2">

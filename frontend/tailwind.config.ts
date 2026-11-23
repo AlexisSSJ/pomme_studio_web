@@ -9,27 +9,23 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: '#FAF8F5',
+        background: '#F9FAF4',
         foreground: '#111111',
         surface: '#EFECE6',
         border: '#111111',
       },
       fontFamily: {
-        sans: [
-          '"Helvetica Neue"',
-          'Helvetica',
-          'Arial',
-          'system-ui',
-          'sans-serif',
-        ],
+        sans: ['var(--font-arial)', 'Arial', 'Helvetica', 'sans-serif'],
+        arial: ['var(--font-arial)', 'Arial', 'Helvetica', 'sans-serif'],
         mono: [
-          '"IBM Plex Mono"',
+          'var(--font-mono)',
           'ui-monospace',
           'SFMono-Regular',
           'Menlo',
           'monospace',
         ],
-        serif: ['var(--font-serif)', 'Georgia', 'serif'],
+        serif: ['var(--font-amiri)', 'Georgia', 'serif'],
+        amiri: ['var(--font-amiri)', 'Georgia', 'serif'],
       },
       letterSpacing: {
         tightest: '-0.03em',

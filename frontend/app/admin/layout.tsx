@@ -78,7 +78,7 @@ export default function AdminLayout({
   if (!checked) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="label-mono">Cargando…</p>
+        <p className="type-ui text-sm text-stone-600">Cargando…</p>
       </main>
     );
   }
@@ -86,7 +86,7 @@ export default function AdminLayout({
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[1120px] flex-col px-4 pb-10 pt-2 sm:px-6">
       <header className="flex min-h-[56px] flex-wrap items-center justify-between gap-2 border-b border-border py-3">
-        <span className="text-[15px] font-semibold tracking-tightest">
+        <span className="type-subtitle-caps text-[15px]">
           Pomme Studio / Admin
         </span>
         <div className="flex items-center gap-3">
@@ -96,7 +96,7 @@ export default function AdminLayout({
               clearToken();
               router.push("/login");
             }}
-            className="label-mono min-h-[44px] px-2 underline"
+            className="type-ui min-h-[44px] px-2 text-sm underline"
           >
             Salir
           </button>
@@ -108,7 +108,7 @@ export default function AdminLayout({
           <Link
             key={item.href}
             href={item.href}
-            className={`flex min-h-[44px] items-center justify-center p-3 text-sm ${
+            className={`type-ui flex min-h-[44px] items-center justify-center p-3 text-sm ${
               pathname === item.href ? "bg-surface font-semibold" : ""
             }`}
           >

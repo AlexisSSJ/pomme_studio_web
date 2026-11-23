@@ -231,10 +231,10 @@ function StageCard({
       <p className="label-mono">
         {String(number).padStart(2, "0")} · {STAGE_STATUS_LABELS[stage.status]}
       </p>
-      <p className="text-sm font-semibold">{stage.name}</p>
+      <p className="type-ui text-sm font-semibold">{stage.name}</p>
 
       {stage.status === "locked" && (
-        <p className="text-sm">Se desbloquea al aprobar la etapa anterior.</p>
+        <p className="type-editorial text-sm">Se desbloquea al aprobar la etapa anterior.</p>
       )}
 
       {deliverables.length > 0 && (
@@ -248,7 +248,7 @@ function StageCard({
 
             return (
               <div key={deliverable.id} className="flex flex-col gap-2 border border-border bg-background p-3">
-                <p className="text-sm font-semibold">{deliverable.title}</p>
+                <p className="type-ui text-sm font-semibold">{deliverable.title}</p>
                 <p className="label-mono">
                   V{deliverable.version} ·{" "}
                   {deliverableStatusLabel(deliverable.status)}
@@ -256,7 +256,7 @@ function StageCard({
                   {deliverable.is_final_handover ? " · ENTREGA FINAL" : ""}
                 </p>
 
-                {msg && <p className="text-sm text-red-600">{msg}</p>}
+                {msg && <p className="type-ui text-sm text-red-600">{msg}</p>}
 
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -346,19 +346,19 @@ function StageCard({
           onSubmit={uploadDeliverable}
           className="flex flex-col gap-3 border border-border bg-background p-3"
         >
-          <p className="label-mono">NUEVA VERSIÓN</p>
+          <p className="type-subtitle-caps text-sm">NUEVA VERSIÓN</p>
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Título</span>
+            <span className="type-ui text-sm">Título</span>
             <input
               type="text"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               maxLength={255}
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
           <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 border border-border bg-background px-3">
-            <span className="label-mono truncate">
+            <span className="type-ui truncate text-sm">
               {file ? file.name : "Elegir imagen"}
             </span>
             <input
@@ -369,7 +369,7 @@ function StageCard({
               className="sr-only"
             />
           </label>
-          {uploadMessage && <p className="text-sm">{uploadMessage}</p>}
+          {uploadMessage && <p className="type-ui text-sm">{uploadMessage}</p>}
           <button
             type="submit"
             disabled={uploading}
@@ -537,7 +537,7 @@ export default function AdminEtapasPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Etapas</h1>
+      <h1 className="type-title text-xl">Etapas</h1>
       {project && (
         <p className="label-mono mt-1">
           {project.title} · {project.status}
@@ -551,14 +551,14 @@ export default function AdminEtapasPage() {
       )}
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">
           {message}
         </p>
       )}
 
       <div className="mt-4 flex flex-col gap-2 border border-border bg-surface p-4">
         <p className="label-mono">RONDAS EXTRA</p>
-        <p className="text-sm">
+        <p className="type-editorial text-sm">
           Cada solicitud de cambios del cliente consume una ronda incluida.
           Habilita una ronda extra cuando el cliente contrate más
           revisiones.
@@ -579,43 +579,43 @@ export default function AdminEtapasPage() {
           </span>
         </button>
         {roundsMessage && (
-          <p className="border border-border bg-background p-3 text-sm">
+          <p className="type-ui border border-border bg-background p-3 text-sm">
             {roundsMessage}
           </p>
         )}
       </div>
 
-      <h2 className="mt-6 text-lg tracking-tightest">Nueva etapa</h2>
+      <h2 className="type-subtitle-caps mt-6 text-lg">Nueva etapa</h2>
       <form
         onSubmit={createStage}
         className="mt-3 flex flex-col gap-3 border border-border bg-surface p-4"
       >
         <label className="flex flex-col gap-1">
-          <span className="label-mono">Nombre</span>
+          <span className="type-ui text-sm">Nombre</span>
           <input
             type="text"
             value={stageName}
             onChange={(event) => setStageName(event.target.value)}
             maxLength={255}
-            className="min-h-[44px] border border-border bg-background px-3 text-sm"
+            className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="label-mono">Orden</span>
+          <span className="type-ui text-sm">Orden</span>
           <input
             type="number"
             step={1}
             min={0}
             value={stageOrder}
             onChange={(event) => setStageOrder(event.target.value)}
-            className="min-h-[44px] border border-border bg-background px-3 text-sm"
+            className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
           />
         </label>
-        <p className="text-sm">
+        <p className="type-editorial text-sm">
           La primera etapa nace en curso; las siguientes nacen bloqueadas
           hasta que el cliente aprueba las anteriores.
         </p>
-        {stageMessage && <p className="text-sm">{stageMessage}</p>}
+        {stageMessage && <p className="type-ui text-sm">{stageMessage}</p>}
         <button
           type="submit"
           disabled={creatingStage}
@@ -628,11 +628,11 @@ export default function AdminEtapasPage() {
         </button>
       </form>
 
-      <h2 className="mt-6 text-lg tracking-tightest">Etapas del proyecto</h2>
+      <h2 className="type-subtitle-caps mt-6 text-lg">Etapas del proyecto</h2>
       {loading && rows.length === 0 && !message ? (
-        <p className="mt-3 text-sm">Cargando…</p>
+        <p className="type-ui mt-3 text-sm">Cargando…</p>
       ) : rows.length === 0 && !message ? (
-        <p className="mt-3 text-sm">Todavía no hay etapas en este proyecto.</p>
+        <p className="type-ui mt-3 text-sm">Todavía no hay etapas en este proyecto.</p>
       ) : (
         <div className="grid-brutal mt-3">
           {rows.map(({ stage, deliverables }, index) => (
@@ -649,7 +649,7 @@ export default function AdminEtapasPage() {
         </div>
       )}
 
-      <h2 className="mt-6 text-lg tracking-tightest">Agendar reunión</h2>
+      <h2 className="type-subtitle-caps mt-6 text-lg">Agendar reunión</h2>
       <div className="mt-3">
         <MeetingScheduler projectId={projectId} stages={sortedStages} />
       </div>

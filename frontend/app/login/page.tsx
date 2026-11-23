@@ -62,11 +62,11 @@ export default function LoginPage() {
     <main className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col justify-center px-4">
       <div className="border border-border bg-background p-6 sm:p-8">
         <p className="label-mono">Pomme Studio / Admin</p>
-        <h1 className="mt-3 text-2xl tracking-tightest">Iniciar sesión</h1>
+        <h1 className="type-title mt-3 text-2xl">Iniciar sesión</h1>
 
         <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-4">
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Usuario o email</span>
+            <span className="type-ui text-xs">Usuario o email</span>
             <input
               type="text"
               autoComplete="username"
@@ -78,7 +78,7 @@ export default function LoginPage() {
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Contraseña</span>
+            <span className="type-ui text-xs">Contraseña</span>
             <input
               type="password"
               value={password}

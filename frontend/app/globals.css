@@ -3,10 +3,12 @@
 @tailwind utilities;
 
 :root {
-  --background: #faf8f5;
+  --bg-canvas: #F9FAF4;
+  --background: #F9FAF4;
   --foreground: #111111;
-  --surface: #efece6;
+  --surface: #EFECE6;
   --border: #111111;
+  --font-arial: Arial, Helvetica, sans-serif;
 }
 
 @layer base {
@@ -36,8 +38,7 @@
   }
 
   body {
-    font-family:
-      'Helvetica Neue', Helvetica, Arial, system-ui, -apple-system, sans-serif;
+    font-family: var(--font-arial);
     font-feature-settings: 'kern';
     letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
@@ -110,9 +111,62 @@
     }
   }
 
+  /*
+   * Sistema tipográfico — 5 jerarquías:
+   * 1. Títulos · Amiri mayúsculas
+   * 2. Subtítulos · Arial mayúsculas
+   * 3. Editorial · Amiri caja de frase (400/700, normal e itálica)
+   * 4. UI · Arial caja de frase
+   * 5. Técnico · Atkinson Hyperlegible Mono
+   */
+
+  /* 1. Titles — Amiri all caps */
+  .type-title {
+    font-family: var(--font-amiri), Georgia, serif;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.05;
+    text-wrap: balance;
+  }
+
+  /* 2. Subtitles — Arial all caps */
+  .type-subtitle-caps {
+    font-family: var(--font-arial);
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  /* 3. Editorial — Amiri sentence case (400/700, normal e italic) */
+  .type-editorial {
+    font-family: var(--font-amiri), Georgia, serif;
+    text-transform: none;
+    font-weight: 400;
+  }
+
+  /* 4. UI — Arial sentence case */
+  .type-ui {
+    font-family: var(--font-arial);
+    text-transform: none;
+  }
+
+  /* 5. Technical — Atkinson Hyperlegible Mono */
+  .type-tech {
+    font-family: var(--font-mono), ui-monospace, 'SFMono-Regular', Menlo,
+      monospace;
+    font-weight: 400;
+    font-size: 11px;
+    line-height: 1.4;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+  }
+
   /* Etiquetas y numeraciones: mono, mayúsculas, 11px. */
   .label-mono {
-    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-family: var(--font-mono), ui-monospace, 'SFMono-Regular', Menlo,
+      monospace;
     font-size: 11px;
     line-height: 1.4;
     letter-spacing: 0.08em;
@@ -207,10 +261,10 @@
     border: 1px solid var(--foreground);
     background-color: var(--background);
     color: var(--foreground);
-    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-family: var(--font-arial);
+    font-size: 13px;
+    letter-spacing: normal;
+    text-transform: none;
     cursor: pointer;
     transition:
       background-color 120ms linear,

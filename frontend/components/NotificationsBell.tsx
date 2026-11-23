@@ -187,18 +187,22 @@ export default function NotificationsBell({
               type="button"
               aria-label="Cerrar notificaciones"
               onClick={() => setOpen(false)}
-              className="label-mono flex min-h-[44px] min-w-[44px] items-center justify-center"
+              className="type-ui flex min-h-[44px] min-w-[44px] items-center justify-center text-sm"
             >
               ✕
             </button>
           </div>
 
           {message && (
-            <p className="border-b border-border bg-surface p-3 text-xs">{message}</p>
+            <p className="type-ui border-b border-border bg-surface p-3 text-sm">
+              {message}
+            </p>
           )}
 
           {count === 0 ? (
-            <p className="label-mono p-3">SIN NOTIFICACIONES NUEVAS</p>
+            <p className="type-ui p-3 text-sm text-stone-600">
+              Sin notificaciones nuevas
+            </p>
           ) : (
             <ul className="flex flex-col gap-px bg-border">
               {notifications.map((item) => (
@@ -207,7 +211,7 @@ export default function NotificationsBell({
                     type="button"
                     disabled={pendingId === item.id}
                     onClick={() => handleNotification(item)}
-                    className="flex min-h-[44px] w-full flex-col gap-1 p-3 text-left disabled:opacity-60 sm:hover:bg-surface"
+                    className="type-ui flex min-h-[44px] w-full flex-col gap-1 p-3 text-left text-sm disabled:opacity-60 sm:hover:bg-surface"
                   >
                     <span className="label-mono">{formatEvent(item.event_type)}</span>
                     <span className="text-sm font-semibold">
@@ -227,7 +231,7 @@ export default function NotificationsBell({
               disabled={count === 0 || markingAll}
               className="btn-brutal w-full"
             >
-              <span>{markingAll ? "MARCANDO…" : "MARCAR TODAS LEÍDAS"}</span>
+              <span>{markingAll ? "Marcando…" : "Marcar todas leídas"}</span>
               <span className="btn-brutal__arrow" aria-hidden="true">
                 ↗
               </span>

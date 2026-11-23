@@ -46,54 +46,54 @@ export default function PricingPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Configuración de precios</h1>
+      <h1 className="type-title text-xl">Configuración de precios</h1>
 
       <form onSubmit={handleSubmit} className="mt-4 border border-border bg-surface p-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Precio base por m²</span>
+            <span className="type-ui text-sm">Precio base por m²</span>
             <input
               type="number"
               step="0.01"
               value={pricePerM2}
               onChange={(e) => setPricePerM2(e.target.value)}
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="min-h-[44px] border border-border bg-background px-3 text-sm font-mono tabular-nums"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Precio base branding</span>
+            <span className="type-ui text-sm">Precio base branding</span>
             <input
               type="number"
               step="0.01"
               value={brandingBase}
               onChange={(e) => setBrandingBase(e.target.value)}
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="min-h-[44px] border border-border bg-background px-3 text-sm font-mono tabular-nums"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Multiplicador integral</span>
+            <span className="type-ui text-sm">Multiplicador integral</span>
             <input
               type="number"
               step="0.01"
               value={multiplier}
               onChange={(e) => setMultiplier(e.target.value)}
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="min-h-[44px] border border-border bg-background px-3 text-sm font-mono tabular-nums"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Rondas de cambio por defecto</span>
+            <span className="type-ui text-sm">Rondas de cambio por defecto</span>
             <input
               type="number"
               value={changeRounds}
               onChange={(e) => setChangeRounds(e.target.value)}
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="min-h-[44px] border border-border bg-background px-3 text-sm font-mono tabular-nums"
             />
           </label>
         </div>
         <button type="submit" className="btn-brutal mt-4">
           Guardar <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
         </button>
-        {message && <p className="mt-2 text-sm">{message}</p>}
+        {message && <p className="type-ui mt-2 text-sm">{message}</p>}
       </form>
     </section>
   );

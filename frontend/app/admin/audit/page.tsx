@@ -29,14 +29,14 @@ export default function AuditPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Registro de auditoría</h1>
+      <h1 className="type-title text-xl">Registro de auditoría</h1>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <span className="label-mono">Filtrar por entidad:</span>
+        <span className="type-ui text-sm">Filtrar por entidad:</span>
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
         >
           <option value="">Todas</option>
           <option value="user">user</option>
@@ -66,7 +66,7 @@ export default function AuditPage() {
         ))}
         {logs.length === 0 && (
           <div className="p-4">
-            <p className="label-mono">Sin registros</p>
+            <p className="type-ui text-sm text-stone-600">Sin registros</p>
           </div>
         )}
       </div>

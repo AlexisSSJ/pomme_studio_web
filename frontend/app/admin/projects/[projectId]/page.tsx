@@ -134,38 +134,38 @@ export default function AdminProjectOverviewPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Resumen del proyecto</h1>
+      <h1 className="type-title text-xl">Resumen del proyecto</h1>
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">
           {message}
         </p>
       )}
 
       {loading && !project ? (
-        <p className="mt-4 text-sm">Cargando…</p>
+        <p className="type-ui mt-4 text-sm">Cargando…</p>
       ) : project ? (
         <>
           <div className="grid-brutal mt-4 grid-cols-1 sm:grid-cols-2">
             <div className="p-4">
               <p className="label-mono">01 · Estado</p>
-              <p className="mt-1 text-sm font-semibold">{project.status}</p>
+              <p className="mt-1 font-mono text-sm font-semibold tabular-nums">{project.status}</p>
             </div>
             <div className="p-4">
               <p className="label-mono">02 · Scope</p>
-              <p className="mt-1 text-sm font-semibold">
+              <p className="mt-1 font-mono text-sm font-semibold tabular-nums">
                 {project.scope_type || "sin scope"}
               </p>
             </div>
             <div className="p-4">
               <p className="label-mono">03 · Rondas de cambios</p>
-              <p className="mt-1 text-sm font-semibold">
+              <p className="mt-1 font-mono text-sm font-semibold tabular-nums">
                 {project.remaining_rounds}/{project.included_rounds}
               </p>
             </div>
             <div className="p-4">
               <p className="label-mono">04 · Pago final</p>
-              <p className="mt-1 text-sm font-semibold">
+              <p className="mt-1 font-mono text-sm font-semibold tabular-nums">
                 {project.balance_paid ? "PAGADO" : "PENDIENTE"}
               </p>
             </div>
@@ -177,7 +177,7 @@ export default function AdminProjectOverviewPage() {
               value={project.client_id || ""}
               onChange={(event) => assignClient(event.target.value)}
               disabled={assigning}
-              className="mt-2 min-h-[44px] w-full border border-border bg-background px-3 text-sm sm:w-auto sm:min-w-[320px]"
+              className="type-ui mt-2 min-h-[44px] w-full border border-border bg-background px-3 text-sm sm:w-auto sm:min-w-[320px]"
             >
               <option value="">-- Sin cliente asignado --</option>
               {clients.map((client) => (

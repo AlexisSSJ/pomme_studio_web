@@ -152,7 +152,7 @@ export default function EtapasPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Etapas</h1>
+      <h1 className="type-title text-xl">Etapas</h1>
       {project && <p className="label-mono mt-1">{project.title}</p>}
       {project && (
         <p className="label-mono mt-1">

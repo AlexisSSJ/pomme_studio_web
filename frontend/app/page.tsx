@@ -44,11 +44,11 @@ export default function HomePage() {
           <p className="label-mono">01 / Estudio</p>
           <h1
             id="hero-title"
-            className="max-w-[18ch] text-[40px] leading-[0.95] tracking-tightest sm:text-[56px]"
+            className="type-title max-w-[18ch] text-[40px] leading-[0.95] sm:text-[56px]"
           >
             Diseño de marca y espacios que se habitan.
           </h1>
-          <p className="max-w-[46ch] text-sm leading-relaxed">
+          <p className="type-editorial max-w-[46ch] text-sm leading-relaxed">
             Pomme Studio firma proyectos de branding y diseño de interiores:
             del concepto a la documentación ejecutiva, con un sistema visual
             sobrio, preciso y verificable.
@@ -75,7 +75,7 @@ export default function HomePage() {
         <div className="flex flex-col">
           <div className="border-b border-border p-5 sm:p-8">
             <p className="label-mono">Alcance</p>
-            <p className="mt-3 text-sm leading-relaxed">
+            <p className="type-editorial mt-3 text-sm leading-relaxed">
               Vendemos diseño, no ejecución de obra. Cada entregable define
               intención, materiales y especificación para que un equipo
               externo lo materialice sin ambigüedades.
@@ -91,7 +91,7 @@ export default function HomePage() {
             ].map(([value, label]) => (
               <div key={label} className="bg-background p-5 sm:p-6">
                 <dt className="label-mono opacity-60">{label}</dt>
-                <dd className="mt-2 text-2xl tracking-tightest">{value}</dd>
+                <dd className="type-tech mt-2 text-2xl">{value}</dd>
               </div>
             ))}
           </dl>
@@ -101,7 +101,7 @@ export default function HomePage() {
       {/* Servicios: grid de 1px, colapsa a 1fr en móvil. */}
       <section id="servicios" aria-labelledby="servicios-title" className="mt-12">
         <div className="flex items-baseline justify-between gap-4 border-b border-border pb-2">
-          <h2 id="servicios-title" className="text-xl tracking-tightest">
+          <h2 id="servicios-title" className="type-subtitle-caps text-xl">
             Servicios
           </h2>
           <p className="label-mono">02 / Alcance</p>
@@ -115,10 +115,12 @@ export default function HomePage() {
             >
               <p className="label-mono">{service.index}</p>
               <div className="flex flex-col gap-3">
-                <h3 className="text-lg leading-tight tracking-tightest">
+                <h3 className="type-subtitle-caps text-lg leading-tight">
                   {service.title}
                 </h3>
-                <p className="text-sm leading-relaxed">{service.description}</p>
+                <p className="type-editorial text-sm leading-relaxed">
+                  {service.description}
+                </p>
               </div>
             </article>
           ))}
@@ -135,11 +137,11 @@ export default function HomePage() {
             <p className="label-mono">03 / Contacto</p>
             <h2
               id="contacto-title"
-              className="max-w-[22ch] text-[28px] leading-[1.05] tracking-tightest sm:text-[36px]"
+              className="type-title max-w-[22ch] text-[28px] leading-[1.05] sm:text-[36px]"
             >
               ¿Empezamos con una conversación?
             </h2>
-            <p className="max-w-[46ch] text-sm leading-relaxed">
+            <p className="type-editorial max-w-[46ch] text-sm leading-relaxed">
               Cuéntanos el reto. Respondemos con un alcance claro, fases y
               entregables por escrito.
             </p>

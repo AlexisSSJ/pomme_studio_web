@@ -163,17 +163,17 @@ export default function LeadsPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Leads</h1>
+      <h1 className="type-title text-xl">Leads</h1>
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
       )}
 
       <div className="mt-4 grid grid-cols-1 gap-1 border border-border bg-foreground md:grid-cols-2">
         <div className="bg-background p-0">
           <p className="label-mono border-b border-border p-3">Listado</p>
           {loading && leads.length === 0 ? (
-            <p className="p-3 text-sm">Cargando…</p>
+            <p className="type-ui p-3 text-sm">Cargando…</p>
           ) : (
             <div className="grid-brutal border-0">
               {leads.map((lead) => (
@@ -186,7 +186,7 @@ export default function LeadsPage() {
                   }`}
                 >
                   <span className="font-semibold">{lead.contact_name}</span>
-                  <span className="text-xs">{lead.email}</span>
+                  <span className="type-ui text-xs">{lead.email}</span>
                   <span className="label-mono mt-1">
                     {lead.service_type} · {lead.status}
                   </span>
@@ -200,11 +200,11 @@ export default function LeadsPage() {
           <p className="label-mono border-b border-border p-3">Detalle</p>
           <div className="p-3">
             {!selectedLead ? (
-              <p className="text-sm text-foreground/70">Selecciona un lead para cotizar.</p>
+              <p className="type-ui text-sm text-foreground/70">Selecciona un lead para cotizar.</p>
             ) : quoteLoading ? (
-              <p className="text-sm">Cargando cotización…</p>
+              <p className="type-ui text-sm">Cargando cotización…</p>
             ) : quoteError ? (
-              <p className="text-sm text-foreground/70">No se pudo cargar la cotización. {quoteError}</p>
+              <p className="type-ui text-sm text-foreground/70">No se pudo cargar la cotización. {quoteError}</p>
             ) : quote ? (
               <div className="flex flex-col gap-4">
                 <div>
@@ -215,15 +215,15 @@ export default function LeadsPage() {
                         key={index}
                         className="flex min-h-[44px] items-center justify-between border-b border-border py-2 last:border-0"
                       >
-                        <span className="text-sm">{line.concept}</span>
-                        <span className="text-sm font-semibold">
+                        <span className="type-ui text-sm">{line.concept}</span>
+                        <span className="font-mono text-sm font-semibold tabular-nums">
                           ${formatMoney(line.amount)}
                         </span>
                       </div>
                     ))}
                     <div className="flex min-h-[44px] items-center justify-between border-t border-border pt-2">
                       <span className="label-mono">Total</span>
-                      <span className="text-base font-semibold">
+                      <span className="font-mono text-base font-semibold tabular-nums">
                         ${formatMoney(quote.total)}
                       </span>
                     </div>
@@ -243,26 +243,26 @@ export default function LeadsPage() {
                 </button>
 
                 <form onSubmit={convertLead} className="border border-border bg-surface p-3">
-                  <p className="label-mono">Convertir en proyecto</p>
+                  <p className="type-subtitle-caps text-sm">Convertir en proyecto</p>
                   <div className="mt-3 flex flex-col gap-3">
                     <label className="flex flex-col gap-1">
-                      <span className="label-mono">Título del proyecto *</span>
+                      <span className="type-ui text-sm">Título del proyecto *</span>
                       <input
                         type="text"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         required
                         minLength={3}
-                        className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                        className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                       />
                     </label>
                     <label className="flex flex-col gap-1">
-                      <span className="label-mono">Client ID (opcional)</span>
+                      <span className="type-ui text-sm">Client ID (opcional)</span>
                       <input
                         type="text"
                         value={clientId}
                         onChange={(e) => setClientId(e.target.value)}
-                        className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                        className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                       />
                     </label>
                     <button

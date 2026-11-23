@@ -150,16 +150,16 @@ function MoodboardPiece({
           <img src={url} alt={item.title} className="w-full" />
         </button>
       ) : imageError ? (
-        <p className="border border-border bg-surface p-3 text-sm">
+        <p className="type-ui border border-border bg-surface p-3 text-sm">
           {imageError}
         </p>
       ) : (
-        <p className="label-mono">Cargando imagen…</p>
+        <p className="type-ui text-sm text-stone-600">Cargando imagen…</p>
       )}
 
       <div>
-        <p className="text-sm font-semibold">{item.title}</p>
-        {item.description && <p className="mt-1 text-sm">{item.description}</p>}
+        <p className="type-ui text-sm font-semibold">{item.title}</p>
+        {item.description && <p className="type-editorial mt-1 text-sm">{item.description}</p>}
       </div>
 
       <p className="label-mono">
@@ -197,19 +197,19 @@ function MoodboardPiece({
       </div>
 
       {feedback && (
-        <p className="border border-border bg-surface p-3 text-sm">{feedback}</p>
+        <p className="type-ui border border-border bg-surface p-3 text-sm">{feedback}</p>
       )}
 
       {commentsOpen && (
         <div className="flex flex-col gap-2">
           {loadingReactions ? (
-            <p className="text-sm">Cargando…</p>
+            <p className="type-ui text-sm">Cargando…</p>
           ) : reactionsMessage ? (
-            <p className="border border-border bg-surface p-3 text-sm">
+            <p className="type-ui border border-border bg-surface p-3 text-sm">
               {reactionsMessage}
             </p>
           ) : reactions !== null && reactions.length === 0 ? (
-            <p className="text-sm">Todavía no hay reacciones.</p>
+            <p className="type-ui text-sm">Todavía no hay reacciones.</p>
           ) : (
             reactions?.map((reaction) => (
               <div
@@ -221,7 +221,7 @@ function MoodboardPiece({
                   {new Date(reaction.created_at).toLocaleString("es")}
                 </p>
                 {reaction.comment && (
-                  <p className="text-sm">{reaction.comment}</p>
+                  <p className="type-editorial text-sm">{reaction.comment}</p>
                 )}
               </div>
             ))
@@ -237,7 +237,7 @@ function MoodboardPiece({
           className="fixed inset-0 z-50 flex flex-col bg-background"
         >
           <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
-            <p className="label-mono truncate">{item.title}</p>
+            <p className="type-ui truncate text-sm">{item.title}</p>
             <button
               type="button"
               onClick={() => setOverlayOpen(false)}
@@ -348,54 +348,54 @@ export default function AdminMoodboardPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Moodboard</h1>
+      <h1 className="type-title text-xl">Moodboard</h1>
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">
           {message}
         </p>
       )}
 
-      <h2 className="mt-6 text-lg tracking-tightest">Nueva pieza</h2>
+      <h2 className="type-subtitle-caps mt-6 text-lg">Nueva pieza</h2>
       <form
         onSubmit={uploadPiece}
         className="mt-3 flex flex-col gap-3 border border-border bg-surface p-4"
       >
         <label className="flex flex-col gap-1">
-          <span className="label-mono">Título</span>
+          <span className="type-ui text-sm">Título</span>
           <input
             type="text"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             maxLength={255}
-            className="min-h-[44px] border border-border bg-background px-3 text-sm"
+            className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
           />
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="label-mono">Descripción (opcional)</span>
+          <span className="type-ui text-sm">Descripción (opcional)</span>
           <input
             type="text"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             maxLength={1000}
-            className="min-h-[44px] border border-border bg-background px-3 text-sm"
+            className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
           />
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="label-mono">Orden</span>
+          <span className="type-ui text-sm">Orden</span>
           <input
             type="number"
             step={1}
             value={sortOrder}
             onChange={(event) => setSortOrder(event.target.value)}
-            className="min-h-[44px] border border-border bg-background px-3 text-sm"
+            className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
           />
         </label>
 
         <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 border border-border bg-background px-3">
-          <span className="label-mono truncate">
+          <span className="type-ui truncate text-sm">
             {file ? file.name : "Elegir imagen"}
           </span>
           <input
@@ -407,7 +407,7 @@ export default function AdminMoodboardPage() {
           />
         </label>
 
-        {uploadMessage && <p className="text-sm">{uploadMessage}</p>}
+        {uploadMessage && <p className="type-ui text-sm">{uploadMessage}</p>}
 
         <button
           type="submit"
@@ -421,11 +421,11 @@ export default function AdminMoodboardPage() {
         </button>
       </form>
 
-      <h2 className="mt-6 text-lg tracking-tightest">Piezas</h2>
+      <h2 className="type-subtitle-caps mt-6 text-lg">Piezas</h2>
       {loading && items.length === 0 ? (
-        <p className="mt-3 text-sm">Cargando…</p>
+        <p className="type-ui mt-3 text-sm">Cargando…</p>
       ) : items.length === 0 ? (
-        <p className="mt-3 text-sm">
+        <p className="type-ui mt-3 text-sm">
           Todavía no hay piezas en el moodboard.
         </p>
       ) : (

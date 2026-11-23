@@ -163,12 +163,14 @@ function MoodboardPiece({
           {imageError}
         </p>
       ) : (
-        <p className="label-mono">Cargando imagen…</p>
+        <p className="type-ui text-xs text-foreground/60">Cargando imagen…</p>
       )}
 
       <div>
         <p className="text-sm font-semibold">{item.title}</p>
-        {item.description && <p className="mt-1 text-sm">{item.description}</p>}
+        {item.description && (
+          <p className="type-editorial mt-1 text-sm">{item.description}</p>
+        )}
       </div>
 
       <p className="label-mono">
@@ -269,7 +271,7 @@ function MoodboardPiece({
           className="fixed inset-0 z-50 flex flex-col bg-background"
         >
           <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
-            <p className="label-mono truncate">{item.title}</p>
+            <p className="type-ui truncate text-sm">{item.title}</p>
             <button
               type="button"
               onClick={() => setOverlayOpen(false)}
@@ -325,7 +327,7 @@ export default function MoodboardPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Moodboard</h1>
+      <h1 className="type-title text-xl">Moodboard</h1>
 
       {message && (
         <p className="mt-4 border border-border bg-surface p-3 text-sm">

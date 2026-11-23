@@ -464,17 +464,19 @@ export default function DeliverableViewer({
   return (
     <div className="flex flex-col gap-4">
       {message && (
-        <p className="border border-border bg-surface p-3 text-sm">{message}</p>
+        <p className="type-ui border border-border bg-surface p-3 text-sm">
+          {message}
+        </p>
       )}
 
       {loading && !deliverable && !message && (
-        <p className="text-sm">Cargando…</p>
+        <p className="type-ui text-sm">Cargando…</p>
       )}
 
       {deliverable && (
         <>
           <div>
-            <p className="text-sm font-semibold">{deliverable.title}</p>
+            <p className="type-subtitle-caps text-base">{deliverable.title}</p>
             <p className="label-mono mt-1">
               VERSIÓN {deliverable.version} ·{" "}
               {deliverableStatusLabel(deliverable.status)} ·{" "}
@@ -489,7 +491,7 @@ export default function DeliverableViewer({
           </div>
 
           {imageError ? (
-            <p className="border border-border bg-surface p-3 text-sm">
+            <p className="type-ui border border-border bg-surface p-3 text-sm">
               {imageError}
             </p>
           ) : url ? (
@@ -646,7 +648,7 @@ export default function DeliverableViewer({
                 onChange={(event) => setPinBody(event.target.value)}
                 maxLength={2000}
                 placeholder="Escribe el comentario del pin"
-                className="min-h-[44px] border border-border bg-background p-3 text-sm"
+                className="type-ui min-h-[44px] border border-border bg-background p-3 text-sm placeholder:text-stone-500"
               />
               <div className="flex flex-wrap gap-2">
                 <button
@@ -673,7 +675,7 @@ export default function DeliverableViewer({
                 </button>
               </div>
               {pinFeedback && (
-                <p className="border border-border bg-background p-3 text-sm">
+                <p className="type-ui border border-border bg-background p-3 text-sm">
                   {pinFeedback}
                 </p>
               )}
@@ -687,7 +689,9 @@ export default function DeliverableViewer({
                 {selectedComment.round_number} · PÁGINA{" "}
                 {selectedComment.page_or_frame}
               </p>
-              <p className="text-sm">{selectedComment.body}</p>
+              <p className="type-editorial text-base leading-snug">
+                {selectedComment.body}
+              </p>
               <button
                 type="button"
                 onClick={() => setSelectedCommentId(null)}
@@ -733,14 +737,14 @@ export default function DeliverableViewer({
             isInReview &&
             remainingRounds !== null &&
             remainingRounds <= 0 && (
-              <p className="border border-border bg-surface p-3 text-sm">
+              <p className="type-ui border border-border bg-surface p-3 text-sm">
                 No te quedan rondas de cambios incluidas. Deja tus comentarios
                 como pines y contacta al estudio para contratar más rondas.
               </p>
             )}
 
           {actionFeedback && (
-            <p className="border border-border bg-surface p-3 text-sm">
+            <p className="type-ui border border-border bg-surface p-3 text-sm">
               {actionFeedback}
             </p>
           )}

@@ -1,13 +1,27 @@
 import type { Metadata, Viewport } from 'next';
-import { Newsreader } from 'next/font/google';
+import { Amiri } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 
-const newsreader = Newsreader({
+const amiri = Amiri({
   subsets: ['latin'],
-  weight: ['400', '500'],
+  weight: ['400', '700'],
   style: ['normal', 'italic'],
-  variable: '--font-serif',
+  variable: '--font-amiri',
   display: 'swap',
+});
+
+const atkinsonMono = localFont({
+  src: [
+    {
+      path: './fonts/atkinson-hyperlegible-mono.woff2',
+      weight: '400 700',
+      style: 'normal',
+    },
+  ],
+  variable: '--font-mono',
+  display: 'swap',
+  fallback: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
 });
 
 export const metadata: Metadata = {
@@ -43,7 +57,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={newsreader.variable}>
+    <html lang="es" className={`${amiri.variable} ${atkinsonMono.variable}`}>
       <body className="min-h-screen bg-background text-foreground antialiased">
         {children}
       </body>

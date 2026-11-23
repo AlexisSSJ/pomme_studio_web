@@ -133,7 +133,7 @@ export default function ProjectsPage() {
   return (
     <section>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl tracking-tightest">Proyectos</h1>
+        <h1 className="type-title text-xl">Proyectos</h1>
         {(me?.role === "SUPER_ADMIN" || me?.role === "LEAD_DESIGNER") && (
           <button
             type="button"
@@ -149,26 +149,26 @@ export default function ProjectsPage() {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg border border-border bg-surface p-6 shadow-none">
-            <h2 className="text-lg tracking-tightest mb-4">Crear nuevo proyecto</h2>
+            <h2 className="type-subtitle-caps mb-4 text-lg">Crear nuevo proyecto</h2>
             <form onSubmit={handleCreateProject} className="flex flex-col gap-4">
               <label className="flex flex-col gap-1">
-                <span className="label-mono">Título del proyecto</span>
+                <span className="type-ui text-sm">Título del proyecto</span>
                 <input
                   type="text"
                   required
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Ej: Residencia Polanco / Rebranding Estudio"
-                  className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                  className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                 />
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="label-mono">Tipo de alcance (Scope)</span>
+                <span className="type-ui text-sm">Tipo de alcance (Scope)</span>
                 <select
                   value={newScope}
                   onChange={(e) => setNewScope(e.target.value)}
-                  className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                  className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                 >
                   <option value="branding">Branding</option>
                   <option value="interior">Interior</option>
@@ -177,11 +177,11 @@ export default function ProjectsPage() {
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="label-mono">Cliente inicial (opcional)</span>
+                <span className="type-ui text-sm">Cliente inicial (opcional)</span>
                 <select
                   value={newClientId}
                   onChange={(e) => setNewClientId(e.target.value)}
-                  className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                  className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                 >
                   <option value="">-- Sin cliente asignado --</option>
                   {clients.map((c) => (
@@ -214,13 +214,13 @@ export default function ProjectsPage() {
       )}
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
       )}
 
       {loading && projects.length === 0 ? (
-        <p className="mt-4 text-sm">Cargando…</p>
+        <p className="type-ui mt-4 text-sm">Cargando…</p>
       ) : projects.length === 0 ? (
-        <p className="mt-4 text-sm">Todavía no hay proyectos.</p>
+        <p className="type-ui mt-4 text-sm">Todavía no hay proyectos.</p>
       ) : (
         <div className="grid-brutal mt-4">
           {projects.map((project) => (
@@ -229,7 +229,7 @@ export default function ProjectsPage() {
               className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
             >
               <div>
-                <p className="text-sm font-semibold">{project.title}</p>
+                <p className="type-ui text-sm font-semibold">{project.title}</p>
                 <p className="label-mono mt-1">
                   {project.status} · {project.scope_type || "sin scope"}
                 </p>

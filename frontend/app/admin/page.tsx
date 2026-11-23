@@ -25,17 +25,17 @@ export default function AdminDashboard() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Panel de administración</h1>
+      <h1 className="type-title text-xl">Panel de administración</h1>
       <div className="grid-brutal grid-brutal--2 mt-6">
         <div className="p-5">
           <p className="label-mono">Usuarios registrados</p>
-          <p className="mt-2 text-3xl tracking-tightest">
+          <p className="mt-2 font-mono text-3xl tabular-nums">
             {userCount ?? "—"}
           </p>
         </div>
         <div className="p-5">
           <p className="label-mono">Eventos de auditoría</p>
-          <p className="mt-2 text-3xl tracking-tightest">
+          <p className="mt-2 font-mono text-3xl tabular-nums">
             {auditCount ?? "—"}
           </p>
         </div>

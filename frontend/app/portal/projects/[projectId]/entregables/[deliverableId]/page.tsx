@@ -11,7 +11,7 @@ export default function EntregablePage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Entregable</h1>
+      <h1 className="type-title text-xl">Entregable</h1>
       <Link
         href={`/portal/projects/${projectId}/etapas`}
         className="btn-brutal mt-4 inline-flex min-h-[44px] px-3 text-xs"

@@ -272,11 +272,11 @@ export default function DiagnosticoPage() {
         <p className="label-mono">Discovery Call</p>
         <h1
           id="diagnostico-title"
-          className="mt-3 max-w-[18ch] text-[32px] leading-[0.95] tracking-tightest sm:text-[44px]"
+          className="type-title mt-3 max-w-[18ch] text-[32px] leading-[0.95] sm:text-[44px]"
         >
           Diagnóstico del proyecto
         </h1>
-        <p className="mt-4 max-w-[52ch] text-sm leading-relaxed">
+        <p className="type-editorial mt-4 max-w-[52ch] text-sm leading-relaxed">
           Cuéntanos el reto, el tipo de espacio y el alcance estimado. Te
           mostraremos disponibilidad para una llamada de descubrimiento de 30
           minutos.
@@ -291,7 +291,7 @@ export default function DiagnosticoPage() {
               <p className="label-mono">01 / Contacto</p>
               <div className="mt-4 flex flex-col gap-4">
                 <label className="flex flex-col gap-1">
-                  <span className="label-mono">Nombre</span>
+                  <span className="type-ui text-xs">Nombre</span>
                   <input
                     type="text"
                     required
@@ -302,7 +302,7 @@ export default function DiagnosticoPage() {
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="label-mono">Correo electrónico</span>
+                  <span className="type-ui text-xs">Correo electrónico</span>
                   <input
                     type="email"
                     required
@@ -320,7 +320,7 @@ export default function DiagnosticoPage() {
               <p className="label-mono">02 / Servicio</p>
               <div className="mt-4 flex flex-col gap-4">
                 <label className="flex flex-col gap-1">
-                  <span className="label-mono">Tipo de servicio</span>
+                  <span className="type-ui text-xs">Tipo de servicio</span>
                   <select
                     required
                     value={serviceType}
@@ -338,7 +338,7 @@ export default function DiagnosticoPage() {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="label-mono">Tipo de espacio</span>
+                  <span className="type-ui text-xs">Tipo de espacio</span>
                   <select
                     value={spaceType}
                     onChange={(e) =>
@@ -363,7 +363,7 @@ export default function DiagnosticoPage() {
               <div className="mt-4 flex flex-col gap-4">
                 {showArea && (
                   <label className="flex flex-col gap-1">
-                    <span className="label-mono">Área aproximada (m²)</span>
+                    <span className="type-ui text-xs">Área aproximada (m²)</span>
                     <input
                       type="number"
                       min="1"
@@ -377,7 +377,7 @@ export default function DiagnosticoPage() {
                   </label>
                 )}
                 <label className="flex flex-col gap-1">
-                  <span className="label-mono">Rango de inversión</span>
+                  <span className="type-ui text-xs">Rango de inversión</span>
                   <select
                     value={budgetRange}
                     onChange={(e) =>
@@ -427,7 +427,7 @@ export default function DiagnosticoPage() {
             <p className="label-mono">04 / Agenda</p>
             <h2
               id="agenda-title"
-              className="mt-2 text-xl tracking-tightest"
+              className="type-subtitle-caps mt-2 text-xl"
             >
               Selecciona fecha y hora
             </h2>
@@ -435,7 +435,7 @@ export default function DiagnosticoPage() {
 
           <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end">
             <label className="flex flex-col gap-1">
-              <span className="label-mono">Fecha</span>
+              <span className="type-ui text-xs">Fecha</span>
               <input
                 type="date"
                 min={todayInputValue()}
@@ -467,7 +467,7 @@ export default function DiagnosticoPage() {
           </div>
 
           {slotsLoading && (
-            <p className="label-mono mt-6">Cargando…</p>
+            <p className="mt-6 text-sm">Cargando…</p>
           )}
 
           {slotsError && (
@@ -490,7 +490,7 @@ export default function DiagnosticoPage() {
                       role="radio"
                       aria-checked={selected}
                       onClick={() => setSelectedSlot(slot)}
-                      className={`min-h-[44px] w-full px-3 text-sm ${
+                      className={`type-tech min-h-[44px] w-full px-3 text-sm ${
                         selected ? "bg-surface" : "bg-background"
                       }`}
                     >
@@ -533,13 +533,13 @@ export default function DiagnosticoPage() {
             <p className="label-mono">04 / Confirmada</p>
             <h2
               id="confirmada-title"
-              className="mt-3 text-[24px] leading-[1.05] tracking-tightest sm:text-[32px]"
+              className="type-title mt-3 text-[24px] leading-[1.05] sm:text-[32px]"
             >
               Discovery Call agendada
             </h2>
             <p className="mt-4 text-sm leading-relaxed">
               Te esperamos el{" "}
-              <strong className="font-semibold">
+              <strong className="type-tech">
                 {formatMeetingDateTime(meeting.start_time)}
               </strong>
               .

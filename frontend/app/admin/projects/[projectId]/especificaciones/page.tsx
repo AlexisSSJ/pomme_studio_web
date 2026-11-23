@@ -272,7 +272,7 @@ export default function AdminEspecificacionesPage() {
     <section>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl tracking-tightest">Catálogo FF&E</h1>
+          <h1 className="type-title text-xl">Catálogo FF&E</h1>
           {project && <p className="label-mono mt-1">{project.title}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -294,37 +294,37 @@ export default function AdminEspecificacionesPage() {
       </div>
 
       {message && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
       )}
 
       {deleteMessage && (
-        <p className="mt-4 border border-border bg-surface p-3 text-sm">{deleteMessage}</p>
+        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">{deleteMessage}</p>
       )}
 
       {/* Create form */}
-      <h2 className="mt-8 text-lg tracking-tightest">Nueva especificación</h2>
+      <h2 className="type-subtitle-caps mt-8 text-lg">Nueva especificación</h2>
       <form
         onSubmit={createSpecification}
         className="mt-3 flex flex-col gap-4 border border-border bg-surface p-4 sm:p-6"
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Nombre *</span>
+            <span className="type-ui text-sm">Nombre *</span>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ej. Silla Eames"
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Categoría *</span>
+            <span className="type-ui text-sm">Categoría *</span>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value as Category)}
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             >
               {CATEGORY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -335,94 +335,94 @@ export default function AdminEspecificacionesPage() {
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Código / Modelo</span>
+            <span className="type-ui text-sm">Código / Modelo</span>
             <input
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="Ej. CH-01"
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Fabricante</span>
+            <span className="type-ui text-sm">Fabricante</span>
             <input
               type="text"
               value={manufacturer}
               onChange={(e) => setManufacturer(e.target.value)}
               placeholder="Ej. Herman Miller"
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Acabado / Material</span>
+            <span className="type-ui text-sm">Acabado / Material</span>
             <input
               type="text"
               value={finish}
               onChange={(e) => setFinish(e.target.value)}
               placeholder="Ej. Nogal natural"
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Dimensiones</span>
+            <span className="type-ui text-sm">Dimensiones</span>
             <input
               type="text"
               value={dimensions}
               onChange={(e) => setDimensions(e.target.value)}
               placeholder="Ej. 60 x 60 x 80 cm"
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Proveedor</span>
+            <span className="type-ui text-sm">Proveedor</span>
             <input
               type="text"
               value={supplier}
               onChange={(e) => setSupplier(e.target.value)}
               placeholder="Ej. Interior Design Co."
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">URL de referencia</span>
+            <span className="type-ui text-sm">URL de referencia</span>
             <input
               type="url"
               value={referenceUrl}
               onChange={(e) => setReferenceUrl(e.target.value)}
               placeholder="https://..."
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="label-mono">Ubicación en proyecto</span>
+            <span className="type-ui text-sm">Ubicación en proyecto</span>
             <input
               type="text"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               placeholder="Ej. Sala principal"
-              className="min-h-[44px] border border-border bg-background px-3 text-sm"
+              className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
             />
           </label>
         </div>
 
         <label className="flex flex-col gap-1">
-          <span className="label-mono">Notas</span>
+          <span className="type-ui text-sm">Notas</span>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Observaciones o instrucciones especiales..."
-            className="min-h-[80px] border border-border bg-background p-3 text-sm"
+            className="type-ui min-h-[80px] border border-border bg-background p-3 text-sm"
           />
         </label>
 
-        {formMessage && <p className="text-sm">{formMessage}</p>}
+        {formMessage && <p className="type-ui text-sm">{formMessage}</p>}
 
         <div>
           <button
@@ -437,11 +437,11 @@ export default function AdminEspecificacionesPage() {
       </form>
 
       {/* List */}
-      <h2 className="mt-8 text-lg tracking-tightest">Especificaciones registradas</h2>
+      <h2 className="type-subtitle-caps mt-8 text-lg">Especificaciones registradas</h2>
       {loading && items.length === 0 ? (
-        <p className="mt-4 text-sm">Cargando...</p>
+        <p className="type-ui mt-4 text-sm">Cargando...</p>
       ) : items.length === 0 ? (
-        <p className="mt-4 text-sm">Todavía no hay especificaciones.</p>
+        <p className="type-ui mt-4 text-sm">Todavía no hay especificaciones.</p>
       ) : (
         <div className="grid-brutal mt-4">
           {items.map((item) => {
@@ -452,20 +452,20 @@ export default function AdminEspecificacionesPage() {
                   <form onSubmit={(e) => saveEdition(item.id, e)} className="flex flex-col gap-3">
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Nombre *</span>
+                        <span className="type-ui text-sm">Nombre *</span>
                         <input
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Categoría *</span>
+                        <span className="type-ui text-sm">Categoría *</span>
                         <select
                           value={editCategory}
                           onChange={(e) => setEditCategory(e.target.value as Category)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         >
                           {CATEGORY_OPTIONS.map((opt) => (
                             <option key={opt.value} value={opt.value}>
@@ -475,79 +475,79 @@ export default function AdminEspecificacionesPage() {
                         </select>
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Código</span>
+                        <span className="type-ui text-sm">Código</span>
                         <input
                           type="text"
                           value={editCode}
                           onChange={(e) => setEditCode(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Fabricante</span>
+                        <span className="type-ui text-sm">Fabricante</span>
                         <input
                           type="text"
                           value={editManufacturer}
                           onChange={(e) => setEditManufacturer(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Acabado</span>
+                        <span className="type-ui text-sm">Acabado</span>
                         <input
                           type="text"
                           value={editFinish}
                           onChange={(e) => setEditFinish(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Dimensiones</span>
+                        <span className="type-ui text-sm">Dimensiones</span>
                         <input
                           type="text"
                           value={editDimensions}
                           onChange={(e) => setEditDimensions(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Proveedor</span>
+                        <span className="type-ui text-sm">Proveedor</span>
                         <input
                           type="text"
                           value={editSupplier}
                           onChange={(e) => setEditSupplier(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">URL de referencia</span>
+                        <span className="type-ui text-sm">URL de referencia</span>
                         <input
                           type="url"
                           value={editReferenceUrl}
                           onChange={(e) => setEditReferenceUrl(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="label-mono">Ubicación</span>
+                        <span className="type-ui text-sm">Ubicación</span>
                         <input
                           type="text"
                           value={editLocation}
                           onChange={(e) => setEditLocation(e.target.value)}
-                          className="min-h-[44px] border border-border bg-background px-3 text-sm"
+                          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                         />
                       </label>
                     </div>
                     <label className="flex flex-col gap-1">
-                      <span className="label-mono">Notas</span>
+                      <span className="type-ui text-sm">Notas</span>
                       <textarea
                         value={editNotes}
                         onChange={(e) => setEditNotes(e.target.value)}
-                        className="min-h-[60px] border border-border bg-background p-3 text-sm"
+                        className="type-ui min-h-[60px] border border-border bg-background p-3 text-sm"
                       />
                     </label>
 
-                    {editMessage && <p className="text-sm">{editMessage}</p>}
+                    {editMessage && <p className="type-ui text-sm">{editMessage}</p>}
 
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -571,7 +571,7 @@ export default function AdminEspecificacionesPage() {
                   <>
                     <div className="flex flex-col gap-1">
                       <p className="label-mono">{categoryLabel(item.category)}</p>
-                      <p className="text-base font-semibold">{item.name}</p>
+                      <p className="type-ui text-base font-semibold">{item.name}</p>
                     </div>
 
                     <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
@@ -608,7 +608,7 @@ export default function AdminEspecificacionesPage() {
                     </div>
 
                     {item.notes && (
-                      <p className="text-sm text-foreground/80">
+                      <p className="type-editorial text-sm text-foreground/80">
                         <span className="font-semibold">Notas:</span> {item.notes}
                       </p>
                     )}

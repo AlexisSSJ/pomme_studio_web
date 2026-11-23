@@ -64,7 +64,7 @@ export default function PortalProjectsPage() {
 
   return (
     <section>
-      <h1 className="text-xl tracking-tightest">Portal de Clientes</h1>
+      <h1 className="type-title text-xl">Portal de Clientes</h1>
 
       {/* Indicador de Brief Pendiente */}
       {pendingBrief && pendingBrief.has_pending && (
@@ -74,7 +74,7 @@ export default function PortalProjectsPage() {
             <p className="text-sm font-semibold mt-1">
               Tienes un brief pendiente de completar ({pendingBrief.progress}% completado).
             </p>
-            <p className="text-xs text-muted mt-0.5">
+            <p className="type-tech mt-0.5 text-foreground/60">
               {pendingBrief.answered_questions} de {pendingBrief.total_questions} preguntas respondidas.
             </p>
           </div>
@@ -96,7 +96,7 @@ export default function PortalProjectsPage() {
         </p>
       )}
 
-      <h2 className="text-lg tracking-tightest mt-8">Mis proyectos</h2>
+      <h2 className="type-subtitle-caps text-lg mt-8">Mis proyectos</h2>
 
       {loading && projects.length === 0 ? (
         <p className="mt-4 text-sm">Cargando…</p>

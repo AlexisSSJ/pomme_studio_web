@@ -26,20 +26,20 @@ export default function ProjectSidebar({
   return (
     <aside className="md:w-64 md:shrink-0 md:pr-8">
       {/* Ficha de estudio: micro-tipografía a los extremos + título serif. */}
-      <div className="mb-6 border-b border-stone-900/15 pb-6">
-        <div className="flex items-center justify-between gap-4 text-[11px] uppercase tracking-[0.18em] text-stone-500">
+      <div className="mb-6 border-b border-border pb-6">
+        <div className="type-tech flex items-center justify-between gap-4 text-stone-600">
           <span>Proyecto</span>
           {status && (
             <span className="flex items-center gap-2">
               <span
                 aria-hidden="true"
-                className="dot-organic h-1.5 w-1.5 shrink-0 bg-stone-800/70"
+                className="dot-organic h-1.5 w-1.5 shrink-0 bg-foreground"
               />
               {status}
             </span>
           )}
         </div>
-        <h2 className="mt-3 font-serif text-2xl font-normal leading-snug tracking-tight text-stone-900">
+        <h2 className="type-title mt-3 text-2xl leading-tight text-foreground">
           {title}
         </h2>
       </div>
@@ -59,19 +59,19 @@ export default function ProjectSidebar({
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-[44px] shrink-0 items-center gap-3 whitespace-nowrap transition-all duration-300 md:shrink ${
+              className={`type-ui flex min-h-[44px] shrink-0 items-center gap-3 whitespace-nowrap transition-all duration-300 md:shrink ${
                 active
                   ? "translate-x-1.5"
-                  : "text-[15px] text-stone-500 hover:translate-x-1 hover:text-stone-900"
+                  : "text-[15px] text-stone-600 hover:translate-x-1 hover:text-foreground"
               }`}
             >
-              <span className="font-mono text-[11px] tabular-nums text-stone-400">
+              <span className="type-tech text-stone-600">
                 1.{index + 1}
               </span>
               <span
                 className={
                   active
-                    ? "font-serif text-[16px] italic text-stone-950 underline decoration-stone-900/40 underline-offset-[6px]"
+                    ? "type-editorial text-[16px] italic text-foreground underline decoration-border underline-offset-[6px]"
                     : undefined
                 }
               >
@@ -80,7 +80,7 @@ export default function ProjectSidebar({
               {active && (
                 <span
                   aria-hidden="true"
-                  className="ml-auto hidden text-stone-950 md:inline"
+                  className="ml-auto hidden text-foreground md:inline"
                 >
                   —
                 </span>

@@ -77,13 +77,13 @@ function ImagePreview({
   const label = `${String(index + 1).padStart(2, "0")}/02`;
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-stone-900/10 bg-[#FAF8F5]">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-stone-900/10 bg-background">
       <button
         type="button"
         onClick={() => src && onZoom(src, `Imagen de respuesta ${label}`)}
         disabled={!src}
         aria-label={`Ampliar imagen ${label}`}
-        className="flex min-h-[160px] w-full items-center justify-center border-b border-stone-900/10 bg-[#F4F1EA]/50 p-2"
+        className="flex min-h-[160px] w-full items-center justify-center border-b border-stone-900/10 bg-surface/50 p-2"
       >
         {src ? (
           <img
@@ -92,20 +92,20 @@ function ImagePreview({
             className="max-h-48 w-full object-contain"
           />
         ) : (
-          <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
+          <span className="label-mono text-stone-500">
             Cargando imagen…
           </span>
         )}
       </button>
       <div className="flex items-center justify-between gap-2 p-2">
-        <span className="font-mono text-[11px] tabular-nums text-stone-500">
+        <span className="label-mono text-stone-500">
           {label}
         </span>
         <button
           type="button"
           onClick={onDelete}
           disabled={deleting}
-          className="min-h-[44px] rounded-lg border border-stone-900/20 px-3 text-[11px] uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
+          className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-3 text-[11px] text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
         >
           {deleting ? "Eliminando…" : "Eliminar ✕"}
         </button>
@@ -683,10 +683,10 @@ export default function BriefPage() {
     <section className="brief-editorial">
       {/* Editorial ficha header: micro-label, serif title, architectural progress line. */}
       <div className="mb-8 border-b border-stone-900/15 pb-6">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">
+        <p className="label-mono text-stone-500">
           01 · Brief del proyecto
         </p>
-        <h1 className="mt-2 font-serif text-3xl font-normal tracking-tight text-stone-900 md:text-4xl">
+        <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
           {project?.title ?? "Brief"}
         </h1>
         <div className="mt-5 flex flex-col gap-2">
@@ -697,11 +697,11 @@ export default function BriefPage() {
             />
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-mono text-xs tabular-nums text-stone-500">
+            <span className="type-tech text-stone-500">
               {answeredCount} / {totalCount} respondidas · {progressPercent}% ·{" "}
               {confirmedCount} confirmadas
             </span>
-            <span className="font-serif text-[11px] italic text-stone-500">
+            <span className="type-editorial text-[11px] italic text-stone-500">
               {isSaving ? "Guardando…" : "Progreso autoguardado"}
             </span>
           </div>
@@ -709,13 +709,13 @@ export default function BriefPage() {
       </div>
 
       {message && (
-        <p className="mb-4 rounded-xl border border-stone-900/15 bg-[#EFECE6]/75 p-4 text-sm text-stone-700">
+        <p className="mb-4 rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
           {message}
         </p>
       )}
 
       {project && project.status !== "active" && (
-        <p className="mb-4 rounded-xl border border-stone-900/15 bg-[#EFECE6]/75 p-4 text-sm text-stone-700">
+        <p className="mb-4 rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
           Este proyecto no está activo: la edición del brief está deshabilitada.
         </p>
       )}
@@ -724,7 +724,7 @@ export default function BriefPage() {
         <p className="mt-4 text-sm text-stone-500">Cargando…</p>
       ) : (
         <>
-          <h2 className="font-serif text-xl font-normal tracking-tight text-stone-900">
+          <h2 className="type-subtitle-caps text-xl text-stone-900">
             Cuestionario
           </h2>
           {questions.length === 0 ? (
@@ -755,11 +755,11 @@ export default function BriefPage() {
                     className={`scroll-mt-4 rounded-2xl border transition-all duration-300 ${
                       expanded
                         ? confirmed
-                          ? "border-[#5F7161]/45 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
-                          : "border-stone-900/35 bg-[#FAF8F5] px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                          ? "border-[#5F7161]/45 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
+                          : "border-stone-900/35 bg-background px-5 py-5 shadow-editorial md:px-7 md:py-6"
                         : confirmed
                           ? "border-[#5F7161]/30 bg-[#EEF2EC]/75 px-5 py-4 hover:bg-[#E5EBE2] md:px-6 md:py-5"
-                          : "border-stone-900/10 bg-[#EFECE6]/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
+                          : "border-stone-900/10 bg-surface/75 px-5 py-4 hover:bg-[#EAE5DC] md:px-6 md:py-5"
                     }`}
                   >
                     {/* Full-row header button: touch target far above 44px. */}
@@ -770,20 +770,20 @@ export default function BriefPage() {
                       onClick={() => setExpandedId(expanded ? null : item.id)}
                       className="flex min-h-[44px] w-full cursor-pointer items-center gap-4 text-left"
                     >
-                      <span className="font-mono text-[11px] tabular-nums text-stone-400">
+                      <span className="label-mono text-stone-600">
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <span
                         className={`flex-1 ${
                           expanded
-                            ? "font-serif text-lg leading-snug text-stone-950 md:text-xl"
+                            ? "type-editorial text-lg leading-snug text-stone-950 md:text-xl"
                             : "text-[15px] font-normal text-stone-800 md:text-base"
                         }`}
                       >
                         {item.prompt}
                       </span>
                       {!expanded && confirmed && (
-                        <span className="hidden items-center gap-2 font-serif text-[11px] italic text-[#44544A] sm:flex">
+                        <span className="hidden items-center gap-2 type-editorial text-[11px] italic text-[#44544A] sm:flex">
                           <span
                             aria-hidden="true"
                             className="dot-organic h-1.5 w-1.5 shrink-0 bg-[#5F7161]"
@@ -792,7 +792,7 @@ export default function BriefPage() {
                         </span>
                       )}
                       {!expanded && !confirmed && answered && (
-                        <span className="hidden font-serif text-[11px] italic text-stone-500 sm:inline">
+                        <span className="hidden type-editorial text-[11px] italic text-stone-500 sm:inline">
                           Respondida
                         </span>
                       )}
@@ -801,7 +801,7 @@ export default function BriefPage() {
                         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base transition-transform duration-300 ${
                           expanded
                             ? "border border-stone-900/25 bg-transparent text-stone-800 hover:border-stone-900"
-                            : "bg-stone-900 text-[#FAF8F5]"
+                            : "bg-stone-900 text-background"
                         }`}
                       >
                         {expanded ? "×" : "+"}
@@ -814,11 +814,11 @@ export default function BriefPage() {
                         className="mt-5 flex flex-col gap-4"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                          <span className="type-tech text-stone-500">
                             {item.category}
                           </span>
                           {autosaveStatus[item.id] && (
-                            <span className="font-serif text-[11px] italic text-stone-500">
+                            <span className="type-editorial text-[11px] italic text-stone-500">
                               {autosaveStatus[item.id]}
                             </span>
                           )}
@@ -831,12 +831,12 @@ export default function BriefPage() {
                           }
                           placeholder="Escribe tu respuesta aquí (autoguardado en tiempo real)..."
                           maxLength={10000}
-                          className="min-h-[120px] w-full rounded-xl border border-stone-900/15 bg-[#F4F1EA]/70 p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-400 focus:border-stone-900/45 focus:bg-white"
+                          className="type-ui min-h-[120px] w-full rounded-xl border border-stone-900/15 bg-surface/70 p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
                         />
 
                         {/* Multimodal response: images, voice and editable transcription */}
                         <div className="flex flex-col gap-3 border-t border-stone-900/10 pt-4">
-                          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                          <p className="type-tech text-stone-500">
                             Respuesta multimodal
                           </p>
 
@@ -862,11 +862,11 @@ export default function BriefPage() {
                               <button
                                 type="button"
                                 onClick={stopRecording}
-                                className="flex min-h-[44px] items-center gap-2 rounded-lg border border-stone-900 bg-stone-900 px-3 py-2 text-xs uppercase tracking-wider text-[#FAF8F5] transition-colors duration-300"
+                                className="type-ui flex min-h-[44px] items-center gap-2 rounded-lg border border-stone-900 bg-stone-900 px-3 py-2 text-xs text-background transition-colors duration-300"
                               >
                                 <span
                                   aria-hidden="true"
-                                  className="dot-organic h-1.5 w-1.5 animate-pulse bg-[#FAF8F5]"
+                                  className="dot-organic h-1.5 w-1.5 animate-pulse bg-background"
                                 />
                                 Grabando — detener
                               </button>
@@ -875,7 +875,7 @@ export default function BriefPage() {
                                 type="button"
                                 onClick={() => startRecording(item.id)}
                                 disabled={!isActive}
-                                className="min-h-[44px] rounded-lg border border-stone-900/20 px-3 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-3 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 {item.audio_url
                                   ? "Regrabar nota de voz"
@@ -891,7 +891,7 @@ export default function BriefPage() {
                                   : "cursor-pointer hover:border-stone-900/45"
                               }`}
                             >
-                              <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-600">
+                              <span className="label-mono text-stone-600">
                                 Añadir imagen {nextImageLabel}/02
                               </span>
                               <input
@@ -909,18 +909,18 @@ export default function BriefPage() {
                           </div>
 
                           {(item.audio_url || hasTranscription) && (
-                            <div className="flex flex-col gap-3 rounded-xl border border-stone-900/15 bg-[#F4F1EA]/50 p-4">
+                            <div className="flex flex-col gap-3 rounded-xl border border-stone-900/15 bg-surface/50 p-4">
                               {item.audio_url && (
                                 <div className="flex flex-col gap-2">
                                   <div className="flex items-center justify-between gap-2">
-                                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+                                    <p className="type-tech text-stone-500">
                                       Nota de voz
                                     </p>
                                     <button
                                       type="button"
                                       onClick={() => deleteAudioResponse(item.id)}
                                       disabled={deletingAudioId === item.id}
-                                      className="min-h-[44px] rounded-lg border border-stone-900/20 px-3 text-[11px] uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
+                                      className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-3 text-[11px] text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
                                     >
                                       {deletingAudioId === item.id
                                         ? "Eliminando…"
@@ -938,7 +938,7 @@ export default function BriefPage() {
                               <div className="flex flex-col gap-2 border-t border-stone-900/10 pt-3">
                                 <label
                                   htmlFor={`transcription-${item.id}`}
-                                  className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500"
+                                  className="type-ui text-xs text-stone-500"
                                 >
                                   Transcripción editable
                                 </label>
@@ -952,10 +952,10 @@ export default function BriefPage() {
                                     hasTranscription ? undefined : "Escribe tu respuesta…"
                                   }
                                   maxLength={10000}
-                                  className="min-h-[100px] w-full rounded-xl border border-stone-900/15 bg-[#FAF8F5] p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-400 focus:border-stone-900/45 focus:bg-white"
+                                  className="type-ui min-h-[100px] w-full rounded-xl border border-stone-900/15 bg-background p-4 text-[15px] text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45 focus:bg-background"
                                 />
                                 {!hasTranscription && (
-                                  <p className="font-serif text-[11px] italic text-stone-500">
+                                  <p className="type-editorial text-[11px] italic text-stone-500">
                                     Transcripción no disponible — escribe tu respuesta
                                   </p>
                                 )}
@@ -971,7 +971,7 @@ export default function BriefPage() {
                         )}
 
                         {!confirmed && !answered && (
-                          <p className="font-serif text-[11px] italic text-stone-500">
+                          <p className="type-editorial text-[11px] italic text-stone-500">
                             Añade una respuesta para poder confirmar la pregunta.
                           </p>
                         )}
@@ -981,9 +981,9 @@ export default function BriefPage() {
                             type="button"
                             onClick={() => confirmQuestion(item.id, !confirmed)}
                             disabled={confirmingId === item.id || (!confirmed && !answered)}
-                            className={`min-h-[44px] rounded-lg px-4 py-2 text-xs uppercase tracking-wider transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-50 ${
+                            className={`type-ui min-h-[44px] rounded-lg px-4 py-2 text-xs transition-colors duration-300 disabled:cursor-not-allowed disabled:opacity-50 ${
                               confirmed
-                                ? "bg-[#5F7161] text-[#FAF8F5] hover:bg-[#4E5D50]"
+                                ? "bg-[#5F7161] text-background hover:bg-[#4E5D50]"
                                 : "border border-[#5F7161]/50 text-[#44544A] hover:bg-[#5F7161] hover:text-white"
                             }`}
                           >
@@ -997,7 +997,7 @@ export default function BriefPage() {
                             <button
                               type="button"
                               onClick={() => goToNextQuestion(item.id)}
-                              className="min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white"
+                              className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white"
                             >
                               Siguiente pregunta →
                             </button>
@@ -1019,35 +1019,35 @@ export default function BriefPage() {
                   type="button"
                   onClick={saveProgressNow}
                   disabled={savingAll}
-                  className="min-h-[44px] rounded-lg border border-stone-900/25 px-5 py-2 text-xs uppercase tracking-wider text-stone-800 transition-colors duration-300 hover:border-stone-900 disabled:opacity-50"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/25 px-5 py-2 text-xs text-stone-800 transition-colors duration-300 hover:border-stone-900 disabled:opacity-50"
                 >
                   {savingAll ? "Guardando…" : "Guardar progreso"}
                 </button>
                 <button
                   type="button"
                   onClick={handleSendBrief}
-                  className="min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs uppercase tracking-wider text-[#FAF8F5] transition-colors duration-300 hover:bg-stone-800"
+                  className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800"
                 >
                   {allConfirmed ? "Brief enviado ✓" : "Enviar Brief"}
                 </button>
               </div>
               {flowMessage && (
-                <p className="font-serif text-[13px] italic text-stone-600">
+                <p className="type-editorial text-[13px] italic text-stone-600">
                   {flowMessage}
                 </p>
               )}
             </div>
           )}
 
-          <h2 className="mt-10 font-serif text-xl font-normal tracking-tight text-stone-900">
+          <h2 className="type-subtitle-caps mt-10 text-xl text-stone-900">
             Referencias
           </h2>
           <form
             onSubmit={uploadReference}
-            className="mt-4 flex flex-col gap-4 rounded-2xl border border-stone-900/10 bg-[#EFECE6]/75 p-5 md:p-6"
+            className="mt-4 flex flex-col gap-4 rounded-2xl border border-stone-900/10 bg-surface/75 p-5 md:p-6"
           >
             <label className="flex flex-col gap-1">
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+              <span className="type-ui text-xs text-stone-500">
                 Categoría
               </span>
               <select
@@ -1057,7 +1057,7 @@ export default function BriefPage() {
                     event.target.value as "branding" | "interior" | "general"
                   )
                 }
-                className="min-h-[44px] rounded-lg border border-stone-900/15 bg-[#FAF8F5] px-3 text-sm text-stone-900"
+                className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900"
               >
                 <option value="branding">Branding</option>
                 <option value="interior">Interior</option>
@@ -1066,7 +1066,7 @@ export default function BriefPage() {
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-500">
+              <span className="type-ui text-xs text-stone-500">
                 Nota (opcional)
               </span>
               <input
@@ -1074,12 +1074,12 @@ export default function BriefPage() {
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 maxLength={1000}
-                className="min-h-[44px] rounded-lg border border-stone-900/15 bg-[#FAF8F5] px-3 text-sm text-stone-900 placeholder:text-stone-400"
+                className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900 placeholder:text-stone-500"
               />
             </label>
 
-            <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 rounded-xl border border-dashed border-stone-900/20 bg-[#FAF8F5]/60 px-4 transition-colors duration-300 hover:border-stone-900/45">
-              <span className="truncate font-mono text-[11px] uppercase tracking-[0.08em] text-stone-600">
+            <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 rounded-xl border border-dashed border-stone-900/20 bg-background/60 px-4 transition-colors duration-300 hover:border-stone-900/45">
+              <span className="truncate label-mono text-stone-600">
                 {file ? file.name : "Elegir archivo"}
               </span>
               <input
@@ -1100,7 +1100,7 @@ export default function BriefPage() {
             <button
               type="submit"
               disabled={uploading || !isActive || !file}
-              className="min-h-[44px] self-start rounded-lg border border-stone-900/25 px-5 py-2 text-xs uppercase tracking-wider text-stone-800 transition-colors duration-300 hover:border-stone-900 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="type-ui min-h-[44px] self-start rounded-lg border border-stone-900/25 px-5 py-2 text-xs text-stone-800 transition-colors duration-300 hover:border-stone-900 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {uploading ? "Subiendo…" : "Subir referencia"}
             </button>
@@ -1113,13 +1113,13 @@ export default function BriefPage() {
               {references.map((item) => (
                 <div
                   key={item.id}
-                  className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-[#EFECE6]/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-surface/60 p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
                     <p className="text-[15px] font-normal text-stone-800">
                       {item.file_name}
                     </p>
-                    <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
+                    <p className="label-mono mt-1 text-stone-500">
                       {item.category} · {item.content_type} ·{" "}
                       {formatBytes(item.size_bytes)}
                     </p>
@@ -1131,7 +1131,7 @@ export default function BriefPage() {
                     type="button"
                     onClick={() => downloadReference(item)}
                     disabled={downloadingId === item.id}
-                    className="min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs uppercase tracking-wider text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
+                    className="type-ui min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:opacity-50"
                   >
                     {downloadingId === item.id ? "Descargando…" : "Descargar"}
                   </button>
@@ -1161,7 +1161,7 @@ export default function BriefPage() {
           }}
           className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-stone-950/95 p-4"
         >
-          <div className="max-h-full max-w-full rounded-xl border border-stone-900/10 bg-[#FAF8F5] p-2">
+          <div className="max-h-full max-w-full rounded-xl border border-stone-900/10 bg-background p-2">
             <img
               src={zoomedImage.src}
               alt={zoomedImage.alt}

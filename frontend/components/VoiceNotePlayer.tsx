@@ -25,7 +25,7 @@ export default function VoiceNotePlayer({ url }: { url: string }) {
 
   if (!src) {
     return (
-      <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-stone-500">
+      <p className="type-tech text-stone-600">
         Cargando audio…
       </p>
     );
@@ -52,7 +52,7 @@ export default function VoiceNotePlayer({ url }: { url: string }) {
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-stone-900/15 bg-[#FAF8F5] px-3 py-2">
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2">
       <audio
         ref={audioRef}
         src={src}
@@ -92,7 +92,7 @@ export default function VoiceNotePlayer({ url }: { url: string }) {
         type="button"
         onClick={togglePlay}
         aria-label={playing ? "Pausar nota de voz" : "Reproducir nota de voz"}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-stone-900 text-[#FAF8F5] transition-colors duration-300 hover:bg-stone-800"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-foreground text-background transition-colors duration-300 hover:bg-background hover:text-foreground"
       >
         {playing ? (
           <svg
@@ -129,7 +129,7 @@ export default function VoiceNotePlayer({ url }: { url: string }) {
           className="voice-note-seek w-full"
           style={{ "--seek-progress": `${progress}%` } as CSSProperties}
         />
-        <div className="flex items-center justify-between font-mono text-[11px] tabular-nums text-stone-500">
+        <div className="type-tech flex items-center justify-between text-stone-600">
           <span>{formatTime(currentTime)}</span>
           <span>{formatTime(duration)}</span>
         </div>
