@@ -9,7 +9,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Uuid
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Index, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.base import Base
@@ -32,8 +32,23 @@ class PasswordResetRequestStatus(str, enum.Enum):
         return None
 
 
+PENDING_UNIQUE_INDEX = "uq_password_reset_requests_pending_user"
+
+
 class PasswordResetRequest(Base):
     __tablename__ = "password_reset_requests"
+    # At most one PENDING request per user (generic 200 stays race-safe): the
+    # partial unique index makes concurrent inserts collapse into one row, while
+    # resolved requests never block a new one.
+    __table_args__ = (
+        Index(
+            PENDING_UNIQUE_INDEX,
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+            sqlite_where=text("status = 'pending'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

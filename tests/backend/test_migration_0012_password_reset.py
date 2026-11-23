@@ -2,14 +2,15 @@
 
 Loads the migration module directly (the ``op`` proxy is only touched inside
 ``upgrade()``/``downgrade()``) and exercises it on in-memory SQLite tables
-shaped like post-0011 ``users``. The inspector guards keep the ADD COLUMN and
-the CREATE TABLE idempotent and dialect-portable, so the same logic is safe on
-PostgreSQL.
+shaped like post-0011 ``users``. The inspector guards keep the ADD COLUMN, the
+CREATE TABLE and the partial unique index idempotent and dialect-portable, so
+the same logic is safe on PostgreSQL.
 """
 
 import importlib.util
 import pathlib
 
+import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -94,6 +95,45 @@ def test_upgrade_adds_flag_and_creates_request_table():
             "resolved_by",
         }
 
+        indexes = {
+            index["name"]: index
+            for index in inspector.get_indexes("password_reset_requests")
+        }
+        assert indexes["ix_password_reset_requests_user_id"]["unique"] in (False, 0)
+        pending_index = indexes["uq_password_reset_requests_pending_user"]
+        assert pending_index["unique"] in (True, 1)
+        assert pending_index["column_names"] == ["user_id"]
+
+
+def test_partial_unique_index_allows_one_pending_row_per_user():
+    engine = _seed_engine()
+    _run(engine, "upgrade")
+
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO password_reset_requests (id, user_id, requested_at) "
+                "VALUES ('r1', 'u1', '2026-01-01')"
+            )
+        )
+        # A resolved row is outside the partial predicate and is allowed.
+        conn.execute(
+            sa.text(
+                "INSERT INTO password_reset_requests "
+                "(id, user_id, status, requested_at, resolved_at) "
+                "VALUES ('r2', 'u1', 'approved', '2026-01-02', '2026-01-03')"
+            )
+        )
+
+    with engine.connect() as conn:
+        with pytest.raises(sa.exc.IntegrityError):
+            conn.execute(
+                sa.text(
+                    "INSERT INTO password_reset_requests (id, user_id, requested_at) "
+                    "VALUES ('r3', 'u1', '2026-01-04')"
+                )
+            )
+
 
 def test_request_status_defaults_to_pending():
     engine = _seed_engine()
@@ -127,6 +167,12 @@ def test_upgrade_is_idempotent():
         cols = [c["name"] for c in inspector.get_columns("users")]
         assert cols.count("must_change_password") == 1
         assert inspector.has_table("password_reset_requests")
+        index_names = [
+            index["name"]
+            for index in inspector.get_indexes("password_reset_requests")
+        ]
+        assert index_names.count("uq_password_reset_requests_pending_user") == 1
+        assert index_names.count("ix_password_reset_requests_user_id") == 1
 
 
 def test_downgrade_removes_table_and_column():

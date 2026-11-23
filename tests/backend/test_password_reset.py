@@ -13,7 +13,8 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import false, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.core.security import verify_password
@@ -23,6 +24,7 @@ from backend.app.models import (
     PasswordResetRequestStatus,
     User,
 )
+from backend.app.models.password_reset_request import PENDING_UNIQUE_INDEX
 
 REQUEST_URL = "/api/v1/auth/password-reset-request"
 QUEUE_URL = "/api/v1/admin/password-reset-requests"
@@ -127,6 +129,121 @@ async def test_request_is_enumeration_safe_for_unknown_and_inactive(
     rows = await _request_rows(db_session)
     assert len(rows) == 1
     assert rows[0].user_id == client_user.id
+
+
+@pytest.mark.asyncio
+async def test_request_tolerates_legacy_duplicate_pending_rows(
+    client: TestClient,
+    db_session: AsyncSession,
+    client_user: User,
+):
+    """Rows created before the partial unique index must not 500 the endpoint.
+
+    Dropping the index reproduces the legacy shape the index now prevents: two
+    pending rows for one user. The lookup has to tolerate them and the response
+    must stay the generic 200.
+    """
+    await db_session.execute(text(f"DROP INDEX IF EXISTS {PENDING_UNIQUE_INDEX}"))
+    await db_session.commit()
+
+    await _create_pending_request(db_session, client_user)
+    await _create_pending_request(db_session, client_user)
+
+    response = client.post(REQUEST_URL, json={"email": client_user.email})
+
+    assert response.status_code == 200
+    assert response.json() == {"detail": SAFE_DETAIL}
+
+    # No third row: an existing pending request still dedupes.
+    rows = await _request_rows(db_session)
+    assert len(rows) == 2
+    assert {row.status for row in rows} == {PasswordResetRequestStatus.PENDING}
+
+
+@pytest.mark.asyncio
+async def test_partial_unique_index_blocks_second_pending_row(
+    db_session: AsyncSession,
+    client_user: User,
+):
+    await _create_pending_request(db_session, client_user)
+
+    db_session.add(
+        PasswordResetRequest(
+            id=uuid.uuid4(),
+            user_id=client_user.id,
+            status=PasswordResetRequestStatus.PENDING,
+            requested_at=datetime.now(timezone.utc),
+        )
+    )
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
+
+    rows = await _request_rows(db_session)
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_resolved_request_does_not_block_a_new_pending_request(
+    client: TestClient,
+    db_session: AsyncSession,
+    client_user: User,
+):
+    db_session.add(
+        PasswordResetRequest(
+            id=uuid.uuid4(),
+            user_id=client_user.id,
+            status=PasswordResetRequestStatus.APPROVED,
+            requested_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    response = client.post(REQUEST_URL, json={"email": client_user.email})
+
+    assert response.status_code == 200
+    assert response.json() == {"detail": SAFE_DETAIL}
+
+    rows = await _request_rows(db_session)
+    statuses = sorted(row.status.value for row in rows)
+    assert statuses == ["approved", "pending"]
+
+
+@pytest.mark.asyncio
+async def test_request_race_between_check_and_insert_stays_generic_200(
+    client: TestClient,
+    db_session: AsyncSession,
+    client_user: User,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """If the pre-check misses a concurrent request, the index wins the race.
+
+    Forcing the pending lookup to return nothing reproduces the second of two
+    concurrent callers: the insert hits the partial unique index and surfaces
+    as IntegrityError, which must be swallowed into the same generic 200.
+    """
+    await _create_pending_request(db_session, client_user)
+
+    import backend.app.api.v1.endpoints.auth as auth_module
+
+    real_select = auth_module.select
+
+    def blind_pending_lookup(*args, **kwargs):
+        statement = real_select(*args, **kwargs)
+        if args and args[0] is PasswordResetRequest:
+            return statement.where(false())
+        return statement
+
+    monkeypatch.setattr(auth_module, "select", blind_pending_lookup)
+
+    response = client.post(REQUEST_URL, json={"email": client_user.email})
+
+    assert response.status_code == 200
+    assert response.json() == {"detail": SAFE_DETAIL}
+
+    rows = await _request_rows(db_session)
+    assert len(rows) == 1
 
 
 # --- admin queue -------------------------------------------------------------

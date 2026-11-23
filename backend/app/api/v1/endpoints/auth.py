@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ....api.deps import get_current_active_user_allow_password_change
@@ -80,20 +81,31 @@ async def request_password_reset(
     user = result.scalar_one_or_none()
 
     if user is not None and user.is_active:
+        # Legacy rows may predate the partial unique index, so the lookup must
+        # tolerate duplicates instead of raising MultipleResultsFound (which
+        # would turn this public endpoint into a 500).
         pending = await db.execute(
-            select(PasswordResetRequest).where(
+            select(PasswordResetRequest)
+            .where(
                 PasswordResetRequest.user_id == user.id,
                 PasswordResetRequest.status == PasswordResetRequestStatus.PENDING,
             )
+            .order_by(PasswordResetRequest.requested_at)
+            .limit(1)
         )
-        if pending.scalar_one_or_none() is None:
+        if pending.scalars().first() is None:
             db.add(
                 PasswordResetRequest(
                     user_id=user.id,
                     status=PasswordResetRequestStatus.PENDING,
                 )
             )
-            await db.commit()
+            try:
+                await db.commit()
+            except IntegrityError:
+                # Concurrent request won the race: the partial unique index
+                # rejected our duplicate pending row. Same generic 200.
+                await db.rollback()
 
     return {"detail": PASSWORD_RESET_ACK}
 
