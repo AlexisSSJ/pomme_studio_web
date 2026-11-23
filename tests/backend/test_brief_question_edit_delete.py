@@ -265,6 +265,7 @@ async def test_delete_unanswered_question_204_and_audit(
     assert log.entity_type == "brief_item"
     assert log.actor_user_id == collaborator_user.id
     assert log.metadata_json["project_id"] == str(active_project.id)
+    assert log.metadata_json["had_response"] is False
 
 
 @pytest.mark.asyncio
@@ -332,6 +333,7 @@ async def test_delete_answered_question_requires_force_and_removes_files(
     )
     log = log_result.scalar_one()
     assert log.metadata_json["forced"] is True
+    assert log.metadata_json["had_response"] is True
 
 
 @pytest.mark.asyncio

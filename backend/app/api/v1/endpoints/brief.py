@@ -384,7 +384,8 @@ async def delete_question(
     await require_active_project(project_id, db)
 
     item = await _get_question_or_404(db, project_id, item_id)
-    if is_question_answered(item) and not force:
+    had_response = is_question_answered(item)
+    if had_response and not force:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Question has responses; use force=true to delete",
@@ -420,6 +421,7 @@ async def delete_question(
         metadata={
             "project_id": str(project_id),
             "forced": force,
+            "had_response": had_response,
             "removed_images": len(images),
         },
     )
