@@ -161,7 +161,9 @@ export default function BriefPage() {
   // The studio releases the brief explicitly: until then the client only sees
   // references and a waiting state, and answer actions are hard-disabled.
   const briefSent = Boolean(project?.brief_sent_at);
-  const awaitingBrief = project !== null && project.brief_sent_at === null;
+  // Null/undefined-safe: the questionnaire must never render answerable while
+  // the send timestamp is unknown (initial load) or absent.
+  const awaitingBrief = !project?.brief_sent_at;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -743,6 +745,14 @@ export default function BriefPage() {
               <p className="type-editorial text-lg leading-snug text-stone-950 md:text-xl">
                 El estudio está preparando tu brief. Podrás responder cuando el equipo lo confirme y envíe.
               </p>
+              <button
+                type="button"
+                onClick={load}
+                disabled={loading}
+                className="type-ui min-h-[44px] self-start rounded-lg border border-stone-900/25 px-5 py-2 text-xs text-stone-800 transition-colors duration-300 hover:border-stone-900 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? "Actualizando…" : "Actualizar"}
+              </button>
             </div>
           ) : (
             <>

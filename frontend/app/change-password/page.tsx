@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, extractDetail } from "@/lib/api";
-import { getToken, isAuthenticated } from "@/lib/auth";
+import { clearToken, getToken, isAuthenticated } from "@/lib/auth";
 
 // Same-origin by default (Next.js rewrites proxy /api/v1/* to the backend).
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -147,7 +147,9 @@ export default function ChangePasswordPage() {
           </label>
 
           {error && (
-            <p className="border border-border bg-surface p-3 text-sm">{error}</p>
+            <p role="alert" className="border border-border bg-surface p-3 text-sm">
+              {error}
+            </p>
           )}
 
           <button
@@ -159,6 +161,19 @@ export default function ChangePasswordPage() {
             <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
           </button>
         </form>
+
+        {/* Escape hatch: expired tokens or users without their current
+            password must always be able to start over from the login page. */}
+        <button
+          type="button"
+          onClick={() => {
+            clearToken();
+            router.push("/login");
+          }}
+          className="type-ui mt-4 flex min-h-[44px] w-full items-center justify-center text-sm underline"
+        >
+          Volver a iniciar sesión
+        </button>
       </div>
     </main>
   );

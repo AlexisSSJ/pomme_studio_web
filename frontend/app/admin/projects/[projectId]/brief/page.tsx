@@ -31,6 +31,7 @@ interface BriefItem {
   file_name: string | null;
   content_type: string | null;
   size_bytes: number | null;
+  image_url: string | null;
   images?: BriefImage[];
   audio_url: string | null;
   audio_transcription: string | null;
@@ -332,6 +333,9 @@ export default function AdminBriefPage() {
         if (expandedId === item.id) setExpandedId(null);
         if (editingId === item.id) cancelEditing();
         setMessage("Pregunta eliminada");
+        // Header counters come from the pending endpoint: reload so the
+        // totals drop with the removed question instead of staying stale.
+        await load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
         setMessage(extractDetail(data, "Error al eliminar la pregunta"));
@@ -558,6 +562,8 @@ export default function AdminBriefPage() {
                   answer ||
                     transcription ||
                     item?.audio_url ||
+                    // Legacy single-image rows have no images[] child rows.
+                    item?.image_url ||
                     imageCount > 0 ||
                     // Mirrors the backend's is_question_answered(): a completed
                     // status counts as a response even if the fields look empty.
@@ -754,7 +760,7 @@ export default function AdminBriefPage() {
                               <button
                                 type="button"
                                 onClick={() => saveEdit(item)}
-                                disabled={editSaving}
+                                disabled={editSaving || !isActive}
                                 className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 {editSaving ? "Guardando…" : "Guardar"}

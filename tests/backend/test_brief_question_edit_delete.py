@@ -372,3 +372,101 @@ async def test_edit_and_delete_question_on_inactive_project_409(
 
     await db_session.refresh(item)
     assert item.prompt == "¿Pregunta en borrador?"
+
+
+@pytest.mark.asyncio
+async def test_client_member_cannot_delete_question_403(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """A CLIENT member can answer but never delete a question."""
+    question = _create_question(client, active_project.id, collaborator_token)
+    url = f"/api/v1/projects/{active_project.id}/brief/questions/{question['id']}"
+
+    response = client.delete(url, headers=_auth(client_token))
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient permissions"
+
+    result = await db_session.execute(
+        select(BriefItem).where(BriefItem.id == uuid.UUID(question["id"]))
+    )
+    assert result.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_force_delete_text_only_answer_204_and_audit(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """A text-only answer still protects the question until force=true."""
+    question = _create_question(client, active_project.id, collaborator_token)
+    item_id = question["id"]
+
+    answered = client.patch(
+        f"/api/v1/projects/{active_project.id}/brief/items/{item_id}",
+        json={"answer": "Respuesta sólo texto, sin archivos."},
+        headers=_auth(client_token),
+    )
+    assert answered.status_code == 200, answered.text
+
+    url = f"/api/v1/projects/{active_project.id}/brief/questions/{item_id}"
+
+    blocked = client.delete(url, headers=_auth(collaborator_token))
+    assert blocked.status_code == 409
+
+    forced = client.delete(f"{url}?force=true", headers=_auth(collaborator_token))
+    assert forced.status_code == 204
+
+    result = await db_session.execute(
+        select(BriefItem).where(BriefItem.id == uuid.UUID(item_id))
+    )
+    assert result.scalar_one_or_none() is None
+
+    log_result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "brief.question_delete",
+            AuditLog.entity_id == uuid.UUID(item_id),
+        )
+    )
+    log = log_result.scalar_one()
+    assert log.metadata_json["forced"] is True
+    assert log.metadata_json["had_response"] is True
+    assert log.metadata_json["removed_images"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "token_fixture",
+    ["lead_designer_token", "collaborator_two_token"],
+)
+async def test_send_brief_without_membership_403(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    lead_designer_token: str,
+    collaborator_two_token: str,
+    token_fixture: str,
+):
+    """Team roles with no membership cannot release the brief."""
+    tokens = {
+        "lead_designer_token": lead_designer_token,
+        "collaborator_two_token": collaborator_two_token,
+    }
+    active_project.brief_sent_at = None
+    await db_session.commit()
+
+    response = client.post(
+        f"/api/v1/projects/{active_project.id}/brief/send",
+        headers=_auth(tokens[token_fixture]),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "No access to this project"
+
+    await db_session.refresh(active_project)
+    assert active_project.brief_sent_at is None

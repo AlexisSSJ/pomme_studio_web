@@ -132,6 +132,38 @@ async def test_request_is_enumeration_safe_for_unknown_and_inactive(
 
 
 @pytest.mark.asyncio
+async def test_request_audits_intake_without_passwords(
+    client: TestClient,
+    db_session: AsyncSession,
+    client_user: User,
+    inactive_user: User,
+):
+    """A real intake is audited; unknown/inactive emails stay silent."""
+    response = client.post(REQUEST_URL, json={"email": client_user.email})
+    assert response.status_code == 200
+
+    result = await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "user.password_reset_request")
+    )
+    logs = result.scalars().all()
+    assert len(logs) == 1
+    log = logs[0]
+    assert log.actor_user_id == client_user.id
+    assert log.entity_type == "user"
+    assert log.entity_id == client_user.id
+    assert log.metadata_json == {"email": client_user.email}
+    assert "password" not in json.dumps(log.metadata_json).lower()
+
+    client.post(REQUEST_URL, json={"email": "nobody@example.com"})
+    client.post(REQUEST_URL, json={"email": inactive_user.email})
+
+    result = await db_session.execute(
+        select(AuditLog).where(AuditLog.action == "user.password_reset_request")
+    )
+    assert len(result.scalars().all()) == 1
+
+
+@pytest.mark.asyncio
 async def test_request_tolerates_legacy_duplicate_pending_rows(
     client: TestClient,
     db_session: AsyncSession,
@@ -208,6 +240,28 @@ async def test_resolved_request_does_not_block_a_new_pending_request(
     rows = await _request_rows(db_session)
     statuses = sorted(row.status.value for row in rows)
     assert statuses == ["approved", "pending"]
+
+
+@pytest.mark.asyncio
+async def test_rejected_request_allows_a_new_request(
+    client: TestClient,
+    db_session: AsyncSession,
+    super_admin_token: str,
+    pending_reset_request: PasswordResetRequest,
+    client_user: User,
+):
+    """After a rejection the user can ask again: a fresh pending row is created."""
+    rejected = _reject(client, super_admin_token, pending_reset_request.id)
+    assert rejected.status_code == 200
+
+    response = client.post(REQUEST_URL, json={"email": client_user.email})
+
+    assert response.status_code == 200
+    assert response.json() == {"detail": SAFE_DETAIL}
+
+    rows = await _request_rows(db_session)
+    statuses = sorted(row.status.value for row in rows)
+    assert statuses == ["pending", "rejected"]
 
 
 @pytest.mark.asyncio
@@ -432,6 +486,23 @@ async def test_reject_marks_rejected_and_audits(
 
 
 # --- login flag, guard and change-password -----------------------------------
+
+
+@pytest.mark.asyncio
+async def test_change_password_rejects_short_new_password_422(
+    client: TestClient,
+    client_token: str,
+):
+    """A new password under 8 characters never reaches the handler."""
+    response = client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {client_token}"},
+        json={
+            "current_password": "clientpass123",
+            "new_password": "short",
+        },
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

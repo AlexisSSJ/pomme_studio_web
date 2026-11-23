@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { extractDetail } from "@/lib/api";
 import { setToken } from "@/lib/auth";
 
 // Same-origin by default (Next.js rewrites proxy /api/v1/* to the backend).
@@ -96,7 +97,9 @@ export default function LoginPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setResetError(data.detail || "No se pudo enviar la solicitud");
+        setResetError(
+          extractDetail(data, "No se pudo enviar la solicitud")
+        );
         return;
       }
 

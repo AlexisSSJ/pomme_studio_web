@@ -64,7 +64,11 @@ export default function UsersPage() {
     const res = await apiFetch(
       "/api/v1/admin/password-reset-requests?status=pending"
     );
-    if (res.ok) setRequests(await res.json());
+    if (res.ok) {
+      setRequests(await res.json());
+    } else {
+      setResetMessage("No se pudieron cargar las solicitudes");
+    }
   }, []);
 
   useEffect(() => {
@@ -314,6 +318,7 @@ export default function UsersPage() {
                         [request.id]: e.target.value,
                       }))
                     }
+                    minLength={8}
                     className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
                   />
                   <div className="flex flex-wrap gap-2">

@@ -106,6 +106,17 @@ async def request_password_reset(
                 # Concurrent request won the race: the partial unique index
                 # rejected our duplicate pending row. Same generic 200.
                 await db.rollback()
+            else:
+                # Intake is audited for real requests only; no password or
+                # token ever reaches the log.
+                await log_audit(
+                    db,
+                    actor_user_id=user.id,
+                    action="user.password_reset_request",
+                    entity_type="user",
+                    entity_id=user.id,
+                    metadata={"email": user.email},
+                )
 
     return {"detail": PASSWORD_RESET_ACK}
 

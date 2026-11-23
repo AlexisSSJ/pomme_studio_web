@@ -324,6 +324,18 @@ async def test_send_brief_notifies_client_and_unlocks_answers(
         headers=_auth(collaborator_token),
     )
     assert resent.status_code == 409
+    assert resent.json()["detail"] == "Brief already sent"
+
+    # The lost race must not notify the client a second time.
+    ready_result = await db_session.execute(
+        select(Notification).where(
+            Notification.project_id == active_project.id,
+            Notification.event_type == "brief.ready",
+        )
+    )
+    ready_notifications = ready_result.scalars().all()
+    assert len(ready_notifications) == 1
+    assert ready_notifications[0].user_id == client_user.id
 
     forbidden = client.post(
         f"/api/v1/projects/{active_project.id}/brief/send",
@@ -356,3 +368,25 @@ async def test_send_brief_notifies_client_and_unlocks_answers(
     assert pending.json()["total_questions"] == 1
     assert pending.json()["answered_questions"] == 1
     assert pending.json()["has_pending_brief"] is False
+
+
+@pytest.mark.asyncio
+async def test_client_pending_progress_ignores_unsent_draft(
+    client: TestClient,
+    db_session: AsyncSession,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    """A draft-only CLIENT reads 0% and no pending brief, never the 100% fallback."""
+    await _unsend(db_session, active_project)
+    _create_question(client, active_project.id, collaborator_token)
+
+    global_pending = client.get("/api/v1/brief/pending", headers=_auth(client_token))
+    assert global_pending.status_code == 200
+    data = global_pending.json()
+    assert data["has_pending_brief"] is False
+    assert data["progress"] == 0.0
+    assert data["brief_sent"] is False
+    assert data["project_id"] is None
+    assert data["pending_briefs"] == []

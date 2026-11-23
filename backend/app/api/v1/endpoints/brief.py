@@ -14,7 +14,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -435,13 +435,25 @@ async def send_brief(
 ) -> BriefSendResponse:
     """Release the brief to the client: opens the questionnaire and notifies them."""
     project = await require_active_project(project_id, db)
-    if project.brief_sent_at is not None:
+
+    # Conditional UPDATE instead of a read-then-set: two concurrent senders both
+    # saw NULL and would each notify the client. Only the caller whose UPDATE
+    # matched the still-NULL row wins; the other one reads rowcount == 0.
+    result = await db.execute(
+        update(Project)
+        .where(Project.id == project_id, Project.brief_sent_at.is_(None))
+        .values(brief_sent_at=datetime.now(timezone.utc))
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount == 0:
+        # No write happened; get_db rolls the open transaction back when the
+        # exception propagates (an explicit rollback would needlessly expire
+        # every object in this session).
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Brief already sent",
         )
 
-    project.brief_sent_at = datetime.now(timezone.utc)
     payload = {"project_id": str(project_id), "project_title": project.title}
     await notify_project_client(
         db,
@@ -824,11 +836,15 @@ async def get_client_pending_brief(
     primary_answered: int = 0
     primary_questions: list[BriefItem] = []
     primary_sent: bool = False
+    # Projects the caller can actually see: unsent drafts are skipped below and
+    # must not count as "everything done" for the fallback progress.
+    visible_projects = 0
 
     for proj in projects:
         # Unsent briefs (studio drafts) are invisible to the client indicator.
         if not client_sees_questions(proj, current_user):
             continue
+        visible_projects += 1
         prog, stat, tot, ans, q_list = await compute_brief_progress(proj.id, db)
         p_count = max(0, tot - ans)
         if tot > 0 and ans < tot:
@@ -873,7 +889,7 @@ async def get_client_pending_brief(
         project_id=None,
         project_title=None,
         status=None,
-        progress=100.0 if projects else 0.0,
+        progress=100.0 if visible_projects else 0.0,
         total_questions=0,
         answered_questions=0,
         pending_questions=0,
