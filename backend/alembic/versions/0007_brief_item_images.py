@@ -7,19 +7,25 @@ Create Date: 2026-11-23
 Why the column reconciliation below exists
 ------------------------------------------
 Production applied the *original* revision 0004 (``0004_sprint3_brief_moodboard``)
-before the multimodal columns were appended to that file. Alembic never re-runs
-an already-applied revision, so production's ``brief_items`` table is missing
-``image_storage_key`` and the other multimodal columns that the ORM model and
-the current 0004 file now declare. The legacy-image copy in this migration
-SELECTs ``brief_items.image_storage_key``, which made the 0007 upgrade fail in
-production with ``column brief_items.image_storage_key does not exist``.
+before the multimodal columns -- and the ``status`` column -- were appended to
+that file. Alembic never re-runs an already-applied revision, so production's
+``brief_items`` table is behind the ORM model and the current 0004 file.
+
+Read-only psql evidence from production confirmed the drift: 14 columns present
+(no ``status`` and none of the response/image/audio columns), 0 rows. The
+legacy-image copy in this migration SELECTs ``brief_items.image_storage_key``,
+which made the first 0007 upgrade fail in production with
+``column brief_items.image_storage_key does not exist``. Once that was patched,
+the next deploy failed at revision 0009 with
+``column status does not exist`` -- ``status`` had also been added to the 0004
+file *after* production applied it.
 
 ``_reconcile_brief_item_columns`` closes that schema drift by adding ONLY the
-missing nullable columns before the copy loop. It is self-contained (takes an
-explicit ``bind`` rather than relying on Alembic's ``op``), idempotent (an
-inspector check skips columns that already exist -- no ``IF NOT EXISTS``
-syntax, so it is portable across PostgreSQL and SQLite), and additive (it
-never alters or drops existing columns or data).
+missing columns before the copy loop. It is self-contained (takes an explicit
+``bind`` rather than relying on Alembic's ``op``), idempotent (an inspector
+check skips columns that already exist -- no ``IF NOT EXISTS`` syntax, so it is
+portable across PostgreSQL and SQLite), and additive (it never alters or drops
+existing columns or data).
 """
 import uuid
 from typing import Sequence, Union
@@ -35,20 +41,26 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def _reconcile_brief_item_columns(bind) -> list[str]:
-    """Add multimodal columns missing from a drifted ``brief_items`` table.
+    """Add columns missing from a drifted ``brief_items`` table.
 
-    Production's 0004 predates these columns, so the table can be behind the
-    ORM model. The inspector check makes this idempotent and dialect-portable
-    (no ``IF NOT EXISTS``), and the plain ``ADD COLUMN`` statements are nullable
-    with no defaults so they are safe on tables that already hold rows.
+    Production's 0004 predates these columns (including ``status``), so the
+    table can be behind the ORM model. The inspector check makes this idempotent
+    and dialect-portable (no ``IF NOT EXISTS``). Every ``ADD COLUMN`` is either
+    nullable with no default, or -- for ``status`` -- NOT NULL with a server
+    default, so the statements are safe on tables that already hold rows.
 
-    Returns the list of column names that were actually added.
+    Returns the list of column names that were actually added, in order.
     """
     # (name, portable SQL type) -- exact types from app.models.brief_item.
-    # Core columns (id, project_id, item_type, category, status, prompt, answer,
-    # storage_key, created_by, created_at, updated_at) are deliberately omitted:
-    # they have existed since the original 0004 table creation.
-    multimodal_columns = (
+    # The remaining core columns (id, project_id, item_type, category, prompt,
+    # answer, storage_key, created_by, created_at, updated_at) are deliberately
+    # omitted: they have existed since the original 0004 table creation.
+    # `status` is included because it was appended to the 0004 file *after*
+    # production applied that revision; its VARCHAR(20) / DEFAULT 'pending' /
+    # NOT NULL shape matches BriefStatus (native_enum=False, lowercase values,
+    # server_default="pending", longest value 'in_progress' = 11 chars).
+    missing_columns = (
+        ("status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
         ("note", "VARCHAR(1000)"),
         ("file_name", "VARCHAR(255)"),
         ("content_type", "VARCHAR(100)"),
@@ -64,7 +76,7 @@ def _reconcile_brief_item_columns(bind) -> list[str]:
 
     existing = {column["name"] for column in sa.inspect(bind).get_columns("brief_items")}
     added: list[str] = []
-    for name, column_type in multimodal_columns:
+    for name, column_type in missing_columns:
         if name in existing:
             continue
         bind.execute(
