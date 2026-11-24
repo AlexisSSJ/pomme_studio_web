@@ -126,8 +126,13 @@ interface SheetSlot {
   /** Rect de la imagen en % del lienzo 3:2. */
   rect: SheetRect;
   side: AnnotationSide;
-  /** Alto de la caja de anotación en % (6–8 en top/bottom, 10 en right). */
-  captionHeight: number;
+  /**
+   * Hueco reservado en % para la anotación (8). La caja real es de altura
+   * automática (2 líneas como máximo, recortadas con elipsis); este valor
+   * solo define el hueco libre que la geometría garantiza y el punto donde
+   * engancha la línea guía horizontal del lado `right`.
+   */
+  captionReserve: number;
 }
 
 /**
@@ -135,52 +140,56 @@ interface SheetSlot {
  * su anotación. Los primeros N slots se usan tal cual (spread-first) y los
  * rects de imagen son disjuntos para N=1..10 (el backend limita a 10).
  *
- * Ajustes ±3% sobre el borrador del plan, todos para que cada anotación
- * caiga en hueco libre (sin pisar otra imagen) sin perder el invariante:
- * - slot 03: x 32→34, y 40→43 — su caja superior quedaba sobre la 01 y
- *   sobre la 05; así el hueco 36–42% queda limpio.
- * - slot 04: y 44→46, h 38→37 — abre el hueco 39–45% bajo la 01.
- * - slot 10: y 90→91 — abre el hueco 84–90% bajo la 04 (borde 99%).
+ * Ajustes ±3% sobre el borrador del plan. El primero reserva hueco para que
+ * cada caja de anotación (8% ≈ dos líneas de 12px) no pise ninguna imagen:
+ * - slot 01: y 10→9, h 28→27 — deja el hueco 0–8% para su nota.
+ * - slot 03: x 32→34, y 40→43 — su nota quedaba encima de la 01 y la 05.
+ * - slot 04: y 44→46, h 38→36 — abre el hueco 37–45% bajo la 01.
+ * - slot 05: y 8→9, h 26→24 — abre el hueco 0–8% arriba y libera el 34–42%.
+ * - slot 07: y 60→58 — deja 90–98% para su nota, sin tocar el borde.
+ * - slot 08: y 78→79 — su nota cae en 70–78%, bajo la 03.
+ * - slot 10: y 90→92, h 8→7 — abre 83–91% bajo la 04.
  */
 const SHEET_SLOTS: SheetSlot[] = [
-  { rect: { x: 10, y: 10, w: 24, h: 28 }, side: "top", captionHeight: 7 },
-  { rect: { x: 56, y: 6, w: 22, h: 50 }, side: "right", captionHeight: 10 },
-  { rect: { x: 34, y: 43, w: 20, h: 26 }, side: "top", captionHeight: 6 },
-  { rect: { x: 6, y: 46, w: 20, h: 37 }, side: "top", captionHeight: 6 },
-  { rect: { x: 36, y: 8, w: 14, h: 26 }, side: "top", captionHeight: 6 },
-  { rect: { x: 56, y: 62, w: 18, h: 24 }, side: "bottom", captionHeight: 7 },
-  { rect: { x: 78, y: 60, w: 18, h: 30 }, side: "bottom", captionHeight: 7 },
-  { rect: { x: 30, y: 78, w: 22, h: 16 }, side: "top", captionHeight: 6 },
-  { rect: { x: 82, y: 24, w: 14, h: 32 }, side: "top", captionHeight: 7 },
-  { rect: { x: 8, y: 91, w: 18, h: 8 }, side: "top", captionHeight: 6 },
+  { rect: { x: 10, y: 9, w: 24, h: 27 }, side: "top", captionReserve: 8 },
+  { rect: { x: 56, y: 6, w: 22, h: 50 }, side: "right", captionReserve: 8 },
+  { rect: { x: 34, y: 43, w: 20, h: 26 }, side: "top", captionReserve: 8 },
+  { rect: { x: 6, y: 46, w: 20, h: 36 }, side: "top", captionReserve: 8 },
+  { rect: { x: 36, y: 9, w: 14, h: 24 }, side: "top", captionReserve: 8 },
+  { rect: { x: 56, y: 62, w: 18, h: 24 }, side: "bottom", captionReserve: 8 },
+  { rect: { x: 78, y: 58, w: 18, h: 30 }, side: "bottom", captionReserve: 8 },
+  { rect: { x: 30, y: 79, w: 22, h: 16 }, side: "top", captionReserve: 8 },
+  { rect: { x: 82, y: 24, w: 14, h: 32 }, side: "top", captionReserve: 8 },
+  { rect: { x: 8, y: 92, w: 18, h: 7 }, side: "top", captionReserve: 8 },
 ];
 
 /** Lámina de una sola pieza: pieza centrada y anotación al pie. */
 const SINGLE_SHEET_SLOT: SheetSlot = {
   rect: { x: 30, y: 20, w: 40, h: 60 },
   side: "bottom",
-  captionHeight: 7,
+  captionReserve: 8,
 };
 
 /**
- * Caja de la anotación según el lado: mismo ancho y misma x que la imagen
+ * Hueco de la anotación según el lado: mismo ancho y misma x que la imagen
  * en top/bottom (dentro del hueco vertical reservado); a la derecha de la
- * imagen (2% de separación) en right.
+ * imagen (2% de separación) en right. La caja real se dibuja de altura
+ * automática dentro de este hueco.
  */
 function sheetCaptionRect(slot: SheetSlot): SheetRect {
-  const { rect, side, captionHeight } = slot;
+  const { rect, side, captionReserve } = slot;
 
   if (side === "right") {
     const x = rect.x + rect.w + 2;
-    return { x, y: rect.y, w: Math.min(18, 100 - x), h: captionHeight };
+    return { x, y: rect.y, w: Math.min(18, 100 - x), h: captionReserve };
   }
 
   if (side === "top") {
     return {
       x: rect.x,
-      y: rect.y - captionHeight - 1,
+      y: rect.y - captionReserve - 1,
       w: rect.w,
-      h: captionHeight,
+      h: captionReserve,
     };
   }
 
@@ -188,7 +197,7 @@ function sheetCaptionRect(slot: SheetSlot): SheetRect {
     x: rect.x,
     y: rect.y + rect.h + 2,
     w: rect.w,
-    h: captionHeight,
+    h: captionReserve,
   };
 }
 
@@ -284,6 +293,10 @@ function AnnotatedSlot({
   const captionRect = sheetCaptionRect(slot);
   const leaderRect = sheetLeaderRect(slot, captionRect);
   const base = caption ? sheetUnion(slot.rect, captionRect) : slot.rect;
+  // Las cajas crecen SIEMPRE hacia el hueco libre: la de arriba se ancla por
+  // su borde inferior (a 1% de la imagen) y crece hacia arriba; las demás por
+  // su borde superior. Así una nota larga nunca invade su propia imagen.
+  const growsUpward = slot.side === "top";
 
   const style: SheetStyle = {
     "--slot-x": pct(base.x, 100),
@@ -291,7 +304,12 @@ function AnnotatedSlot({
     "--slot-w": pct(base.w, 100),
     "--slot-h": pct(base.h, 100),
     ...sheetVars("media", slot.rect, base),
-    ...sheetVars("cap", captionRect, base),
+    "--cap-x": pct(captionRect.x - base.x, base.w),
+    "--cap-w": pct(captionRect.w, base.w),
+    "--cap-top": growsUpward ? "auto" : pct(captionRect.y - base.y, base.h),
+    "--cap-bottom": growsUpward
+      ? pct(base.y + base.h - (captionRect.y + captionRect.h), base.h)
+      : "auto",
     ...sheetVars("lead", leaderRect, base),
   };
 
@@ -306,7 +324,7 @@ function AnnotatedSlot({
     >
       {caption && (
         <>
-          <span className="type-editorial w-full text-[11px] italic leading-snug line-clamp-2 md:absolute md:left-[var(--cap-x)] md:top-[var(--cap-y)] md:h-[var(--cap-h)] md:w-[var(--cap-w)] md:overflow-hidden">
+          <span className="type-editorial w-full text-[11px] italic leading-snug line-clamp-2 md:absolute md:left-[var(--cap-x)] md:top-[var(--cap-top)] md:bottom-[var(--cap-bottom)] md:w-[var(--cap-w)] md:overflow-hidden">
             {caption}
           </span>
           <span
