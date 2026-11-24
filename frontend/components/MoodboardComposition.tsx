@@ -129,8 +129,9 @@ interface SheetSlot {
   /**
    * Hueco reservado en % para la anotación (8). La caja real es de altura
    * automática (2 líneas como máximo, recortadas con elipsis); este valor
-   * solo define el hueco libre que la geometría garantiza y el punto donde
-   * engancha la línea guía horizontal del lado `right`.
+   * solo define el hueco libre que la geometría garantiza. La guía
+   * horizontal del lado `right` NO se ancla a la mitad de este hueco: engancha
+   * la primera línea de la caja (ver `sheetLeaderRect` / `AnnotatedSlot`).
    */
   captionReserve: number;
 }
@@ -205,6 +206,11 @@ function sheetCaptionRect(slot: SheetSlot): SheetRect {
  * Línea guía de 1px: vertical (top/bottom) desde el borde de la caja al
  * borde de la imagen, u horizontal (right) desde la imagen a la caja.
  * El rect devuelto es el hueco a cruzar; su eje corto vale 0.
+ *
+ * La guía horizontal se ancla al borde SUPERIOR de la caja (`caption.y`):
+ * la caja tiene altura de contenido y la primera línea arranca ahí, así que
+ * el medio line-box que la centra se suma al publicar `--lead-y`
+ * (ver `AnnotatedSlot`), no aquí, donde el alto de la reserva no interviene.
  */
 function sheetLeaderRect(slot: SheetSlot, caption: SheetRect): SheetRect {
   const { rect, side } = slot;
@@ -212,7 +218,7 @@ function sheetLeaderRect(slot: SheetSlot, caption: SheetRect): SheetRect {
   if (side === "right") {
     return {
       x: rect.x + rect.w,
-      y: caption.y + caption.h / 2,
+      y: caption.y,
       w: caption.x - (rect.x + rect.w),
       h: 0,
     };
@@ -272,6 +278,13 @@ function sheetVars(
 }
 
 /**
+ * Line-box de la anotación: `text-[11px]` × `leading-snug` (1.375) = 15.125px.
+ * Su mitad centra la guía horizontal en la PRIMERA línea del texto, que es
+ * la única que siempre existe (la caja mide 1 o 2 líneas según el comentario).
+ */
+const CAPTION_LINE_BOX_PX = 11 * 1.375;
+
+/**
  * Slot de la lámina anotada: un único `<button>` (imagen + anotación +
  * línea guía) que selecciona la pieza. La anotación es el último comentario
  * de la pieza; sin comentarios no hay caja ni línea y la pieza queda limpia.
@@ -311,6 +324,13 @@ function AnnotatedSlot({
       ? pct(base.y + base.h - (captionRect.y + captionRect.h), base.h)
       : "auto",
     ...sheetVars("lead", leaderRect, base),
+    // La guía horizontal (`right`) engancha el centro de la primera línea de
+    // la nota: `--cap-top` (borde superior de la caja, que es de altura de
+    // contenido) + medio line-box. Así el tick toca el texto tanto con una
+    // como con dos líneas, en cualquier alto de lienzo.
+    ...(slot.side === "right"
+      ? { "--lead-y": `calc(var(--cap-top) + ${CAPTION_LINE_BOX_PX / 2}px)` }
+      : {}),
   };
 
   return (
@@ -318,7 +338,11 @@ function AnnotatedSlot({
       type="button"
       onClick={() => onSelect?.(item)}
       aria-pressed={selected}
-      aria-label={`Comentarios de ${item.title}`}
+      aria-label={
+        caption
+          ? `Comentarios de ${item.title}: ${caption}`
+          : `Comentarios de ${item.title}`
+      }
       style={style}
       className="flex w-full flex-col gap-2 text-left md:absolute md:left-[var(--slot-x)] md:top-[var(--slot-y)] md:h-[var(--slot-h)] md:w-[var(--slot-w)] md:gap-0"
     >

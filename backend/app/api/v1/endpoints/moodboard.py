@@ -175,7 +175,7 @@ async def list_moodboard_items(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> list[MoodboardItemRead]:
-    """List every piece of the project (flat), with comment counts."""
+    """List every piece of the project (flat), with comment counts and the latest comment."""
     result = await db.execute(
         select(MoodboardItem)
         .where(MoodboardItem.project_id == project_id)
@@ -366,7 +366,7 @@ async def list_board_items(
     current_user: User = Depends(require_project_access_from_path),
     db: AsyncSession = Depends(get_db),
 ) -> list[MoodboardItemRead]:
-    """List one board's pieces with comment counts (any member)."""
+    """List one board's pieces with comment counts and the latest comment (any member)."""
     board = await _get_scoped_board(db, project_id, board_id)
     result = await db.execute(
         select(MoodboardItem)
