@@ -1011,10 +1011,26 @@ Prohibido: `box-shadow`, degradados y colores saturados innecesarios.
   `label-mono` `"{n} / 10 IMÁGENES"`, lámina compuesta por
   `MoodboardComposition` según su layout editorial (`editorial_collage`,
   `atelier_grid`, `monograph_strip`) y estados vacíos «Todavía no hay
-  moodboards.» / «Todavía no hay piezas en este moodboard.». Las piezas se
-  muestran solo con su imagen y su numeración (`01.`, `02.`, …): no hay
-  títulos ni descripciones visibles. Tocar una pieza la selecciona y abre el
+  moodboards.» / «Todavía no hay piezas en este moodboard.». No hay títulos
+  ni descripciones visibles. Tocar una pieza la selecciona y abre el
   panel de comentarios tipo Notion (ver abajo), sin depender de `hover`.
+- **Lámina editorial anotada (`editorial_collage`):** `AnnotatedSheet` dibuja
+  un lienzo fijo de proporción `3:2` con una tabla maestra de 10 slots (`x`,
+  `y`, `w`, `h` en % del lienzo; rects disjuntos y gutters ≥ 2% para N=1..10;
+  N=1 usa una pieza centrada `{30,20,40,60}`): las primeras N piezas ocupan
+  los primeros N slots, con imágenes `object-cover` sin bordes ni sombras.
+  Cada slot es un **único `<button>`** (`aria-pressed`, outline de tinta al
+  seleccionar) que abarca imagen, anotación y línea guía, y reutiliza
+  `PieceFrame` para la imagen y sus estados de carga/error, que siguen siendo
+  seleccionables. La anotación es el **último comentario** de la pieza
+  (`latest_comment`, recortado visual a 2 líneas), en serif itálica
+  (`type-editorial italic text-[11px] md:text-[12px]`) y con una **línea guía
+  de 1px** (`bg-foreground`) que une la caja del texto con el borde de la
+  imagen; sin comentarios no se renderiza ni caja ni línea. La numeración
+  `01.` se omite solo en este layout y se conserva en `atelier_grid` y
+  `monograph_strip`. En móvil (`< md`) las piezas se apilan en una columna
+  con la anotación itálica en línea sobre la imagen de aspecto natural y sin
+  línea guía.
 - **Comentarios tipo Notion (compartido):** `MoodboardCommentPanel` se abre al
   seleccionar una pieza, como hoja completa en móvil y slide-over de 400px en
   escritorio, con la imagen ampliable (`touch-action: pinch-zoom`) y el hilo en

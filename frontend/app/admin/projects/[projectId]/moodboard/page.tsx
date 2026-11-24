@@ -44,6 +44,7 @@ interface MoodboardItem {
   created_by: string;
   created_at: string;
   comment_count: number;
+  latest_comment: string | null;
 }
 
 const MAX_BOARD_IMAGES = 10;

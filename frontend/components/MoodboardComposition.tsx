@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactElement } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import { useProtectedMedia } from "@/lib/useProtectedMediaUrl";
 
 export type MoodboardLayout =
@@ -14,18 +14,8 @@ export interface MoodboardItemData {
   title: string;
   description: string | null;
   comment_count: number;
+  latest_comment: string | null;
 }
-
-// Ciclo de anchos de la retícula de 12 columnas: cada par suma 12.
-const COLLAGE_SPANS = [7, 5, 4, 8, 6, 6, 5, 7, 8, 4];
-
-const COLLAGE_SPAN_CLASSES: Record<number, string> = {
-  4: "md:col-span-4",
-  5: "md:col-span-5",
-  6: "md:col-span-6",
-  7: "md:col-span-7",
-  8: "md:col-span-8",
-};
 
 function pieceNumber(index: number): string {
   return `${String(index + 1).padStart(2, "0")}.`;
@@ -35,23 +25,48 @@ function pieceNumber(index: number): string {
  * Lámina limpia: imagen a tamaño natural (sin bordes ni aspect-ratio
  * forzado) y numeración mono. Un clic en la imagen selecciona la pieza
  * (el hilo de comentarios se abre en el panel compartido).
+ *
+ * `embedded` la reutiliza dentro de un slot de la lámina anotada: allí el
+ * slot completo es un único `<button>` (imagen + anotación + línea guía),
+ * así que la imagen, sus estados de error/carga y la numeración pierden su
+ * propio botón y su `figcaption`.
  */
 function PieceFrame({
   projectId,
   item,
-  index,
+  index = 0,
   selected,
   onSelect,
+  embedded = false,
 }: {
   projectId: string;
   item: MoodboardItemData;
-  index: number;
+  index?: number;
   selected: boolean;
   onSelect?: (item: MoodboardItemData) => void;
+  embedded?: boolean;
 }) {
   const { url, error } = useProtectedMedia(
     `/api/v1/projects/${projectId}/moodboard/items/${item.id}/file`
   );
+
+  if (embedded) {
+    return (
+      <span className="block h-full w-full">
+        {url ? (
+          <img
+            src={url}
+            alt={item.title}
+            className="block h-auto w-full md:h-full md:object-cover"
+          />
+        ) : (
+          <span className="label-mono flex h-full min-h-[44px] w-full items-center border border-border bg-surface p-3 text-stone-600">
+            {error ? "Error al cargar la imagen" : "Cargando imagen…"}
+          </span>
+        )}
+      </span>
+    );
+  }
 
   return (
     <figure
@@ -75,7 +90,7 @@ function PieceFrame({
           onClick={() => onSelect?.(item)}
           aria-pressed={selected}
           aria-label={`Comentarios de ${item.title}`}
-          className="type-ui w-full border border-border bg-surface p-3 text-left text-sm"
+          className="type-ui min-h-[44px] w-full border border-border bg-surface p-3 text-left text-sm"
         >
           Error al cargar la imagen
         </button>
@@ -85,7 +100,7 @@ function PieceFrame({
           onClick={() => onSelect?.(item)}
           aria-pressed={selected}
           aria-label={`Comentarios de ${item.title}`}
-          className="label-mono w-full text-left text-stone-600"
+          className="label-mono min-h-[44px] w-full text-left text-stone-600"
         >
           Cargando imagen…
         </button>
@@ -98,7 +113,236 @@ function PieceFrame({
   );
 }
 
-function CollageGrid({
+interface SheetRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+type AnnotationSide = "top" | "bottom" | "right";
+
+interface SheetSlot {
+  /** Rect de la imagen en % del lienzo 3:2. */
+  rect: SheetRect;
+  side: AnnotationSide;
+  /** Alto de la caja de anotación en % (6–8 en top/bottom, 10 en right). */
+  captionHeight: number;
+}
+
+/**
+ * Tabla maestra de slots (x, y, w, h en % de un lienzo 3:2) con el lado de
+ * su anotación. Los primeros N slots se usan tal cual (spread-first) y los
+ * rects de imagen son disjuntos para N=1..10 (el backend limita a 10).
+ *
+ * Ajustes ±3% sobre el borrador del plan, todos para que cada anotación
+ * caiga en hueco libre (sin pisar otra imagen) sin perder el invariante:
+ * - slot 03: x 32→34, y 40→43 — su caja superior quedaba sobre la 01 y
+ *   sobre la 05; así el hueco 36–42% queda limpio.
+ * - slot 04: y 44→46, h 38→37 — abre el hueco 39–45% bajo la 01.
+ * - slot 10: y 90→91 — abre el hueco 84–90% bajo la 04 (borde 99%).
+ */
+const SHEET_SLOTS: SheetSlot[] = [
+  { rect: { x: 10, y: 10, w: 24, h: 28 }, side: "top", captionHeight: 7 },
+  { rect: { x: 56, y: 6, w: 22, h: 50 }, side: "right", captionHeight: 10 },
+  { rect: { x: 34, y: 43, w: 20, h: 26 }, side: "top", captionHeight: 6 },
+  { rect: { x: 6, y: 46, w: 20, h: 37 }, side: "top", captionHeight: 6 },
+  { rect: { x: 36, y: 8, w: 14, h: 26 }, side: "top", captionHeight: 6 },
+  { rect: { x: 56, y: 62, w: 18, h: 24 }, side: "bottom", captionHeight: 7 },
+  { rect: { x: 78, y: 60, w: 18, h: 30 }, side: "bottom", captionHeight: 7 },
+  { rect: { x: 30, y: 78, w: 22, h: 16 }, side: "top", captionHeight: 6 },
+  { rect: { x: 82, y: 24, w: 14, h: 32 }, side: "top", captionHeight: 7 },
+  { rect: { x: 8, y: 91, w: 18, h: 8 }, side: "top", captionHeight: 6 },
+];
+
+/** Lámina de una sola pieza: pieza centrada y anotación al pie. */
+const SINGLE_SHEET_SLOT: SheetSlot = {
+  rect: { x: 30, y: 20, w: 40, h: 60 },
+  side: "bottom",
+  captionHeight: 7,
+};
+
+/**
+ * Caja de la anotación según el lado: mismo ancho y misma x que la imagen
+ * en top/bottom (dentro del hueco vertical reservado); a la derecha de la
+ * imagen (2% de separación) en right.
+ */
+function sheetCaptionRect(slot: SheetSlot): SheetRect {
+  const { rect, side, captionHeight } = slot;
+
+  if (side === "right") {
+    const x = rect.x + rect.w + 2;
+    return { x, y: rect.y, w: Math.min(18, 100 - x), h: captionHeight };
+  }
+
+  if (side === "top") {
+    return {
+      x: rect.x,
+      y: rect.y - captionHeight - 1,
+      w: rect.w,
+      h: captionHeight,
+    };
+  }
+
+  return {
+    x: rect.x,
+    y: rect.y + rect.h + 2,
+    w: rect.w,
+    h: captionHeight,
+  };
+}
+
+/**
+ * Línea guía de 1px: vertical (top/bottom) desde el borde de la caja al
+ * borde de la imagen, u horizontal (right) desde la imagen a la caja.
+ * El rect devuelto es el hueco a cruzar; su eje corto vale 0.
+ */
+function sheetLeaderRect(slot: SheetSlot, caption: SheetRect): SheetRect {
+  const { rect, side } = slot;
+
+  if (side === "right") {
+    return {
+      x: rect.x + rect.w,
+      y: caption.y + caption.h / 2,
+      w: caption.x - (rect.x + rect.w),
+      h: 0,
+    };
+  }
+
+  if (side === "top") {
+    return {
+      x: caption.x + caption.w / 2,
+      y: caption.y + caption.h,
+      w: 0,
+      h: rect.y - (caption.y + caption.h),
+    };
+  }
+
+  return {
+    x: caption.x + caption.w / 2,
+    y: rect.y + rect.h,
+    w: 0,
+    h: caption.y - (rect.y + rect.h),
+  };
+}
+
+/** Rect que contiene imagen y anotación: el botón-slot completo. */
+function sheetUnion(a: SheetRect, b: SheetRect): SheetRect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    w: Math.max(a.x + a.w, b.x + b.w) - x,
+    h: Math.max(a.y + a.h, b.y + b.h) - y,
+  };
+}
+
+type SheetStyle = CSSProperties & Record<string, string>;
+
+function pct(value: number, total: number): string {
+  return `${Number(((value / total) * 100).toFixed(3))}%`;
+}
+
+/**
+ * Posición de un rect hijo (en % del lienzo) expresada en % del rect padre.
+ * Se publica como variables CSS porque en móvil la misma pieza fluye en
+ * columna y solo a partir de md se posiciona en absoluto sobre el lienzo.
+ */
+function sheetVars(
+  prefix: string,
+  child: SheetRect,
+  base: SheetRect
+): Record<string, string> {
+  return {
+    [`--${prefix}-x`]: pct(child.x - base.x, base.w),
+    [`--${prefix}-y`]: pct(child.y - base.y, base.h),
+    [`--${prefix}-w`]: pct(child.w, base.w),
+    [`--${prefix}-h`]: pct(child.h, base.h),
+  };
+}
+
+/**
+ * Slot de la lámina anotada: un único `<button>` (imagen + anotación +
+ * línea guía) que selecciona la pieza. La anotación es el último comentario
+ * de la pieza; sin comentarios no hay caja ni línea y la pieza queda limpia.
+ */
+function AnnotatedSlot({
+  projectId,
+  item,
+  slot,
+  selected,
+  onSelect,
+}: {
+  projectId: string;
+  item: MoodboardItemData;
+  slot: SheetSlot;
+  selected: boolean;
+  onSelect?: (item: MoodboardItemData) => void;
+}) {
+  const caption = item.latest_comment?.trim() ?? "";
+  const captionRect = sheetCaptionRect(slot);
+  const leaderRect = sheetLeaderRect(slot, captionRect);
+  const base = caption ? sheetUnion(slot.rect, captionRect) : slot.rect;
+
+  const style: SheetStyle = {
+    "--slot-x": pct(base.x, 100),
+    "--slot-y": pct(base.y, 100),
+    "--slot-w": pct(base.w, 100),
+    "--slot-h": pct(base.h, 100),
+    ...sheetVars("media", slot.rect, base),
+    ...sheetVars("cap", captionRect, base),
+    ...sheetVars("lead", leaderRect, base),
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(item)}
+      aria-pressed={selected}
+      aria-label={`Comentarios de ${item.title}`}
+      style={style}
+      className="flex w-full flex-col gap-2 text-left md:absolute md:left-[var(--slot-x)] md:top-[var(--slot-y)] md:h-[var(--slot-h)] md:w-[var(--slot-w)] md:gap-0"
+    >
+      {caption && (
+        <>
+          <span className="type-editorial w-full text-[11px] italic leading-snug line-clamp-2 md:absolute md:left-[var(--cap-x)] md:top-[var(--cap-y)] md:h-[var(--cap-h)] md:w-[var(--cap-w)] md:overflow-hidden">
+            {caption}
+          </span>
+          <span
+            aria-hidden="true"
+            className={`hidden bg-foreground md:absolute md:left-[var(--lead-x)] md:top-[var(--lead-y)] ${
+              leaderRect.w === 0
+                ? "md:block md:h-[var(--lead-h)] md:w-px"
+                : "md:block md:h-px md:w-[var(--lead-w)]"
+            }`}
+          />
+        </>
+      )}
+
+      <span
+        className={`relative w-full overflow-hidden md:absolute md:left-[var(--media-x)] md:top-[var(--media-y)] md:h-[var(--media-h)] md:w-[var(--media-w)] ${
+          selected ? "outline outline-2 outline-foreground" : ""
+        }`}
+      >
+        <PieceFrame
+          projectId={projectId}
+          item={item}
+          selected={selected}
+          embedded
+        />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Lámina editorial anotada (estilo referencia VEER): collage orgánico sobre
+ * un lienzo 3:2 con imágenes de tamaños variados, cada una acompañada del
+ * último comentario en serif itálica y una línea guía de 1px. En móvil las
+ * piezas se apilan en una columna con la anotación en línea sobre la imagen.
+ */
+function AnnotatedSheet({
   projectId,
   items,
   selectedItemId,
@@ -109,25 +353,19 @@ function CollageGrid({
   selectedItemId?: string | null;
   onSelect?: (item: MoodboardItemData) => void;
 }) {
+  const slots = items.length === 1 ? [SINGLE_SHEET_SLOT] : SHEET_SLOTS;
+
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-12 md:gap-8">
+    <div className="grid grid-cols-1 gap-6 md:relative md:block md:aspect-[3/2] md:w-full">
       {items.map((item, index) => (
-        <div
+        <AnnotatedSlot
           key={item.id}
-          className={
-            COLLAGE_SPAN_CLASSES[
-              COLLAGE_SPANS[index % COLLAGE_SPANS.length]
-            ]
-          }
-        >
-          <PieceFrame
-            projectId={projectId}
-            item={item}
-            index={index}
-            selected={item.id === selectedItemId}
-            onSelect={onSelect}
-          />
-        </div>
+          projectId={projectId}
+          item={item}
+          slot={slots[index] ?? SHEET_SLOTS[index % SHEET_SLOTS.length]}
+          selected={item.id === selectedItemId}
+          onSelect={onSelect}
+        />
       ))}
     </div>
   );
@@ -246,7 +484,7 @@ export function MoodboardComposition({
       <div className="rule my-6 md:my-8" />
 
       {items.length === 0 ? null : layout === "editorial_collage" ? (
-        <CollageGrid
+        <AnnotatedSheet
           projectId={projectId}
           items={items}
           selectedItemId={selectedItemId}
