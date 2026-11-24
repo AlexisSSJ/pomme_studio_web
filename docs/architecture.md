@@ -695,12 +695,12 @@ usuario, brief y moodboard). Todos los paths usan el prefijo `/api/v1`.
 | `PATCH` | `/projects/{pid}/brief/items/{id}` | `CLIENT` con membresía `CLIENT` | Responder/actualizar la respuesta de una pregunta (proyecto `ACTIVE`). |
 | `POST` | `/projects/{pid}/brief/references` | Cualquier miembro | Subir un archivo de referencia (multipart; proyecto `ACTIVE`). |
 | `GET` | `/projects/{pid}/brief/items/{id}/file` | Cualquier miembro | Descargar el archivo de una referencia. |
-| `GET` | `/projects/{pid}/moodboard` | Cualquier miembro | Lista plana legacy de todas las piezas del proyecto (incluye `moodboard_id`) con `comment_count`. |
+| `GET` | `/projects/{pid}/moodboard` | Cualquier miembro | Lista plana legacy de todas las piezas del proyecto (incluye `moodboard_id`) con `comment_count` y `latest_comment`. |
 | `GET` | `/projects/{pid}/moodboard/boards` | Cualquier miembro | Listar boards ordenados por `position`/`created_at` con `item_count`. |
 | `POST` | `/projects/{pid}/moodboard/boards` | Equipo | Crear un board (título, nota curatorial, layout; `position` = `max+1`; proyecto `ACTIVE`). |
 | `PATCH` | `/projects/{pid}/moodboard/boards/{id}` | Equipo | Actualizar solo los campos enviados (título, nota, layout, posición; proyecto `ACTIVE`). |
 | `DELETE` | `/projects/{pid}/moodboard/boards/{id}` | Equipo | Eliminar board con sus piezas, comentarios y archivos (proyecto `ACTIVE`). |
-| `GET` | `/projects/{pid}/moodboard/boards/{id}/items` | Cualquier miembro | Listar las piezas del board con `comment_count`. |
+| `GET` | `/projects/{pid}/moodboard/boards/{id}/items` | Cualquier miembro | Listar las piezas del board con `comment_count` y `latest_comment`. |
 | `POST` | `/projects/{pid}/moodboard/boards/{id}/items` | Equipo | Subir una pieza al board (multipart, solo imágenes, máximo 10; `title` opcional con auto-relleno desde el archivo; proyecto `ACTIVE`). |
 | `DELETE` | `/projects/{pid}/moodboard/items/{id}` | Equipo | Eliminar pieza, sus comentarios y su archivo (proyecto `ACTIVE`). |
 | `GET` | `/projects/{pid}/moodboard/items/{id}/file` | Cualquier miembro | Descargar la imagen de una pieza. |
@@ -710,6 +710,12 @@ usuario, brief y moodboard). Todos los paths usan el prefijo `/api/v1`.
 
 El antiguo `POST /projects/{pid}/moodboard` (subida plana) se **eliminó**: toda
 subida debe dirigirse a un board concreto, por lo que esa ruta responde `405`.
+
+Ambos listados de piezas (`GET ""` y `GET /boards/{id}/items`) exponen
+`latest_comment`: el texto íntegro del comentario más reciente de cada pieza
+(`created_at` DESC, `id` DESC —el mismo desempate que el hilo—) o `null` si no
+tiene ninguno, para anotarlo en la lámina. Se resuelve con **una única consulta
+extra por listado** (sin N+1); el recorte visual del texto es CSS del cliente.
 
 Reglas de acceso específicas de Sprint 3:
 

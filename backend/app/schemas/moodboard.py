@@ -40,8 +40,8 @@ class MoodboardCommentRead(BaseModel):
 class MoodboardItemRead(BaseModel):
     """Public shape of a moodboard piece; never exposes the storage key.
 
-    The comment count is filled in by the list endpoints via
-    ``model_copy(update=...)``.
+    The comment count and the latest comment text are filled in by the list
+    endpoints via ``model_copy(update=...)``.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -58,6 +58,7 @@ class MoodboardItemRead(BaseModel):
     created_by: UUID
     created_at: datetime
     comment_count: int = 0
+    latest_comment: str | None = None
 
 
 class MoodboardCreate(BaseModel):

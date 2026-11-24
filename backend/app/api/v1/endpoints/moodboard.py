@@ -104,7 +104,7 @@ async def _item_reads(
     db: AsyncSession,
     items: list[MoodboardItem],
 ) -> list[MoodboardItemRead]:
-    """Attach the comment count to each item."""
+    """Attach the comment count and latest comment to each item."""
     if not items:
         return []
 
@@ -119,9 +119,25 @@ async def _item_reads(
     for item_id, count in count_rows.all():
         counts[item_id] = count
 
+    # One ordered query for every item; the first row seen per item is its
+    # most recent comment (no N+1 lookup).
+    latest: dict[UUID, str] = {}
+    latest_rows = await db.execute(
+        select(MoodboardComment)
+        .where(MoodboardComment.moodboard_item_id.in_(item_ids))
+        .order_by(
+            MoodboardComment.created_at.desc(), MoodboardComment.id.desc()
+        )
+    )
+    for comment in latest_rows.scalars().all():
+        latest.setdefault(comment.moodboard_item_id, comment.comment)
+
     return [
         MoodboardItemRead.model_validate(item).model_copy(
-            update={"comment_count": counts.get(item.id, 0)}
+            update={
+                "comment_count": counts.get(item.id, 0),
+                "latest_comment": latest.get(item.id),
+            }
         )
         for item in items
     ]

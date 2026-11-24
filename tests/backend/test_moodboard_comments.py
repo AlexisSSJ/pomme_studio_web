@@ -55,6 +55,18 @@ def add_comment(
     )
 
 
+def _moodboard_base(project_id: uuid.UUID) -> str:
+    """URL of a project's moodboard item lists."""
+    return f"/api/v1/projects/{project_id}/moodboard"
+
+
+def _items_by_id(client: TestClient, url: str, token: str) -> dict[str, dict]:
+    """GET an item list and index its payload by item id."""
+    response = client.get(url, headers=auth(token))
+    assert response.status_code == 200
+    return {item["id"]: item for item in response.json()}
+
+
 async def _comment_rows(
     db_session: AsyncSession, item_id: uuid.UUID
 ) -> list[MoodboardComment]:
@@ -658,3 +670,118 @@ async def test_delete_board_cascades_comments(
         .where(MoodboardComment.moodboard_item_id == item_id)
     )
     assert result.scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_latest_comment_in_item_lists(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    board = create_board(client, active_project.id, collaborator_token)
+    board_id = board.json()["id"]
+    piece = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_id
+    )
+    other_piece = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_id, sort_order=1
+    )
+    item_id = piece.json()["id"]
+
+    older = add_comment(
+        client, active_project.id, item_id, client_token, "Primera nota"
+    )
+    newer = add_comment(
+        client, active_project.id, item_id, client_token, "Segunda nota"
+    )
+    assert older.status_code == 201
+    assert newer.status_code == 201
+
+    # Force a clear time gap so "most recent" is deterministic.
+    older_row = await db_session.get(MoodboardComment, uuid.UUID(older.json()["id"]))
+    older_row.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    await db_session.commit()
+
+    base = _moodboard_base(active_project.id)
+    by_id = _items_by_id(client, base, client_token)
+    assert by_id[item_id]["latest_comment"] == "Segunda nota"
+    assert by_id[other_piece.json()["id"]]["latest_comment"] is None
+
+    by_id = _items_by_id(client, f"{base}/boards/{board_id}/items", client_token)
+    assert by_id[item_id]["latest_comment"] == "Segunda nota"
+    assert by_id[other_piece.json()["id"]]["latest_comment"] is None
+
+
+@pytest.mark.asyncio
+async def test_latest_comment_none_without_comments(
+    client: TestClient,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    board = create_board(client, active_project.id, collaborator_token)
+    board_id = board.json()["id"]
+    piece = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_id
+    )
+    item_id = piece.json()["id"]
+
+    base = _moodboard_base(active_project.id)
+    flat = client.get(base, headers=auth(client_token))
+    assert flat.status_code == 200
+    assert {item["id"]: item for item in flat.json()}[item_id]["latest_comment"] is None
+
+    board_items = client.get(
+        f"{base}/boards/{board_id}/items", headers=auth(client_token)
+    )
+    assert board_items.status_code == 200
+    assert (
+        {item["id"]: item for item in board_items.json()}[item_id]["latest_comment"]
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_latest_comment_updates_after_delete_of_latest(
+    client: TestClient,
+    db_session: AsyncSession,
+    media_storage: LocalStorage,
+    active_project: Project,
+    collaborator_token: str,
+    client_token: str,
+):
+    board = create_board(client, active_project.id, collaborator_token)
+    board_id = board.json()["id"]
+    piece = upload_piece(
+        client, active_project.id, collaborator_token, board_id=board_id
+    )
+    item_id = piece.json()["id"]
+
+    older = add_comment(client, active_project.id, item_id, client_token, "Antigua")
+    newer = add_comment(client, active_project.id, item_id, client_token, "Reciente")
+    assert older.status_code == 201
+    assert newer.status_code == 201
+
+    older_row = await db_session.get(MoodboardComment, uuid.UUID(older.json()["id"]))
+    older_row.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    await db_session.commit()
+
+    base = _moodboard_base(active_project.id)
+    assert (
+        _items_by_id(client, base, client_token)[item_id]["latest_comment"]
+        == "Reciente"
+    )
+
+    response = client.delete(
+        f"{comments_base(active_project.id, item_id)}/{newer.json()['id']}",
+        headers=auth(client_token),
+    )
+    assert response.status_code == 204
+
+    by_id = _items_by_id(client, base, client_token)
+    assert by_id[item_id]["latest_comment"] == "Antigua"
+    assert by_id[item_id]["comment_count"] == 1
