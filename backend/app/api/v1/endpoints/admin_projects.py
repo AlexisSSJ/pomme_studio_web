@@ -85,6 +85,19 @@ async def create_project(
         balance_paid=False,
     )
     db.add(project)
+    # The request session runs with autoflush=False. Flush the project row now
+    # so the memberships and seeded brief items added below can satisfy their
+    # foreign key to projects within this same transaction; otherwise the final
+    # commit inserts the children before the parent and raises a FK violation
+    # (surfaced as a 409 "Project creation conflict").
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Project creation conflict",
+        ) from exc
 
     if project.client_id:
         db.add(ProjectMember(project_id=project.id, user_id=project.client_id, assigned_role=ProjectRole.CLIENT))

@@ -578,6 +578,76 @@ async def test_template_items_belong_to_project(
 
 
 @pytest.mark.asyncio
+async def test_create_project_autoflush_off_inserts_parent_before_children():
+    """Regression: the production session runs with ``autoflush=False``.
+
+    ``create_project`` must flush the project row before the seeded brief items
+    (and memberships) reference it, otherwise the commit inserts the children
+    first and Postgres raises ``brief_items_project_id_fkey`` -> 409. The shared
+    fixtures use ``autoflush=True`` + SQLite without FK enforcement, so they do
+    not exercise this; here we force both production conditions.
+    """
+    from sqlalchemy import event
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from backend.app.db.base import Base
+    from backend.app.db.session import get_db
+    from backend.app.main import app
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _enable_sqlite_fk(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
+    )
+    async with factory() as session:
+        admin = User(
+            id=uuid.uuid4(), email="fk_admin@pomme.studio",
+            hashed_password="x", role=UserRole.SUPER_ADMIN, is_active=True,
+        )
+        session.add(admin)
+        await session.commit()
+
+        async def override_get_db():
+            yield session
+
+        app.dependency_overrides[get_db] = override_get_db
+        try:
+            with TestClient(app) as c:
+                token = create_access_token({"sub": str(admin.id)})
+                response = c.post(
+                    "/api/v1/admin/projects",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={
+                        "title": "Proyecto autoflush off",
+                        "scope_type": "branding",
+                        "included_rounds": 3,
+                        "remaining_rounds": 3,
+                    },
+                )
+                assert response.status_code == 201, response.text
+                project_id = response.json()["id"]
+
+                brief = c.get(
+                    f"/api/v1/projects/{project_id}/brief",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert brief.status_code == 200
+                assert len(brief.json()) >= 6
+        finally:
+            app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_seed_is_idempotent(db_session: AsyncSession, lead_designer_user: User):
     from backend.app.services.brief_templates import seed_brief_from_template
 
