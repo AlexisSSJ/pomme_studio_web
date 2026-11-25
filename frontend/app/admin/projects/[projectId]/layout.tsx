@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import ProjectSidebar from "@/components/ProjectSidebar";
+import PageTransition from "@/components/PageTransition";
 
 interface ProjectSummary {
   id: string;
@@ -40,9 +41,9 @@ export default function AdminProjectLayout({
   const items = [
     { href: base, label: "Resumen" },
     { href: `${base}/brief`, label: "Brief" },
-    { href: `${base}/moodboard`, label: "Moodboard" },
     { href: `${base}/etapas`, label: "Etapas" },
     { href: `${base}/especificaciones`, label: "Especificaciones" },
+    { href: `${base}/assets`, label: "Librería de Assets" },
   ];
 
   return (
@@ -53,7 +54,9 @@ export default function AdminProjectLayout({
         status={project?.status}
         items={items}
       />
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1">
+        <PageTransition>{children}</PageTransition>
+      </div>
     </div>
   );
 }

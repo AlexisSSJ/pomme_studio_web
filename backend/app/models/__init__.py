@@ -31,6 +31,13 @@ from .brief_item import (
     BriefStatus,
 )
 from .brief_item_image import BriefItemImage
+from .brief_report import BriefReport, BriefReportStatus
+from .project_asset import (
+    AssetCategory,
+    AssetVersion,
+    AssetVisibility,
+    ProjectAsset,
+)
 from .moodboard import Moodboard, MoodboardLayout
 from .moodboard_item import MoodboardItem
 from .moodboard_comment import MoodboardComment
@@ -75,6 +82,12 @@ __all__ = [
     "BriefItemStatus",
     "BriefItemType",
     "BriefStatus",
+    "BriefReport",
+    "BriefReportStatus",
+    "ProjectAsset",
+    "AssetVersion",
+    "AssetCategory",
+    "AssetVisibility",
     "Moodboard",
     "MoodboardLayout",
     "MoodboardItem",

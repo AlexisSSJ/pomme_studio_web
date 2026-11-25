@@ -100,7 +100,6 @@ export default function AdminProjectOverviewPage() {
         const data: unknown = await resMembers.json().catch(() => null);
         setMembers(Array.isArray(data) ? (data as ProjectMember[]) : []);
       } else if (resMembers) {
-        // 403 for collaborators who are not part of the project team.
         const data: unknown = await resMembers.json().catch(() => ({}));
         teamLoadError = extractDetail(
           data,
@@ -148,7 +147,7 @@ export default function AdminProjectOverviewPage() {
         { method: "POST" }
       );
       if (res.ok) {
-        setMessage("Proyecto activado");
+        setMessage("Proyecto activado.");
         load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
@@ -170,7 +169,7 @@ export default function AdminProjectOverviewPage() {
         { method: "POST" }
       );
       if (res.ok) {
-        setMessage("Pago final validado");
+        setMessage("Pago final validado.");
         load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
@@ -195,7 +194,7 @@ export default function AdminProjectOverviewPage() {
         }
       );
       if (res.ok) {
-        setMessage("Cliente asignado correctamente");
+        setMessage("Cliente asignado correctamente.");
         load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
@@ -210,7 +209,7 @@ export default function AdminProjectOverviewPage() {
 
   async function addMember() {
     if (!selectedTeamUserId) {
-      setTeamError("Selecciona un miembro del equipo para añadirlo");
+      setTeamError("Selecciona un miembro del equipo para añadirlo.");
       return;
     }
     setAddingMember(true);
@@ -227,7 +226,7 @@ export default function AdminProjectOverviewPage() {
         }
       );
       if (res.ok) {
-        setMessage("Colaborador añadido al proyecto");
+        setMessage("Colaborador añadido al proyecto.");
         setSelectedTeamUserId("");
         await load();
       } else {
@@ -249,9 +248,8 @@ export default function AdminProjectOverviewPage() {
         `/api/v1/admin/projects/${projectId}/members/${member.user_id}`,
         { method: "DELETE" }
       );
-      // 204 No Content: there is no JSON body to parse.
       if (res.status === 204 || res.ok) {
-        setMessage("Miembro quitado del proyecto");
+        setMessage("Miembro quitado del proyecto.");
         await load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
@@ -277,7 +275,7 @@ export default function AdminProjectOverviewPage() {
         }
       );
       if (res.ok) {
-        setMessage("Responsable actualizado");
+        setMessage("Responsable actualizado.");
         await load();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
@@ -291,59 +289,24 @@ export default function AdminProjectOverviewPage() {
   }
 
   return (
-    <section className="brief-editorial">
-      {/* Editorial ficha header: micro-label and title over a rule. */}
-      <div className="mb-8 border-b border-stone-900/15 pb-6">
-        <p className="type-tech text-stone-600">Resumen del proyecto</p>
-        <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
-          {project?.title ?? "Proyecto"}
-        </h1>
-      </div>
+    <section className="brief-editorial space-y-8">
+      {/* Header with Primary Project Action */}
+      <div className="flex flex-col gap-5 border-b border-stone-900/15 pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="type-tech text-stone-500">01 · Resumen del proyecto</p>
+          <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
+            {project?.title ?? "Proyecto"}
+          </h1>
+        </div>
 
-      {message && (
-        <p className="type-ui mb-4 rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
-          {message}
-        </p>
-      )}
-
-      {loading && !project ? (
-        <p className="type-ui mt-4 text-sm text-stone-600">Cargando…</p>
-      ) : project ? (
-        <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-stone-900/10 bg-surface/75 p-5">
-              <p className="type-tech text-stone-600">01 · Estado</p>
-              <p className="type-editorial mt-2 text-lg tabular-nums text-stone-900">
-                {project.status}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-stone-900/10 bg-surface/75 p-5">
-              <p className="type-tech text-stone-600">02 · Scope</p>
-              <p className="type-editorial mt-2 text-lg tabular-nums text-stone-900">
-                {project.scope_type || "sin scope"}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-stone-900/10 bg-surface/75 p-5">
-              <p className="type-tech text-stone-600">03 · Rondas de cambios</p>
-              <p className="type-editorial mt-2 text-lg tabular-nums text-stone-900">
-                {project.remaining_rounds}/{project.included_rounds}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-stone-900/10 bg-surface/75 p-5">
-              <p className="type-tech text-stone-600">04 · Pago final</p>
-              <p className="type-editorial mt-2 text-lg tabular-nums text-stone-900">
-                {project.balance_paid ? "PAGADO" : "PENDIENTE"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-3">
+        {project && (
+          <div className="flex flex-wrap items-center gap-2.5">
             {project.status === "draft" && (
               <button
                 type="button"
                 onClick={activateProject}
                 disabled={activating}
-                className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="type-ui min-h-[44px] shrink-0 whitespace-nowrap rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors hover:bg-stone-800 disabled:opacity-50"
               >
                 {activating ? "Activando…" : "Activar proyecto ↗"}
               </button>
@@ -353,122 +316,99 @@ export default function AdminProjectOverviewPage() {
                 type="button"
                 onClick={validateFinalPayment}
                 disabled={validating}
-                className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="type-ui min-h-[44px] shrink-0 whitespace-nowrap rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors hover:bg-stone-800 disabled:opacity-50"
               >
                 {validating ? "Validando…" : "Validar pago final ↗"}
               </button>
             )}
           </div>
+        )}
+      </div>
 
-          <div className="mt-6 rounded-2xl border border-stone-900/10 bg-surface/75 p-5 md:p-6">
-            <p className="type-tech text-stone-600">Cliente del proyecto</p>
-            <label className="mt-3 flex flex-col gap-1">
-              <span className="type-ui text-sm text-stone-600">
-                Cliente asignado
-              </span>
-              <select
-                value={project.client_id || ""}
-                onChange={(event) => assignClient(event.target.value)}
-                disabled={assigning}
-                className="type-ui min-h-[44px] w-full rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900 sm:w-auto sm:min-w-[320px] disabled:cursor-not-allowed disabled:opacity-50"
+      {message && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-stone-900/15 bg-surface/75 px-4 py-3">
+          <p className="type-ui text-sm text-stone-800">{message}</p>
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            aria-label="Cerrar mensaje"
+            className="type-tech text-stone-500 hover:text-stone-900"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {loading && !project ? (
+        <p className="type-ui text-sm text-stone-600">Cargando proyecto…</p>
+      ) : project ? (
+        <>
+          {/* Single-Elevation Horizontal KPI Strip */}
+          <div className="grid grid-cols-2 divide-y divide-stone-900/10 rounded-2xl border border-stone-900/15 bg-background shadow-editorial sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+            <div className="p-5 md:p-6">
+              <p className="type-tech text-stone-500">Estado</p>
+              <p className="type-editorial mt-1.5 text-xl capitalize text-stone-900">
+                {project.status}
+              </p>
+            </div>
+            <div className="p-5 md:p-6">
+              <p className="type-tech text-stone-500">Alcance</p>
+              <p className="type-editorial mt-1.5 text-xl capitalize text-stone-900">
+                {project.scope_type || "Sin scope"}
+              </p>
+            </div>
+            <div className="p-5 md:p-6">
+              <p className="type-tech text-stone-500">Rondas disponibles</p>
+              <p className="type-title mt-1.5 text-2xl tabular-nums text-stone-900">
+                {project.remaining_rounds}/{project.included_rounds}
+              </p>
+            </div>
+            <div className="p-5 md:p-6">
+              <p className="type-tech text-stone-500">Pago final</p>
+              <p
+                className={`type-editorial mt-1.5 text-xl ${
+                  project.balance_paid ? "text-[#44544A]" : "text-stone-900"
+                }`}
               >
-                <option value="">-- Sin cliente asignado --</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.full_name
-                      ? `${client.full_name} (${client.email})`
-                      : client.email}
-                  </option>
-                ))}
-              </select>
-            </label>
+                {project.balance_paid ? "Pagado" : "Pendiente"}
+              </p>
+            </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-stone-900/10 bg-surface/75 p-5 md:p-6">
-            <h2 className="type-subtitle-caps text-xl text-stone-900">
-              Equipo del proyecto
-            </h2>
+          {/* Primary Assignments: Client & Lead Designer side-by-side */}
+          <div className="rounded-2xl border border-stone-900/15 bg-background p-6 shadow-editorial md:p-7">
+            <p className="type-tech text-stone-500">Asignaciones principales</p>
+            <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="type-ui text-xs text-stone-600">
+                  Cliente del proyecto
+                </span>
+                <select
+                  value={project.client_id || ""}
+                  onChange={(event) => assignClient(event.target.value)}
+                  disabled={assigning}
+                  className="type-ui min-h-[44px] w-full rounded-lg border border-stone-900/15 bg-background px-3.5 text-sm text-stone-900 focus:border-stone-900/45 disabled:opacity-50"
+                >
+                  <option value="">-- Sin cliente asignado --</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.full_name
+                        ? `${client.full_name} (${client.email})`
+                        : client.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            {teamError && (
-              <p className="type-ui mt-3 rounded-xl border border-stone-900/15 bg-background/60 p-3 text-sm text-stone-700">
-                {teamError}
-              </p>
-            )}
-
-            {!teamError && (
-              <div className="mt-4 flex flex-col gap-3">
-                {members.length === 0 ? (
-                  <p className="type-editorial text-[15px] italic text-stone-500">
-                    Todavía no hay miembros en el equipo de este proyecto.
-                  </p>
-                ) : (
-                  members.map((member, index) => {
-                    const isClient = member.assigned_role === "CLIENT";
-                    const isAssignedLead =
-                      member.assigned_role === "LEAD_DESIGNER" &&
-                      member.user_id === project.lead_designer_id;
-                    const isRemoving = removingMemberId === member.user_id;
-
-                    return (
-                      <div
-                        key={member.id}
-                        className="flex flex-col gap-3 rounded-xl border border-stone-900/10 bg-background/60 p-4 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="flex min-w-0 items-start gap-3">
-                          <span className="type-tech w-8 shrink-0 pt-1 text-stone-500">
-                            {String(index + 1).padStart(2, "0")}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="type-editorial text-[15px] text-stone-900">
-                              {member.full_name || member.email}
-                            </p>
-                            {member.full_name && (
-                              <p className="type-editorial truncate text-sm text-stone-600">
-                                {member.email}
-                              </p>
-                            )}
-                            <p className="type-tech mt-1 text-stone-600">
-                              {ROLE_LABELS[member.assigned_role]}
-                            </p>
-                          </div>
-                        </div>
-
-                        {isClient ? (
-                          <span className="type-editorial shrink-0 text-[11px] italic text-stone-500">
-                            Se cambia desde Cliente del proyecto
-                          </span>
-                        ) : isAssignedLead ? (
-                          <span className="type-editorial shrink-0 text-[11px] italic text-stone-500">
-                            Se reasigna desde Responsable
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => removeMember(member)}
-                            disabled={removingMemberId !== null}
-                            className="type-ui min-h-[44px] shrink-0 rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {isRemoving ? "Quitando…" : "Quitar ✕"}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
-
-            <div className="mt-5 border-t border-stone-900/10 pt-5">
-              <p className="type-tech text-stone-600">Responsable</p>
-              <label className="mt-3 flex flex-col gap-1">
-                <span className="type-ui text-sm text-stone-600">
-                  Lead designer del proyecto
+              <label className="flex flex-col gap-1.5">
+                <span className="type-ui text-xs text-stone-600">
+                  Lead designer responsable
                 </span>
                 <select
                   value={project.lead_designer_id || ""}
                   onChange={(event) => assignLead(event.target.value)}
                   disabled={assigningLead}
-                  className="type-ui min-h-[44px] w-full rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900 sm:w-auto sm:min-w-[320px] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="type-ui min-h-[44px] w-full rounded-lg border border-stone-900/15 bg-background px-3.5 text-sm text-stone-900 focus:border-stone-900/45 disabled:opacity-50"
                 >
                   <option value="">-- Sin responsable asignado --</option>
                   {currentLeadMissing && project.lead_designer_id && (
@@ -486,41 +426,115 @@ export default function AdminProjectOverviewPage() {
                 </select>
               </label>
             </div>
+          </div>
 
-            <div className="mt-5 border-t border-stone-900/10 pt-5">
-              <p className="type-tech text-stone-600">Añadir colaborador</p>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
-                <label className="flex flex-1 flex-col gap-1">
-                  <span className="type-ui text-sm text-stone-600">
-                    Miembro del equipo
-                  </span>
-                  <select
-                    value={selectedTeamUserId}
-                    onChange={(event) =>
-                      setSelectedTeamUserId(event.target.value)
-                    }
-                    disabled={addingMember}
-                    className="type-ui min-h-[44px] w-full rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <option value="">-- Selecciona un miembro del equipo --</option>
-                    {availableTeamUsers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.full_name
-                          ? `${user.full_name} (${user.email})`
-                          : user.email}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  onClick={addMember}
-                  disabled={addingMember || !selectedTeamUserId}
-                  className="type-ui min-h-[44px] shrink-0 rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {addingMember ? "Añadiendo…" : "Añadir colaborador ↗"}
-                </button>
+          {/* Project Team Directory (Hairline List, Zero Nested Cards) */}
+          <div className="rounded-2xl border border-stone-900/15 bg-background p-6 shadow-editorial md:p-7">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-stone-900/10 pb-4">
+              <div>
+                <p className="type-tech text-stone-500">Colaboración</p>
+                <h2 className="type-title mt-1 text-xl text-stone-900">
+                  Equipo del proyecto
+                </h2>
               </div>
+              <span className="type-tech text-stone-500">
+                {members.length} integrante{members.length === 1 ? "" : "s"}
+              </span>
+            </div>
+
+            {teamError && (
+              <p className="type-ui mt-4 rounded-xl border border-stone-900/15 bg-surface/65 px-4 py-3 text-sm text-stone-700">
+                {teamError}
+              </p>
+            )}
+
+            {!teamError && (
+              <div className="divide-y divide-stone-900/10">
+                {members.length === 0 ? (
+                  <p className="type-editorial py-5 text-[15px] italic text-stone-500">
+                    Todavía no hay miembros en el equipo de este proyecto.
+                  </p>
+                ) : (
+                  members.map((member, index) => {
+                    const isClient = member.assigned_role === "CLIENT";
+                    const isAssignedLead =
+                      member.assigned_role === "LEAD_DESIGNER" &&
+                      member.user_id === project.lead_designer_id;
+                    const isRemoving = removingMemberId === member.user_id;
+
+                    return (
+                      <div
+                        key={member.id}
+                        className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex min-w-0 items-baseline gap-4">
+                          <span className="type-tech w-6 shrink-0 text-stone-400">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="type-editorial text-base text-stone-900">
+                              {member.full_name || member.email}
+                            </p>
+                            <p className="type-tech mt-0.5 truncate text-stone-500">
+                              {ROLE_LABELS[member.assigned_role]}
+                              {member.full_name ? ` · ${member.email}` : ""}
+                            </p>
+                          </div>
+                        </div>
+
+                        {isClient ? (
+                          <span className="type-editorial shrink-0 text-xs italic text-stone-400">
+                            Gestionado en asignaciones
+                          </span>
+                        ) : isAssignedLead ? (
+                          <span className="type-editorial shrink-0 text-xs italic text-stone-400">
+                            Responsable del proyecto
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeMember(member)}
+                            disabled={removingMemberId !== null}
+                            className="type-ui min-h-[40px] shrink-0 whitespace-nowrap rounded-lg border border-stone-900/15 px-3.5 py-2 text-xs text-stone-600 transition-colors hover:border-stone-900 hover:bg-stone-900 hover:text-background disabled:opacity-50"
+                          >
+                            {isRemoving ? "Quitando…" : "Quitar"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* Inline Add Collaborator */}
+            <div className="mt-4 flex flex-col gap-3 border-t border-stone-900/10 pt-5 sm:flex-row sm:items-center">
+              <select
+                value={selectedTeamUserId}
+                onChange={(event) => setSelectedTeamUserId(event.target.value)}
+                disabled={addingMember}
+                aria-label="Seleccionar miembro del equipo para añadir"
+                className="type-ui min-h-[44px] flex-1 rounded-lg border border-stone-900/15 bg-surface/40 px-3.5 text-sm text-stone-900 focus:border-stone-900/45 focus:bg-background disabled:opacity-50"
+              >
+                <option value="">
+                  Añadir colaborador del equipo interno…
+                </option>
+                {availableTeamUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name
+                      ? `${user.full_name} (${user.email})`
+                      : user.email}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={addMember}
+                disabled={addingMember || !selectedTeamUserId}
+                className="type-ui min-h-[44px] shrink-0 whitespace-nowrap rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors hover:bg-stone-800 disabled:opacity-50"
+              >
+                {addingMember ? "Añadiendo…" : "+ Añadir colaborador"}
+              </button>
             </div>
           </div>
         </>

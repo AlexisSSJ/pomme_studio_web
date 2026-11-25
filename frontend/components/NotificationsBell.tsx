@@ -7,6 +7,9 @@ import { apiFetch, extractDetail } from "@/lib/api";
 interface NotificationPayload {
   project_id?: string | null;
   project_title?: string | null;
+  stage_name?: string | null;
+  deliverable_title?: string | null;
+  request_number?: number | null;
 }
 
 interface AppNotification {
@@ -18,10 +21,40 @@ interface AppNotification {
   created_at: string;
 }
 
+const EVENT_LABELS: Record<string, string> = {
+  "brief.sent": "BRIEF ENVIADO",
+  "brief.completed": "BRIEF COMPLETADO",
+  "brief.submitted_for_review": "BRIEF ENVIADO A REVISIÓN",
+  "stage.approved": "ENTREGABLES ACEPTADOS · ETAPA APROBADA",
+  "stage.deleted": "ETAPA ELIMINADA",
+  "stage.changes_requested": "NUEVA SOLICITUD DE CAMBIOS",
+  "stage.changes_updated": "CAMBIOS AMPLIADOS POR CLIENTE",
+  "stage.changes_work_started": "EQUIPO INICIÓ AJUSTES DE CAMBIOS",
+  "stage.changes_delivered": "ENTREGABLE ACTUALIZADO PUBLICADO",
+  "deliverable.published": "ENTREGABLE PUBLICADO",
+  "deliverable.approved": "ENTREGABLE APROBADO",
+};
+
 function formatEvent(eventType: string): string {
-  return eventType === "brief.completed"
-    ? "BRIEF COMPLETADO"
-    : (eventType ?? "").toUpperCase();
+  return EVENT_LABELS[eventType] ?? (eventType ?? "").toUpperCase();
+}
+
+function resolveNotificationTarget(
+  eventType: string,
+  projectId: string,
+  role?: string | null
+): string {
+  const base = role === "CLIENT" ? "/portal/projects" : "/admin/projects";
+  if (
+    eventType.startsWith("stage.") ||
+    eventType.startsWith("deliverable.")
+  ) {
+    return `${base}/${projectId}/etapas`;
+  }
+  if (eventType.startsWith("asset.")) {
+    return `${base}/${projectId}/assets`;
+  }
+  return `${base}/${projectId}/brief`;
 }
 
 function formatDate(value: string): string {
@@ -54,7 +87,9 @@ export default function NotificationsBell({
       const res = await apiFetch("/api/v1/notifications?unread_only=true");
       if (res.ok) {
         const data: unknown = await res.json();
-        setNotifications(Array.isArray(data) ? (data as AppNotification[]) : []);
+        setNotifications(
+          Array.isArray(data) ? (data as AppNotification[]) : []
+        );
       }
     } catch {
       // A transient failure must not break the layout; the next window focus retries.
@@ -102,12 +137,13 @@ export default function NotificationsBell({
         setMessage(extractDetail(data, "No se pudo marcar la notificación"));
         return;
       }
-      setNotifications((prev) => prev.filter((candidate) => candidate.id !== item.id));
+      setNotifications((prev) =>
+        prev.filter((candidate) => candidate.id !== item.id)
+      );
       setOpen(false);
       const projectId = item.payload?.project_id ?? item.project_id;
       if (projectId) {
-        const base = role === "CLIENT" ? "/portal/projects" : "/admin/projects";
-        router.push(`${base}/${projectId}/brief`);
+        router.push(resolveNotificationTarget(item.event_type, projectId, role));
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -127,7 +163,9 @@ export default function NotificationsBell({
         setNotifications([]);
       } else {
         const data: unknown = await res.json().catch(() => ({}));
-        setMessage(extractDetail(data, "No se pudieron marcar las notificaciones"));
+        setMessage(
+          extractDetail(data, "No se pudieron marcar las notificaciones")
+        );
       }
     } catch {
       setMessage("Error de conexión con el servidor");
@@ -146,7 +184,7 @@ export default function NotificationsBell({
         aria-expanded={open}
         aria-controls="notifications-panel"
         onClick={() => setOpen((value) => !value)}
-        className="relative flex min-h-[44px] min-w-[44px] items-center justify-center border border-border bg-background p-2"
+        className="relative flex min-h-[44px] min-w-[44px] items-center justify-center border border-border bg-background p-2 transition-[background-color,color,transform] duration-150 hover:bg-surface active:scale-95"
       >
         <svg
           width="22"
@@ -177,7 +215,7 @@ export default function NotificationsBell({
           id="notifications-panel"
           role="region"
           aria-label="Notificaciones"
-          className="absolute right-0 top-[calc(100%+8px)] z-40 w-[calc(100vw-2rem)] max-w-[360px] border border-border bg-background"
+          className="animate-popover-enter absolute right-0 top-[calc(100%+8px)] z-40 w-[calc(100vw-2rem)] max-w-[360px] origin-top-right border border-border bg-background"
         >
           <div className="flex items-center justify-between gap-2 border-b border-border p-3">
             <p className="label-mono">
@@ -213,11 +251,23 @@ export default function NotificationsBell({
                     onClick={() => handleNotification(item)}
                     className="type-ui flex min-h-[44px] w-full flex-col gap-1 p-3 text-left text-sm disabled:opacity-60 sm:hover:bg-surface"
                   >
-                    <span className="label-mono">{formatEvent(item.event_type)}</span>
+                    <span className="label-mono">
+                      {formatEvent(item.event_type)}
+                    </span>
                     <span className="text-sm font-semibold">
                       {item.payload?.project_title ?? "Proyecto"}
                     </span>
-                    <span className="label-mono">{formatDate(item.created_at)}</span>
+                    {item.payload?.stage_name && (
+                      <span className="text-xs text-stone-700">
+                        Etapa: {item.payload.stage_name}
+                        {item.payload.request_number
+                          ? ` · Ronda #${item.payload.request_number}`
+                          : ""}
+                      </span>
+                    )}
+                    <span className="label-mono">
+                      {formatDate(item.created_at)}
+                    </span>
                   </button>
                 </li>
               ))}

@@ -40,7 +40,7 @@ export default function HomePage() {
       <section
         id="estudio"
         aria-labelledby="hero-title"
-        className="grid-brutal grid-brutal--2 mt-8 scroll-mt-20 md:scroll-mt-8"
+        className="animate-page-enter grid-brutal grid-brutal--2 mt-8 scroll-mt-20 md:scroll-mt-8"
       >
         <div className="flex flex-col justify-between gap-8 p-5 sm:p-8">
           <p className="label-mono">01 / Estudio</p>
@@ -91,7 +91,10 @@ export default function HomePage() {
               ['100%', 'Diseño documentado'],
               ['1:1', 'Acompañamiento'],
             ].map(([value, label]) => (
-              <div key={label} className="bg-background p-5 sm:p-6">
+              <div
+                key={label}
+                className="bg-background p-5 transition-colors duration-200 hover:bg-surface sm:p-6"
+              >
                 <dt className="label-mono opacity-60">{label}</dt>
                 <dd className="type-tech mt-2 text-2xl">{value}</dd>
               </div>
@@ -114,9 +117,11 @@ export default function HomePage() {
             <article
               key={service.index}
               id={service.anchor}
-              className="flex min-h-[220px] flex-col justify-between gap-6 p-5 scroll-mt-20 md:scroll-mt-8"
+              className="group flex min-h-[220px] flex-col justify-between gap-6 p-5 transition-colors duration-200 hover:bg-surface scroll-mt-20 md:scroll-mt-8"
             >
-              <p className="label-mono">{service.index}</p>
+              <p className="label-mono transition-transform duration-200 group-hover:translate-x-0.5">
+                {service.index}
+              </p>
               <div className="flex flex-col gap-3">
                 <h3 className="type-subtitle-caps text-lg leading-tight">
                   {service.title}

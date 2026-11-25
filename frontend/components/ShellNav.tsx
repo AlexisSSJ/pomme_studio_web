@@ -157,7 +157,7 @@ export default function ShellNav({
           role="dialog"
           aria-modal="true"
           aria-label="Menú"
-          className="fixed inset-0 z-50 flex flex-col overflow-y-auto bg-background px-4 pb-10 pt-4 md:hidden"
+          className="animate-panel-enter fixed inset-0 z-50 flex flex-col overflow-y-auto bg-background px-4 pb-10 pt-4 md:hidden"
         >
           <div className="flex items-start justify-between gap-4">
             <div>

@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     TRANSCRIPTION_API_URL: str = "https://api.openai.com/v1/audio/transcriptions"
     TRANSCRIPTION_MODEL: str = "whisper-1"
 
+    # --- AI brief report generation (Gemini) -------------------------------
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+
     # --- studio schedule ---------------------------------------------------
     # IANA timezone used when displaying studio business hours to clients.
     STUDIO_TIMEZONE: str = "America/Mexico_City"

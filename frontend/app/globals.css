@@ -29,6 +29,7 @@
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    scroll-behavior: smooth;
   }
 
   html,
@@ -77,6 +78,112 @@
   }
 }
 
+/* =========================================================================
+ * Sistema de movimiento arquitectónico (solo propiedades del compositor)
+ * Curva editorial: salida ágil, asentamiento sereno.
+ * ========================================================================= */
+:root {
+  --ease-editorial: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-tactile: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes pomme-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes pomme-panel-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes pomme-slide-down {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes pomme-backdrop-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pomme-modal-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes pomme-drawer-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(28px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes pomme-popover-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes pomme-lightbox-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pomme-tab-indicator {
+  from {
+    opacity: 0.4;
+    transform: scaleX(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
 @layer components {
   /*
    * Retícula brutalista: contenedor con fondo tinta y gap de 1px.
@@ -109,6 +216,89 @@
     .grid-brutal--4 {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
+  }
+
+  /* Clases de transición y entrada fluida */
+  .animate-page-enter {
+    animation: pomme-page-enter 280ms var(--ease-editorial) both;
+  }
+
+  .animate-panel-enter {
+    animation: pomme-panel-enter 220ms var(--ease-editorial) both;
+  }
+
+  .animate-slide-down {
+    animation: pomme-slide-down 200ms var(--ease-editorial) both;
+  }
+
+  .animate-backdrop-enter {
+    animation: pomme-backdrop-enter 180ms ease-out both;
+  }
+
+  .animate-modal-enter {
+    animation: pomme-modal-enter 240ms var(--ease-editorial) both;
+  }
+
+  .animate-drawer-enter {
+    animation: pomme-drawer-enter 260ms var(--ease-editorial) both;
+  }
+
+  .animate-popover-enter {
+    animation: pomme-popover-enter 190ms var(--ease-editorial) both;
+  }
+
+  .animate-lightbox-enter {
+    animation: pomme-lightbox-enter 220ms var(--ease-editorial) both;
+  }
+
+  .animate-tab-indicator {
+    transform-origin: center;
+    animation: pomme-tab-indicator 210ms var(--ease-editorial) both;
+  }
+
+  .animate-stagger {
+    animation: pomme-panel-enter 260ms var(--ease-editorial) both;
+    animation-delay: calc(var(--stagger-index, 0) * 35ms);
+  }
+
+  /* Interacción táctil para tarjetas y filas */
+  .interactive-card {
+    transition:
+      transform 180ms var(--ease-editorial),
+      border-color 180ms ease,
+      background-color 180ms ease,
+      box-shadow 200ms ease,
+      opacity 180ms ease;
+  }
+
+  .interactive-card:hover {
+    transform: translate3d(0, -1.5px, 0);
+  }
+
+  .interactive-card:active {
+    transform: translate3d(0, 0, 0) scale(0.992);
+  }
+
+  .arrow-glide {
+    display: inline-block;
+    transition: transform 180ms var(--ease-editorial);
+  }
+
+  .group:hover .arrow-glide,
+  a:hover .arrow-glide,
+  button:hover .arrow-glide {
+    transform: translate3d(2px, -2px, 0);
+  }
+
+  .arrow-glide-x {
+    display: inline-block;
+    transition: transform 180ms var(--ease-editorial);
+  }
+
+  .group:hover .arrow-glide-x,
+  a:hover .arrow-glide-x,
+  button:hover .arrow-glide-x {
+    transform: translate3d(3px, 0, 0);
   }
 
   /*
@@ -202,6 +392,30 @@
     box-shadow: 0 6px 24px -12px rgba(28, 25, 23, 0.12) !important;
   }
 
+  /* Respuesta táctil uniforme en controles editoriales */
+  .brief-editorial button:not(:disabled) {
+    transition:
+      transform 140ms var(--ease-tactile),
+      background-color 180ms ease,
+      color 180ms ease,
+      border-color 180ms ease,
+      opacity 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .brief-editorial button:not(:disabled):active {
+    transform: scale(0.985);
+  }
+
+  .brief-editorial input,
+  .brief-editorial select,
+  .brief-editorial textarea {
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease,
+      color 160ms ease;
+  }
+
   /* Seek de la nota de voz: línea fina piedra con punto de posición. */
   .brief-editorial .voice-note-seek {
     -webkit-appearance: none;
@@ -228,6 +442,11 @@
     width: 12px;
     border-radius: 9999px !important;
     background: #292524;
+    transition: transform 140ms var(--ease-tactile);
+  }
+
+  .brief-editorial .voice-note-seek::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
   }
 
   .brief-editorial .voice-note-seek::-moz-range-track {
@@ -245,6 +464,7 @@
     border: none;
     border-radius: 9999px !important;
     background: #292524;
+    transition: transform 140ms var(--ease-tactile);
   }
 
   .rule {
@@ -267,8 +487,9 @@
     text-transform: none;
     cursor: pointer;
     transition:
-      background-color 120ms linear,
-      color 120ms linear;
+      background-color 180ms var(--ease-editorial),
+      color 180ms var(--ease-editorial),
+      transform 140ms var(--ease-tactile);
   }
 
   /* Variante sobre superficie secundaria; el hover la invierte igual. */
@@ -282,10 +503,14 @@
     color: var(--background);
   }
 
+  .btn-brutal:active {
+    transform: scale(0.985);
+  }
+
   .btn-brutal__arrow {
     font-size: 14px;
     line-height: 1;
-    transition: transform 120ms linear;
+    transition: transform 180ms var(--ease-editorial);
   }
 
   .btn-brutal:hover .btn-brutal__arrow,
@@ -295,13 +520,47 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-page-enter,
+  .animate-panel-enter,
+  .animate-slide-down,
+  .animate-backdrop-enter,
+  .animate-modal-enter,
+  .animate-drawer-enter,
+  .animate-popover-enter,
+  .animate-lightbox-enter,
+  .animate-tab-indicator,
+  .animate-stagger {
+    animation: none !important;
+  }
+
   .btn-brutal,
-  .btn-brutal__arrow {
-    transition: none;
+  .btn-brutal__arrow,
+  .interactive-card,
+  .arrow-glide,
+  .arrow-glide-x,
+  .brief-editorial button,
+  .brief-editorial input,
+  .brief-editorial select,
+  .brief-editorial textarea {
+    transition: none !important;
   }
 
   .btn-brutal:hover .btn-brutal__arrow,
-  .btn-brutal:focus-visible .btn-brutal__arrow {
-    transform: none;
+  .btn-brutal:focus-visible .btn-brutal__arrow,
+  .btn-brutal:active,
+  .interactive-card:hover,
+  .interactive-card:active,
+  .group:hover .arrow-glide,
+  a:hover .arrow-glide,
+  button:hover .arrow-glide,
+  .group:hover .arrow-glide-x,
+  a:hover .arrow-glide-x,
+  button:hover .arrow-glide-x,
+  .brief-editorial button:active {
+    transform: none !important;
   }
 }

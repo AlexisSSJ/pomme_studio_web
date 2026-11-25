@@ -201,153 +201,159 @@ export default function MeetingScheduler({
   }
 
   return (
-    <div className="flex flex-col gap-3 border border-border bg-surface p-4">
-      <h2 className="type-subtitle-caps text-lg">Agendar reunión</h2>
-
-      <label className="flex flex-col gap-1">
-        <span className="type-ui text-sm">Tipo de reunión</span>
-        <select
-          value={meetingType}
-          onChange={(event) =>
-            setMeetingType(event.target.value as MeetingTypeValue)
-          }
-          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-        >
-          {TYPE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {sortedStages.length > 0 && (
-        <label className="flex flex-col gap-1">
-          <span className="type-ui text-sm">Etapa (opcional)</span>
-          <select
-            value={stageId}
-            onChange={(event) => setStageId(event.target.value)}
-            className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-          >
-            <option value="">Sin etapa específica</option>
-            {sortedStages.map((stage) => (
-              <option key={stage.id} value={stage.id}>
-                {stage.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      <label className="flex flex-col gap-1">
-        <span className="type-ui text-sm">Fecha</span>
-        <input
-          type="date"
-          min={todayInputValue()}
-          value={selectedDate}
-          onChange={(event) => {
-            resetAvailability();
-            setBooked(null);
-            setSelectedDate(event.target.value);
-          }}
-          className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-        />
-      </label>
-
-      <button
-        type="button"
-        onClick={checkAvailability}
-        disabled={slotsLoading || !selectedDate}
-        className="btn-brutal min-h-[44px] self-start px-3 text-xs"
-      >
-        {slotsLoading ? "Consultando…" : "Ver disponibilidad"}
-        <span className="btn-brutal__arrow" aria-hidden="true">
-          ↗
-        </span>
-      </button>
-
-      {slotsError && (
-        <p className="type-ui border border-border bg-background p-3 text-sm">
-          {slotsError}
-        </p>
-      )}
-
-      {!slotsLoading && hasChecked && slots.length === 0 && !slotsError && (
-        <p className="type-ui text-sm">
-          No hay horarios disponibles para esta fecha. Prueba con otra.
-        </p>
-      )}
-
-      {slots.length > 0 && (
-        <>
-          <p className="label-mono">HORARIOS DISPONIBLES</p>
-          <div
-            role="radiogroup"
-            aria-label="Horarios disponibles"
-            className="grid-brutal grid-cols-2 sm:grid-cols-4"
-          >
-            {slots.map((slot, index) => {
-              const selected = selectedSlot?.start_time === slot.start_time;
-              return (
-                <button
-                  key={`${slot.start_time}-${index}`}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`type-tech min-h-[44px] w-full px-3 text-sm ${
-                    selected ? "bg-surface font-semibold" : ""
-                  }`}
-                >
-                  {formatSlotTime(slot.start_time)}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={bookMeeting}
-            disabled={booking || !selectedSlot}
-            className="btn-brutal min-h-[44px] self-start px-3 text-xs"
-          >
-            {booking ? "Agendando…" : "Confirmar reunión"}
-            <span className="btn-brutal__arrow" aria-hidden="true">
-              ↗
-            </span>
-          </button>
-        </>
-      )}
-
-      {bookingError && (
-        <p className="type-ui border border-border bg-background p-3 text-sm">
-          {bookingError}
-        </p>
-      )}
-
-      {booked && (
-        <div className="flex flex-col gap-2 border border-border bg-background p-4">
-          <p className="label-mono">
-            {meetingTypeLabel(booked.meeting_type)} ·{" "}
-            {meetingStatusLabel(booked.status)}
-          </p>
-          <p className="type-tech text-sm font-semibold">
-            {formatMeetingDateTime(booked.start_time)}
-          </p>
-          {booked.meet_link && (
-            <a
-              href={booked.meet_link}
-              target="_blank"
-              rel="noreferrer"
-              className="btn-brutal min-h-[44px] self-start px-3 text-xs"
-            >
-              Abrir Google Meet
-              <span className="btn-brutal__arrow" aria-hidden="true">
-                ↗
-              </span>
-            </a>
-          )}
+    <div className="brief-editorial">
+      <div className="flex flex-col gap-4 rounded-2xl border border-stone-900/10 bg-surface/75 p-5 md:p-6">
+        <div className="border-b border-stone-900/10 pb-3">
+          <p className="type-tech text-stone-600">Calendario del estudio</p>
+          <h2 className="type-subtitle-caps mt-1 text-lg text-stone-900">
+            Agendar reunión
+          </h2>
         </div>
-      )}
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5">
+            <span className="type-ui text-sm text-stone-600">
+              Tipo de reunión
+            </span>
+            <select
+              value={meetingType}
+              onChange={(event) =>
+                setMeetingType(event.target.value as MeetingTypeValue)
+              }
+              className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900 transition-colors duration-300 focus:border-stone-900/45"
+            >
+              {TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {sortedStages.length > 0 && (
+            <label className="flex flex-col gap-1.5">
+              <span className="type-ui text-sm text-stone-600">
+                Etapa (opcional)
+              </span>
+              <select
+                value={stageId}
+                onChange={(event) => setStageId(event.target.value)}
+                className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900 transition-colors duration-300 focus:border-stone-900/45"
+              >
+                <option value="">Sin etapa específica</option>
+                {sortedStages.map((stage) => (
+                  <option key={stage.id} value={stage.id}>
+                    {stage.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="flex flex-col gap-1.5">
+            <span className="type-ui text-sm text-stone-600">Fecha</span>
+            <input
+              type="date"
+              min={todayInputValue()}
+              value={selectedDate}
+              onChange={(event) => {
+                resetAvailability();
+                setBooked(null);
+                setSelectedDate(event.target.value);
+              }}
+              className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3 text-sm text-stone-900 transition-colors duration-300 focus:border-stone-900/45"
+            />
+          </label>
+        </div>
+
+        <button
+          type="button"
+          onClick={checkAvailability}
+          disabled={slotsLoading || !selectedDate}
+          className="type-ui min-h-[44px] self-start rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {slotsLoading ? "Consultando…" : "Ver disponibilidad ↗"}
+        </button>
+
+        {slotsError && (
+          <p className="type-ui rounded-xl border border-stone-900/15 bg-background p-4 text-sm text-stone-700">
+            {slotsError}
+          </p>
+        )}
+
+        {!slotsLoading && hasChecked && slots.length === 0 && !slotsError && (
+          <p className="type-editorial text-[15px] italic text-stone-600">
+            No hay horarios disponibles para esta fecha. Prueba con otra.
+          </p>
+        )}
+
+        {slots.length > 0 && (
+          <div className="space-y-3 border-t border-stone-900/10 pt-4">
+            <p className="type-tech text-stone-600">Horarios disponibles</p>
+            <div
+              role="radiogroup"
+              aria-label="Horarios disponibles"
+              className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+            >
+              {slots.map((slot, index) => {
+                const selected = selectedSlot?.start_time === slot.start_time;
+                return (
+                  <button
+                    key={`${slot.start_time}-${index}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => setSelectedSlot(slot)}
+                    className={`type-tech min-h-[44px] w-full rounded-lg border px-3 text-xs transition-colors duration-300 ${
+                      selected
+                        ? "border-stone-900 bg-stone-900 text-background"
+                        : "border-stone-900/15 bg-background text-stone-800 hover:border-stone-900/45"
+                    }`}
+                  >
+                    {formatSlotTime(slot.start_time)}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={bookMeeting}
+              disabled={booking || !selectedSlot}
+              className="type-ui min-h-[44px] self-start rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {booking ? "Agendando…" : "Confirmar reunión ↗"}
+            </button>
+          </div>
+        )}
+
+        {bookingError && (
+          <p className="type-ui rounded-xl border border-stone-900/15 bg-background p-4 text-sm text-stone-700">
+            {bookingError}
+          </p>
+        )}
+
+        {booked && (
+          <div className="flex flex-col gap-3 rounded-xl border border-[#5F7161]/40 bg-[#EEF2EC]/75 p-4">
+            <p className="type-tech text-[#44544A]">
+              {meetingTypeLabel(booked.meeting_type)} ·{" "}
+              {meetingStatusLabel(booked.status)}
+            </p>
+            <p className="type-editorial text-base text-stone-900">
+              {formatMeetingDateTime(booked.start_time)}
+            </p>
+            {booked.meet_link && (
+              <a
+                href={booked.meet_link}
+                target="_blank"
+                rel="noreferrer"
+                className="type-ui inline-flex min-h-[44px] items-center self-start rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800"
+              >
+                Abrir Google Meet ↗
+              </a>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

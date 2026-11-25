@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { apiFetch, extractDetail } from "@/lib/api";
 
 interface Lead {
@@ -35,7 +35,10 @@ interface Proposal extends Quote {
 }
 
 function formatMoney(value: string) {
-  return Number(value).toFixed(2);
+  return Number(value).toLocaleString("es-MX", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 export default function LeadsPage() {
@@ -44,6 +47,8 @@ export default function LeadsPage() {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
+  const [showConvertForm, setShowConvertForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -79,6 +84,7 @@ export default function LeadsPage() {
     setQuote(null);
     setQuoteError(null);
     setQuoteLoading(true);
+    setShowConvertForm(false);
     setMessage("");
     try {
       const res = await apiFetch(`/api/v1/admin/leads/${lead.id}/quote`);
@@ -107,13 +113,14 @@ export default function LeadsPage() {
     setProposalLoading(true);
     setMessage("");
     try {
-      const res = await apiFetch(`/api/v1/admin/leads/${selectedLead.id}/proposal`, {
-        method: "POST",
-      });
+      const res = await apiFetch(
+        `/api/v1/admin/leads/${selectedLead.id}/proposal`,
+        { method: "POST" }
+      );
       if (res.ok) {
         const proposal: Proposal = await res.json();
         setQuote(proposal);
-        setMessage("Propuesta generada");
+        setMessage("Propuesta generada correctamente.");
         loadLeads();
       } else {
         const data: unknown = await res.json().catch(() => ({}));
@@ -137,15 +144,19 @@ export default function LeadsPage() {
       body.client_id = trimmedClientId;
     }
     try {
-      const res = await apiFetch(`/api/v1/admin/leads/${selectedLead.id}/convert`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+      const res = await apiFetch(
+        `/api/v1/admin/leads/${selectedLead.id}/convert`,
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+        }
+      );
       if (res.ok) {
         quoteRequestSeq.current += 1;
-        setMessage("Lead convertido en proyecto");
+        setMessage("Lead convertido en proyecto.");
         setTitle("");
         setClientId("");
+        setShowConvertForm(false);
         setSelectedLead(null);
         setQuote(null);
         setQuoteLoading(false);
@@ -161,123 +172,254 @@ export default function LeadsPage() {
     }
   }
 
+  const filteredLeads = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return leads;
+    return leads.filter(
+      (lead) =>
+        lead.contact_name.toLowerCase().includes(q) ||
+        lead.email.toLowerCase().includes(q) ||
+        lead.service_type.toLowerCase().includes(q) ||
+        lead.status.toLowerCase().includes(q)
+    );
+  }, [leads, searchQuery]);
+
   return (
-    <section>
-      <h1 className="type-title text-xl">Leads</h1>
+    <section className="brief-editorial space-y-8">
+      <div className="border-b border-stone-900/15 pb-6">
+        <p className="type-tech text-stone-500">Prospección y presupuestos</p>
+        <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
+          Leads
+        </h1>
+      </div>
 
       {message && (
-        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-stone-900/15 bg-surface/75 px-4 py-3">
+          <p className="type-ui text-sm text-stone-800">{message}</p>
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            aria-label="Cerrar mensaje"
+            className="type-tech text-stone-500 hover:text-stone-900"
+          >
+            ✕
+          </button>
+        </div>
       )}
 
-      <div className="mt-4 grid grid-cols-1 gap-1 border border-border bg-foreground md:grid-cols-2">
-        <div className="bg-background p-0">
-          <p className="label-mono border-b border-border p-3">Listado</p>
+      {/* Editorial Split Workspace */}
+      <div className="grid grid-cols-1 divide-y divide-stone-900/10 overflow-hidden rounded-2xl border border-stone-900/15 bg-background shadow-editorial lg:grid-cols-12 lg:divide-x lg:divide-y-0">
+        {/* Left: Leads List */}
+        <div className="flex flex-col lg:col-span-5">
+          <div className="space-y-3 border-b border-stone-900/10 p-5">
+            <div className="flex items-center justify-between">
+              <p className="type-tech text-stone-500">Listado de prospectos</p>
+              <span className="type-tech tabular-nums text-stone-400">
+                {filteredLeads.length}
+              </span>
+            </div>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filtrar por nombre, correo o servicio…"
+              aria-label="Buscar leads"
+              className="type-ui min-h-[40px] w-full rounded-lg border border-stone-900/15 bg-surface/40 px-3 text-xs text-stone-900 placeholder:text-stone-400 focus:border-stone-900/45 focus:bg-background"
+            />
+          </div>
+
           {loading && leads.length === 0 ? (
-            <p className="type-ui p-3 text-sm">Cargando…</p>
+            <p className="type-ui p-5 text-sm text-stone-600">Cargando…</p>
+          ) : filteredLeads.length === 0 ? (
+            <p className="type-editorial p-5 text-sm italic text-stone-500">
+              No hay leads registrados.
+            </p>
           ) : (
-            <div className="grid-brutal border-0">
-              {leads.map((lead) => (
-                <button
-                  key={lead.id}
-                  onClick={() => selectLead(lead)}
-                  disabled={loading}
-                  className={`flex min-h-[44px] w-full flex-col items-start justify-center p-3 text-left text-sm transition-colors hover:bg-surface focus-visible:bg-surface ${
-                    selectedLead?.id === lead.id ? "bg-surface" : ""
-                  }`}
-                >
-                  <span className="font-semibold">{lead.contact_name}</span>
-                  <span className="type-ui text-xs">{lead.email}</span>
-                  <span className="label-mono mt-1">
-                    {lead.service_type} · {lead.status}
-                  </span>
-                </button>
-              ))}
+            <div className="divide-y divide-stone-900/10">
+              {filteredLeads.map((lead) => {
+                const isSelected = selectedLead?.id === lead.id;
+                return (
+                  <button
+                    key={lead.id}
+                    type="button"
+                    onClick={() => selectLead(lead)}
+                    disabled={loading}
+                    className={`flex min-h-[76px] w-full flex-col items-start justify-center px-5 py-4 text-left transition-colors ${
+                      isSelected
+                        ? "bg-surface/80"
+                        : "bg-background hover:bg-surface/40"
+                    }`}
+                  >
+                    <div className="flex w-full items-baseline justify-between gap-2">
+                      <span className="type-editorial truncate text-base font-medium text-stone-900">
+                        {lead.contact_name}
+                      </span>
+                      <span className="type-tech shrink-0 text-[10px] text-stone-500">
+                        {lead.status}
+                      </span>
+                    </div>
+                    <span className="type-ui mt-0.5 truncate text-xs text-stone-500">
+                      {lead.email}
+                    </span>
+                    <span className="type-tech mt-1.5 text-[10px] text-stone-400">
+                      {lead.service_type}
+                      {lead.area_m2 ? ` · ${lead.area_m2} m²` : ""}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
 
-        <div className="bg-background p-0">
-          <p className="label-mono border-b border-border p-3">Detalle</p>
-          <div className="p-3">
-            {!selectedLead ? (
-              <p className="type-ui text-sm text-foreground/70">Selecciona un lead para cotizar.</p>
-            ) : quoteLoading ? (
-              <p className="type-ui text-sm">Cargando cotización…</p>
-            ) : quoteError ? (
-              <p className="type-ui text-sm text-foreground/70">No se pudo cargar la cotización. {quoteError}</p>
-            ) : quote ? (
-              <div className="flex flex-col gap-4">
-                <div>
-                  <p className="label-mono">Cotización</p>
-                  <div className="mt-2 border border-border bg-surface p-3">
-                    {quote.lines.map((line, index) => (
-                      <div
-                        key={index}
-                        className="flex min-h-[44px] items-center justify-between border-b border-border py-2 last:border-0"
-                      >
-                        <span className="type-ui text-sm">{line.concept}</span>
-                        <span className="font-mono text-sm font-semibold tabular-nums">
-                          ${formatMoney(line.amount)}
+        {/* Right: Detail & Quote Canvas */}
+        <div className="p-6 md:p-7 lg:col-span-7">
+          {!selectedLead ? (
+            <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
+              <p className="type-editorial text-lg text-stone-700">
+                Selecciona un lead del listado
+              </p>
+              <p className="type-ui mt-1 max-w-xs text-xs text-stone-500">
+                Aquí podrás revisar la cotización estimada, generar la propuesta
+                y convertir el prospecto en proyecto.
+              </p>
+            </div>
+          ) : (
+            <div key={selectedLead.id} className="animate-panel-enter space-y-6">
+              {/* Lead Profile Header */}
+              <div className="border-b border-stone-900/10 pb-5">
+                <p className="type-tech text-stone-500">
+                  {selectedLead.service_type} · {selectedLead.status}
+                </p>
+                <h2 className="type-title mt-1.5 text-2xl text-stone-900">
+                  {selectedLead.contact_name}
+                </h2>
+                <p className="type-ui mt-1 text-sm text-stone-600">
+                  {selectedLead.email}
+                  {selectedLead.space_type ? ` · ${selectedLead.space_type}` : ""}
+                  {selectedLead.area_m2 ? ` · ${selectedLead.area_m2} m²` : ""}
+                  {selectedLead.budget_range
+                    ? ` · Presupuesto: ${selectedLead.budget_range}`
+                    : ""}
+                </p>
+              </div>
+
+              {quoteLoading ? (
+                <p className="type-ui text-sm text-stone-600">
+                  Calculando cotización…
+                </p>
+              ) : quoteError ? (
+                <p className="type-ui text-sm text-stone-600">
+                  No se pudo cargar la cotización. {quoteError}
+                </p>
+              ) : quote ? (
+                <div className="space-y-6">
+                  {/* Tabular Quote Breakdown */}
+                  <div>
+                    <p className="type-tech text-stone-500">
+                      Desglose de cotización
+                    </p>
+                    <div className="mt-3 divide-y divide-stone-900/10 border-y border-stone-900/10">
+                      {quote.lines.map((line, index) => (
+                        <div
+                          key={index}
+                          className="flex min-h-[44px] items-center justify-between gap-4 py-2.5"
+                        >
+                          <span className="type-ui text-sm text-stone-700">
+                            {line.concept}
+                          </span>
+                          <span className="font-mono text-sm tabular-nums text-stone-900">
+                            ${formatMoney(line.amount)}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex min-h-[52px] items-center justify-between gap-4 pt-3">
+                        <span className="type-tech text-stone-900">
+                          Total estimado · {quote.change_rounds} rondas
+                        </span>
+                        <span className="type-title text-2xl tabular-nums text-stone-900">
+                          ${formatMoney(quote.total)}
                         </span>
                       </div>
-                    ))}
-                    <div className="flex min-h-[44px] items-center justify-between border-t border-border pt-2">
-                      <span className="label-mono">Total</span>
-                      <span className="font-mono text-base font-semibold tabular-nums">
-                        ${formatMoney(quote.total)}
-                      </span>
                     </div>
-                    <p className="label-mono mt-2">
-                      Rondas de cambio: {quote.change_rounds}
-                    </p>
                   </div>
-                </div>
 
-                <button
-                  onClick={generateProposal}
-                  disabled={proposalLoading}
-                  className="btn-brutal w-full justify-center"
-                >
-                  {proposalLoading ? "Generando…" : "Generar propuesta"}
-                  <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
-                </button>
-
-                <form onSubmit={convertLead} className="border border-border bg-surface p-3">
-                  <p className="type-subtitle-caps text-sm">Convertir en proyecto</p>
-                  <div className="mt-3 flex flex-col gap-3">
-                    <label className="flex flex-col gap-1">
-                      <span className="type-ui text-sm">Título del proyecto *</span>
-                      <input
-                        type="text"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        required
-                        minLength={3}
-                        className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="type-ui text-sm">Client ID (opcional)</span>
-                      <input
-                        type="text"
-                        value={clientId}
-                        onChange={(e) => setClientId(e.target.value)}
-                        className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
-                      />
-                    </label>
+                  {/* Actions */}
+                  <div className="flex flex-wrap items-center gap-3">
                     <button
-                      type="submit"
-                      disabled={convertLoading}
-                      className="btn-brutal w-full justify-center"
+                      type="button"
+                      onClick={generateProposal}
+                      disabled={proposalLoading}
+                      className="type-ui min-h-[44px] shrink-0 whitespace-nowrap rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors hover:bg-stone-800 disabled:opacity-50"
                     >
-                      {convertLoading ? "Convirtiendo…" : "Convertir en proyecto"}
-                      <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                      {proposalLoading
+                        ? "Generando…"
+                        : "Generar propuesta ↗"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowConvertForm((prev) => !prev)}
+                      className="type-ui min-h-[44px] shrink-0 whitespace-nowrap rounded-lg border border-stone-900/20 bg-background px-5 py-2 text-xs text-stone-800 transition-colors hover:bg-stone-900 hover:text-background"
+                    >
+                      {showConvertForm
+                        ? "Cerrar conversión"
+                        : "Convertir en proyecto"}
                     </button>
                   </div>
-                </form>
-              </div>
-            ) : null}
-          </div>
+
+                  {/* Collapsible Convert Form */}
+                  {showConvertForm && (
+                    <form
+                      onSubmit={convertLead}
+                      className="animate-panel-enter space-y-4 rounded-xl border border-stone-900/15 bg-surface/65 p-5"
+                    >
+                      <p className="type-tech text-stone-700">
+                        Convertir prospecto en proyecto activo
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label className="flex flex-col gap-1.5">
+                          <span className="type-ui text-xs text-stone-600">
+                            Título del proyecto *
+                          </span>
+                          <input
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            required
+                            minLength={3}
+                            placeholder="Ej. Casa Lomas"
+                            className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3.5 text-sm text-stone-900 placeholder:text-stone-400 focus:border-stone-900/45"
+                          />
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className="type-ui text-xs text-stone-600">
+                            Client ID (opcional)
+                          </span>
+                          <input
+                            type="text"
+                            value={clientId}
+                            onChange={(e) => setClientId(e.target.value)}
+                            placeholder="UUID de usuario cliente"
+                            className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3.5 text-sm text-stone-900 placeholder:text-stone-400 focus:border-stone-900/45"
+                          />
+                        </label>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={convertLoading}
+                        className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors hover:bg-stone-800 disabled:opacity-50"
+                      >
+                        {convertLoading
+                          ? "Convirtiendo…"
+                          : "Confirmar y crear proyecto ↗"}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
     </section>

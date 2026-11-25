@@ -56,9 +56,6 @@ export async function apiFetch(
 
   if (response.status === 401) {
     clearToken();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
-    }
   }
 
   return response;

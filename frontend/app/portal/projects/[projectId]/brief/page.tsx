@@ -18,6 +18,7 @@ interface Project {
   remaining_rounds: number;
   balance_paid: boolean;
   brief_sent_at: string | null;
+  brief_submitted_at?: string | null;
   created_at: string;
 }
 
@@ -141,6 +142,7 @@ export default function BriefPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const expandInitRef = useRef(false);
   const [savingAll, setSavingAll] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [flowMessage, setFlowMessage] = useState("");
 
   const [category, setCategory] = useState<"branding" | "interior" | "general">(
@@ -674,23 +676,52 @@ export default function BriefPage() {
     );
   }
 
-  // The backend completes the brief and notifies collaborators automatically
-  // once every question is answered; the client's explicit confirmation seal
-  // is what gates the "Enviar Brief" button in the UI.
-  function handleSendBrief() {
-    if (!briefSent) return;
-    if (allConfirmed) {
-      setFlowMessage("Brief enviado ✓ — el estudio ya fue notificado");
+  async function handleSendBrief() {
+    if (!briefSent || submittingReview) return;
+    if (!allConfirmed) {
+      const unconfirmed = questions.filter((q) => !q.client_confirmed);
+      const target = unconfirmed[0];
+      if (target) {
+        setExpandedId(target.id);
+        scrollToQuestion(target.id);
+        setFlowMessage(
+          `Faltan ${unconfirmed.length} pregunta${unconfirmed.length === 1 ? "" : "s"} por confirmar`
+        );
+      }
       return;
     }
-    const unconfirmed = questions.filter((q) => !q.client_confirmed);
-    const target = unconfirmed[0];
-    if (target) {
-      setExpandedId(target.id);
-      scrollToQuestion(target.id);
-      setFlowMessage(
-        `Faltan ${unconfirmed.length} pregunta${unconfirmed.length === 1 ? "" : "s"} por confirmar`
+
+    setSubmittingReview(true);
+    setFlowMessage("Enviando brief a revisión…");
+    try {
+      await saveProgressNow();
+      const res = await apiFetch(
+        `/api/v1/projects/${projectId}/brief/submit-review`,
+        { method: "POST" }
       );
+      if (res.ok) {
+        const data: {
+          brief_submitted_at: string;
+          report_generated?: boolean;
+        } = await res.json();
+        setProject((prev) =>
+          prev
+            ? { ...prev, brief_submitted_at: data.brief_submitted_at }
+            : prev
+        );
+        setFlowMessage(
+          "Brief enviado a revisión ✓ — el estudio fue notificado para iniciar el análisis."
+        );
+      } else {
+        const body: unknown = await res.json().catch(() => ({}));
+        setFlowMessage(
+          extractDetail(body, "No se pudo enviar el brief a revisión")
+        );
+      }
+    } catch {
+      setFlowMessage("Error de conexión al enviar el brief a revisión");
+    } finally {
+      setSubmittingReview(false);
     }
   }
 
@@ -698,9 +729,16 @@ export default function BriefPage() {
     <section className="brief-editorial">
       {/* Editorial ficha header: micro-label, serif title, architectural progress line. */}
       <div className="mb-8 border-b border-stone-900/15 pb-6">
-        <p className="label-mono text-stone-500">
-          01 · Brief del proyecto
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="label-mono text-stone-500">
+            01 · Brief del proyecto
+          </p>
+          {project?.brief_submitted_at && (
+            <span className="type-tech inline-flex items-center gap-2 rounded-lg border border-[#5F7161]/40 bg-[#EEF2EC] px-3 py-1 text-[#44544A]">
+              Enviado a revisión ✓
+            </span>
+          )}
+        </div>
         <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">
           {project?.title ?? "Brief"}
         </h1>
@@ -1058,9 +1096,14 @@ export default function BriefPage() {
                     <button
                       type="button"
                       onClick={handleSendBrief}
-                      className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800"
+                      disabled={submittingReview || !isActive}
+                      className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {allConfirmed ? "Brief enviado ✓" : "Enviar Brief"}
+                      {submittingReview
+                        ? "Enviando a revisión…"
+                        : project?.brief_submitted_at
+                          ? "Reenviar a revisión ✓"
+                          : "Enviar Brief a revisión ↗"}
                     </button>
                   </div>
                   {flowMessage && (

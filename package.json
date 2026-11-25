@@ -1,0 +1,18 @@
+{
+  "name": "pomme-studio",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend run start",
+    "lint": "npm --prefix frontend run lint"
+  },
+  "dependencies": {
+    "@google/genai": "^3.6.1",
+    "pdf-lib": "^1.17.1"
+  }
+}

@@ -8,7 +8,10 @@ const nextConfig = {
   // API_PROXY_TARGET points at the backend (Railway private networking in
   // production; localhost in development).
   async rewrites() {
-    const target = process.env.API_PROXY_TARGET || "http://localhost:8000";
+    const target = process.env.API_PROXY_TARGET?.trim();
+    if (!target) {
+      return [];
+    }
     return [
       {
         source: "/api/v1/:path*",

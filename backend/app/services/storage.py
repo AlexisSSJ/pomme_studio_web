@@ -12,8 +12,10 @@ from uuid import UUID, uuid4
 
 import anyio
 
-# Hard upload ceiling shared by every media endpoint.
+# Hard upload ceiling for standard brief/moodboard endpoints.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+# Project asset library supports larger design/archive files (up to 25 MiB).
+MAX_ASSET_UPLOAD_BYTES = 25 * 1024 * 1024
 
 # Content types accepted for brief reference uploads (images + PDF).
 BRIEF_REFERENCE_CONTENT_TYPES = frozenset(
@@ -40,13 +42,39 @@ BRIEF_RESPONSE_CONTENT_TYPES = frozenset(
 MOODBOARD_CONTENT_TYPES = frozenset(
     {"image/jpeg", "image/png", "image/webp", "image/gif"}
 )
+# Allowed extensions for the versioned Project Asset Library.
+ASSET_EXTENSION_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+    ".ai": "application/postscript",
+    ".fig": "application/octet-stream",
+    ".zip": "application/zip",
+    ".psd": "image/vnd.adobe.photoshop",
+    ".sketch": "application/octet-stream",
+    ".indd": "application/x-indesign",
+    ".dwg": "application/acad",
+    ".dxf": "application/dxf",
+}
+ASSET_IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"})
+
 # Server-side content type -> extension mapping (never trust client names).
 CONTENT_TYPE_EXTENSIONS = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
     "image/gif": ".gif",
+    "image/svg+xml": ".svg",
     "application/pdf": ".pdf",
+    "application/postscript": ".ai",
+    "application/illustrator": ".ai",
+    "application/zip": ".zip",
+    "application/x-zip-compressed": ".zip",
+    "image/vnd.adobe.photoshop": ".psd",
     "audio/mpeg": ".mp3",
     "audio/mp3": ".mp3",
     "audio/wav": ".wav",
@@ -64,6 +92,29 @@ class UploadValidationError(ValueError):
 
 class UploadTooLargeError(ValueError):
     """Raised when an upload exceeds ``MAX_UPLOAD_BYTES``."""
+
+
+def resolve_asset_type(file_name: str | None, content_type: str | None) -> tuple[str, str]:
+    """Validate a project asset file by extension/content-type and return (extension, canonical_mime).
+
+    Design formats such as ``.fig``, ``.ai``, ``.sketch`` or ``.dwg`` are often
+    sent by browsers as ``application/octet-stream`` or empty MIME, so we
+    validate strictly against ``ASSET_EXTENSION_CONTENT_TYPES``.
+    """
+    raw_ext = Path(file_name or "").suffix.lower()
+    normalized_ct = (content_type or "").split(";")[0].strip().lower()
+
+    if raw_ext in ASSET_EXTENSION_CONTENT_TYPES:
+        canonical_ct = ASSET_EXTENSION_CONTENT_TYPES[raw_ext]
+        return raw_ext, canonical_ct
+
+    fallback_ext = CONTENT_TYPE_EXTENSIONS.get(normalized_ct)
+    if fallback_ext and fallback_ext in ASSET_EXTENSION_CONTENT_TYPES:
+        return fallback_ext, ASSET_EXTENSION_CONTENT_TYPES[fallback_ext]
+
+    raise UploadValidationError(
+        f"Unsupported asset format: {raw_ext or normalized_ct or 'unknown'}"
+    )
 
 
 class LocalStorage:
@@ -103,6 +154,31 @@ class LocalStorage:
 
         await anyio.to_thread.run_sync(_write)
         return storage_key
+
+    async def save_asset(
+        self,
+        project_id: UUID,
+        data: bytes,
+        file_name: str | None,
+        content_type: str | None,
+    ) -> tuple[str, str, str]:
+        """Validate and persist a project asset file, returning (storage_key, extension, canonical_mime)."""
+        if len(data) == 0:
+            raise UploadValidationError("File cannot be empty")
+        if len(data) > MAX_ASSET_UPLOAD_BYTES:
+            raise UploadTooLargeError(
+                f"Upload exceeds the maximum of {MAX_ASSET_UPLOAD_BYTES} bytes"
+            )
+        extension, canonical_ct = resolve_asset_type(file_name, content_type)
+        storage_key = f"{project_id}/assets/{uuid4().hex}{extension}"
+        path = self.resolve(storage_key)
+
+        def _write() -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+
+        await anyio.to_thread.run_sync(_write)
+        return storage_key, extension, canonical_ct
 
     def resolve(self, storage_key: str) -> Path:
         """Return the absolute path for ``storage_key`` within the root.

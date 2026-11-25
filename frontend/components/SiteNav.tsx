@@ -31,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { numeral: "III", label: "Contacto", href: "/#contacto" },
   { numeral: "IV", label: "Diagnóstico", href: "/diagnostico" },
+  { numeral: "V", label: "Acceso", href: "/login" },
 ];
 
 const BASE_LINK =

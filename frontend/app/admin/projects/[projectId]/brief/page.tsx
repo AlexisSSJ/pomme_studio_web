@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { apiFetch, apiFetchBlobUrl, extractDetail } from "@/lib/api";
 import { useProtectedMediaUrl } from "@/lib/useProtectedMediaUrl";
 import VoiceNotePlayer from "@/components/VoiceNotePlayer";
+import BriefReportPanel from "@/components/BriefReportPanel";
 
 interface Project {
   id: string;
@@ -12,6 +13,7 @@ interface Project {
   status: string;
   scope_type: string | null;
   brief_sent_at: string | null;
+  brief_submitted_at?: string | null;
 }
 
 interface BriefImage {
@@ -443,6 +445,11 @@ export default function AdminBriefPage() {
               />
               {briefSent ? "Enviado al cliente" : "Borrador · no enviado"}
             </span>
+            {project.brief_submitted_at && (
+              <span className="type-tech inline-flex items-center gap-2 rounded-lg border border-stone-900 bg-stone-900 px-3 py-1 text-background">
+                Enviado a revisión ✓
+              </span>
+            )}
             {!briefSent && isActive && (
               <button
                 type="button"
@@ -806,6 +813,14 @@ export default function AdminBriefPage() {
               })}
             </div>
           )}
+
+          <BriefReportPanel
+            projectId={projectId}
+            projectTitle={project?.title}
+            briefSubmittedAt={project?.brief_submitted_at}
+            answeredQuestions={answeredQuestions}
+            totalQuestions={totalQuestions}
+          />
 
           <h2 className="type-subtitle-caps mt-10 text-xl text-stone-900">
             Referencias

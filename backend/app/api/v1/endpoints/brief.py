@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+import re
+from typing import Literal
 from uuid import UUID
 
 from fastapi import (
@@ -10,6 +12,8 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
+    Response,
     UploadFile,
     status,
 )
@@ -28,9 +32,11 @@ from ....api.deps import (
     require_roles,
     require_team_member,
 )
+from ....core.config import settings
 from ....db.session import get_db
 from ....models.brief_item import BriefCategory, BriefItem, BriefItemType, BriefStatus
 from ....models.brief_item_image import BriefItemImage
+from ....models.brief_report import BriefReport, BriefReportStatus
 from ....models.project import Project, ProjectStatus
 from ....models.project_member import ProjectMember, ProjectRole
 from ....models.user import User, UserRole
@@ -48,8 +54,21 @@ from ....schemas.brief import (
     BriefSendResponse,
     PendingBriefProjectSummary,
 )
+from ....schemas.brief_report import (
+    BriefReportRead,
+    BriefReportUpdate,
+    BriefSubmitReviewResponse,
+)
 from ....services.audit import log_audit
+from ....services.brief_report import (
+    BriefImageInput,
+    BriefQuestionInput,
+    BriefReferenceInput,
+    BriefReportGenerationError,
+    generate_brief_report_markdown,
+)
 from ....services.notifications import notify_project_client, notify_project_team
+from ....services.pdf_export import render_brief_report_pdf
 from ....services.storage import (
     BRIEF_REFERENCE_CONTENT_TYPES,
     BRIEF_RESPONSE_CONTENT_TYPES,
@@ -1474,3 +1493,404 @@ async def download_reference_file(
         )
 
     return FileResponse(path, media_type=item.content_type, filename=item.file_name)
+
+
+def _slugify_filename(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", (value or "brief").strip()).strip("-").lower()
+    return (cleaned or "brief")[:60]
+
+
+async def _load_brief_inputs_for_report(
+    db: AsyncSession,
+    storage: LocalStorage,
+    project: Project,
+) -> tuple[
+    str | None,
+    list[BriefQuestionInput],
+    list[BriefReferenceInput],
+    list[BriefImageInput],
+]:
+    client_label: str | None = None
+    if project.client_id is not None:
+        client_res = await db.execute(select(User).where(User.id == project.client_id))
+        client_user = client_res.scalar_one_or_none()
+        if client_user is not None:
+            client_label = client_user.full_name or client_user.email
+
+    items_res = await db.execute(
+        select(BriefItem)
+        .where(BriefItem.project_id == project.id)
+        .order_by(BriefItem.created_at.asc())
+    )
+    items = list(items_res.scalars().all())
+    item_ids = [item.id for item in items]
+
+    images_by_item: dict[UUID, list[BriefItemImage]] = {}
+    if item_ids:
+        img_res = await db.execute(
+            select(BriefItemImage)
+            .where(BriefItemImage.brief_item_id.in_(item_ids))
+            .order_by(BriefItemImage.position.asc(), BriefItemImage.created_at.asc())
+        )
+        for img in img_res.scalars().all():
+            images_by_item.setdefault(img.brief_item_id, []).append(img)
+
+    questions: list[BriefQuestionInput] = []
+    references: list[BriefReferenceInput] = []
+    inline_images: list[BriefImageInput] = []
+
+    for item in items:
+        if item.item_type == BriefItemType.QUESTION:
+            item_images = images_by_item.get(item.id, [])
+            image_count = len(item_images) + (1 if (not item_images and item.image_storage_key) else 0)
+            questions.append(
+                BriefQuestionInput(
+                    category=item.category.value,
+                    prompt=item.prompt or "Pregunta del brief",
+                    answer=item.answer,
+                    transcription=item.audio_transcription or item.transcription,
+                    image_count=image_count,
+                )
+            )
+            if item_images:
+                for idx, img in enumerate(item_images, start=1):
+                    if img.storage_key and img.content_type:
+                        try:
+                            path = storage.resolve(img.storage_key)
+                            if path.is_file():
+                                inline_images.append(
+                                    BriefImageInput(
+                                        label=f"{(item.prompt or 'Pregunta')[:60]} — imagen {idx}",
+                                        content_type=img.content_type,
+                                        data=path.read_bytes(),
+                                    )
+                                )
+                        except UploadValidationError:
+                            pass
+            elif item.image_storage_key and item.content_type:
+                try:
+                    path = storage.resolve(item.image_storage_key)
+                    if path.is_file():
+                        inline_images.append(
+                            BriefImageInput(
+                                label=f"{(item.prompt or 'Pregunta')[:60]} — imagen",
+                                content_type=item.content_type,
+                                data=path.read_bytes(),
+                            )
+                        )
+                except UploadValidationError:
+                    pass
+        elif item.item_type == BriefItemType.REFERENCE:
+            references.append(
+                BriefReferenceInput(
+                    category=item.category.value,
+                    file_name=item.file_name or "referencia",
+                    content_type=item.content_type,
+                    note=item.note,
+                )
+            )
+            if (
+                item.storage_key
+                and item.content_type
+                and item.content_type.startswith("image/")
+            ):
+                try:
+                    path = storage.resolve(item.storage_key)
+                    if path.is_file():
+                        inline_images.append(
+                            BriefImageInput(
+                                label=f"Referencia: {item.file_name or 'archivo'}",
+                                content_type=item.content_type,
+                                data=path.read_bytes(),
+                            )
+                        )
+                except UploadValidationError:
+                    pass
+
+    return client_label, questions, references, inline_images
+
+
+async def _generate_and_persist_brief_report(
+    db: AsyncSession,
+    storage: LocalStorage,
+    project: Project,
+    actor_user_id: UUID,
+) -> BriefReport:
+    client_label, questions, references, inline_images = await _load_brief_inputs_for_report(
+        db, storage, project
+    )
+    markdown_content, model_used = await generate_brief_report_markdown(
+        project_title=project.title,
+        scope_type=project.scope_type.value if project.scope_type else None,
+        client_label=client_label,
+        questions=questions,
+        references=references,
+        images=inline_images,
+    )
+
+    now = datetime.now(timezone.utc)
+    existing_res = await db.execute(
+        select(BriefReport).where(BriefReport.project_id == project.id)
+    )
+    report = existing_res.scalar_one_or_none()
+    if report is None:
+        report = BriefReport(
+            project_id=project.id,
+            brief_id=project.id,
+            status=BriefReportStatus.GENERATED,
+            content_markdown=markdown_content,
+            model_used=model_used,
+            generated_by=actor_user_id,
+            updated_by=actor_user_id,
+            generated_at=now,
+        )
+        db.add(report)
+    else:
+        report.status = BriefReportStatus.GENERATED
+        report.content_markdown = markdown_content
+        report.model_used = model_used
+        report.generated_by = actor_user_id
+        report.updated_by = actor_user_id
+        report.generated_at = now
+        report.updated_at = now
+
+    await db.commit()
+    await db.refresh(report)
+    return report
+
+
+@router.post("/submit-review", response_model=BriefSubmitReviewResponse)
+async def submit_brief_for_review(
+    project_id: UUID,
+    current_user: User = Depends(require_project_access_from_path),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> BriefSubmitReviewResponse:
+    """Mark the project brief as submitted for studio review and trigger AI executive report if configured."""
+    if current_user.role != UserRole.CLIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the project client can submit the brief for review",
+        )
+    project = await get_project_or_404(project_id, db)
+    require_active_project(project)
+    require_brief_sent(project)
+
+    now = datetime.now(timezone.utc)
+    project.brief_submitted_at = now
+    await db.commit()
+    await db.refresh(project)
+
+    await notify_project_team(
+        db,
+        project,
+        event_type="brief.submitted_for_review",
+        payload={
+            "project_id": str(project_id),
+            "project_title": project.title,
+            "submitted_by": str(current_user.id),
+            "brief_submitted_at": now.isoformat(),
+        },
+        exclude_user_id=current_user.id,
+    )
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.submit_review",
+        entity_type="project",
+        entity_id=project.id,
+        metadata={"project_id": str(project.id), "brief_submitted_at": now.isoformat()},
+    )
+
+    report_generated = False
+    report_error: str | None = None
+    if settings.GEMINI_API_KEY.strip():
+        try:
+            report = await _generate_and_persist_brief_report(
+                db, storage, project, current_user.id
+            )
+            report_generated = True
+            await log_audit(
+                db,
+                actor_user_id=current_user.id,
+                action="brief.report_generate",
+                entity_type="brief_report",
+                entity_id=report.id,
+                metadata={
+                    "project_id": str(project.id),
+                    "trigger": "client_submit_review",
+                    "model_used": report.model_used,
+                },
+            )
+        except BriefReportGenerationError as exc:
+            report_error = str(exc)
+
+    return BriefSubmitReviewResponse(
+        project_id=project.id,
+        brief_submitted_at=now,
+        report_generated=report_generated,
+        report_error=report_error,
+    )
+
+
+@router.get("/report", response_model=BriefReportRead)
+async def get_brief_report(
+    project_id: UUID,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+) -> BriefReport:
+    """Fetch the saved AI executive report for a project brief (studio team only)."""
+    await get_project_or_404(project_id, db)
+    res = await db.execute(
+        select(BriefReport).where(BriefReport.project_id == project_id)
+    )
+    report = res.scalar_one_or_none()
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brief report not generated yet",
+        )
+    return report
+
+
+@router.post("/report/generate", response_model=BriefReportRead)
+async def generate_brief_report_endpoint(
+    project_id: UUID,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+    storage: LocalStorage = Depends(get_storage),
+) -> BriefReport:
+    """Generate or regenerate the executive AI report for the project brief (studio team only)."""
+    project = await get_project_or_404(project_id, db)
+    try:
+        report = await _generate_and_persist_brief_report(
+            db, storage, project, current_user.id
+        )
+    except BriefReportGenerationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.report_generate",
+        entity_type="brief_report",
+        entity_id=report.id,
+        metadata={
+            "project_id": str(project.id),
+            "trigger": "manual_team",
+            "model_used": report.model_used,
+        },
+    )
+    return report
+
+
+@router.patch("/report", response_model=BriefReportRead)
+async def update_brief_report(
+    project_id: UUID,
+    payload: BriefReportUpdate,
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+) -> BriefReport:
+    """Edit the saved brief executive report Markdown (studio team only)."""
+    await get_project_or_404(project_id, db)
+    res = await db.execute(
+        select(BriefReport).where(BriefReport.project_id == project_id)
+    )
+    report = res.scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    if report is None:
+        report = BriefReport(
+            project_id=project_id,
+            brief_id=project_id,
+            status=BriefReportStatus.EDITED,
+            content_markdown=payload.content_markdown,
+            model_used=None,
+            generated_by=current_user.id,
+            updated_by=current_user.id,
+            generated_at=None,
+        )
+        db.add(report)
+    else:
+        report.content_markdown = payload.content_markdown
+        report.status = BriefReportStatus.EDITED
+        report.updated_by = current_user.id
+        report.updated_at = now
+
+    await db.commit()
+    await db.refresh(report)
+
+    await log_audit(
+        db,
+        actor_user_id=current_user.id,
+        action="brief.report_update",
+        entity_type="brief_report",
+        entity_id=report.id,
+        metadata={
+            "project_id": str(project_id),
+            "content_length": len(payload.content_markdown),
+        },
+    )
+    return report
+
+
+@router.get("/report/export")
+async def export_brief_report(
+    project_id: UUID,
+    format: Literal["pdf", "md"] = Query(default="pdf"),
+    current_user: User = Depends(require_team_member),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Export the brief report as a branded PDF or Markdown file (studio team only)."""
+    project = await get_project_or_404(project_id, db)
+    res = await db.execute(
+        select(BriefReport).where(BriefReport.project_id == project_id)
+    )
+    report = res.scalar_one_or_none()
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Brief report not generated yet",
+        )
+
+    client_label: str | None = None
+    if project.client_id is not None:
+        client_res = await db.execute(select(User).where(User.id == project.client_id))
+        client_user = client_res.scalar_one_or_none()
+        if client_user is not None:
+            client_label = client_user.full_name or client_user.email
+
+    slug = _slugify_filename(project.title)
+    if format == "md":
+        filename = f"brief-report-{slug}.md"
+        header_md = (
+            f"<!-- Pomme Studio — Reporte Ejecutivo de Brief -->\n"
+            f"<!-- Proyecto: {project.title} | Cliente: {client_label or 'Sin asignar'} -->\n\n"
+        )
+        content_bytes = (header_md + report.content_markdown).encode("utf-8")
+        return Response(
+            content=content_bytes,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    pdf_bytes = render_brief_report_pdf(
+        project_title=project.title,
+        client_label=client_label,
+        scope_type=project.scope_type.value if project.scope_type else None,
+        generated_at=report.updated_at or report.generated_at,
+        content_markdown=report.content_markdown,
+    )
+    filename = f"brief-report-{slug}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+

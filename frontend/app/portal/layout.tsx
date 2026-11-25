@@ -6,6 +6,8 @@ import { isAuthenticated, clearToken } from "@/lib/auth";
 import { apiFetch } from "@/lib/api";
 import NotificationsBell from "@/components/NotificationsBell";
 import ShellNav, { type ShellNavItem } from "@/components/ShellNav";
+import DevRoleSwitcher from "@/components/DevRoleSwitcher";
+import PageTransition from "@/components/PageTransition";
 
 const navItems: ShellNavItem[] = [
   { numeral: "I", href: "/portal", label: "Mis proyectos" },
@@ -31,6 +33,7 @@ export default function PortalLayout({
   const router = useRouter();
   const [checked, setChecked] = useState(false);
   const [role, setRole] = useState<string | null>(null);
+  const [sessionVersion, setSessionVersion] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -105,7 +108,17 @@ export default function PortalLayout({
         }
       />
 
-      <div className="mt-6 flex-1">{children}</div>
+      <div key={`${role ?? "anon"}-${sessionVersion}`} className="mt-6 flex-1">
+        <PageTransition preserveProjectShell>{children}</PageTransition>
+      </div>
+
+      <DevRoleSwitcher
+        currentRole={role}
+        onRoleSwitched={(nextRole) => {
+          setRole(nextRole);
+          setSessionVersion((v) => v + 1);
+        }}
+      />
     </div>
   );
 }

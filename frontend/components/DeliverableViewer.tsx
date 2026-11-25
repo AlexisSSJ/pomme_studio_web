@@ -462,42 +462,62 @@ export default function DeliverableViewer({
     : 0;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="brief-editorial flex flex-col gap-4">
       {message && (
-        <p className="type-ui border border-border bg-surface p-3 text-sm">
+        <p className="type-ui rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
           {message}
         </p>
       )}
 
       {loading && !deliverable && !message && (
-        <p className="type-ui text-sm">Cargando…</p>
+        <p className="type-ui text-sm text-stone-600">Cargando…</p>
       )}
 
       {deliverable && (
         <>
-          <div>
-            <p className="type-subtitle-caps text-base">{deliverable.title}</p>
-            <p className="label-mono mt-1">
-              VERSIÓN {deliverable.version} ·{" "}
-              {deliverableStatusLabel(deliverable.status)} ·{" "}
+          <div className="rounded-2xl border border-stone-900/10 bg-surface/75 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="type-subtitle-caps text-base text-stone-900">
+                {deliverable.title}
+              </p>
+              <span
+                className={`type-tech inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 ${
+                  deliverable.status === "approved"
+                    ? "border-[#5F7161]/40 bg-[#EEF2EC] text-[#44544A]"
+                    : "border-stone-900/15 bg-background text-stone-700"
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`dot-organic h-1.5 w-1.5 ${
+                    deliverable.status === "approved"
+                      ? "bg-[#5F7161]"
+                      : "bg-stone-600"
+                  }`}
+                />
+                {deliverableStatusLabel(deliverable.status)}
+              </span>
+            </div>
+            <p className="type-tech mt-2 text-stone-600">
+              Versión {deliverable.version} ·{" "}
               {formatBytes(deliverable.size_bytes)}
-              {deliverable.is_final_handover && " · ENTREGA FINAL"}
+              {deliverable.is_final_handover && " · Entrega final"}
             </p>
             {remainingRounds !== null && (
-              <p className="label-mono mt-1">
-                RONDAS DE CAMBIOS RESTANTES · {remainingRounds}
+              <p className="type-tech mt-1 text-stone-500">
+                Rondas de cambios restantes · {remainingRounds}
               </p>
             )}
           </div>
 
           {imageError ? (
-            <p className="type-ui border border-border bg-surface p-3 text-sm">
+            <p className="type-ui rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
               {imageError}
             </p>
           ) : url ? (
             <div
               ref={scrollRef}
-              className="relative max-h-[70vh] overflow-auto border border-border bg-surface"
+              className="relative max-h-[70vh] overflow-auto rounded-2xl border border-stone-900/15 bg-surface/65 shadow-editorial"
             >
               <div
                 className="relative w-full select-none"
@@ -528,36 +548,36 @@ export default function DeliverableViewer({
                       aria-pressed={selected}
                       aria-label={`Pin ${index + 1}`}
                       onKeyDown={handleMarkerKeyDown(comment.id)}
-                      className={`absolute flex min-h-[44px] min-w-[44px] -translate-x-1/2 -translate-y-1/2 items-center justify-center border border-border ${
+                      className={`absolute flex min-h-[44px] min-w-[44px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border shadow-editorial transition-colors duration-300 ${
                         selected
-                          ? "bg-background text-foreground"
-                          : "bg-foreground text-background"
+                          ? "border-stone-900 bg-background text-stone-900"
+                          : "border-background/80 bg-stone-900 text-background"
                       }`}
                       style={{
                         left: `${comment.x_pct}%`,
                         top: `${comment.y_pct}%`,
                       }}
                     >
-                      <span className="label-mono">{index + 1}</span>
+                      <span className="type-tech">{index + 1}</span>
                     </button>
                   );
                 })}
                 {pendingPin && (
                   <div
                     aria-hidden="true"
-                    className="absolute flex min-h-[44px] min-w-[44px] -translate-x-1/2 -translate-y-1/2 items-center justify-center border border-dashed border-border bg-background text-foreground"
+                    className="absolute flex min-h-[44px] min-w-[44px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-dashed border-stone-900 bg-background/95 text-stone-900 shadow-editorial"
                     style={{
                       left: `${pendingPin.x}%`,
                       top: `${pendingPin.y}%`,
                     }}
                   >
-                    <span className="label-mono">{comments.length + 1}</span>
+                    <span className="type-tech">{comments.length + 1}</span>
                   </div>
                 )}
               </div>
             </div>
           ) : (
-            <p className="label-mono border border-border bg-surface p-3">
+            <p className="type-tech rounded-xl border border-stone-900/10 bg-surface/75 p-4 text-stone-600">
               Cargando imagen…
             </p>
           )}
@@ -573,11 +593,13 @@ export default function DeliverableViewer({
                 }
                 disabled={scale <= MIN_SCALE}
                 aria-label="Alejar"
-                className="btn-brutal min-h-[44px] min-w-[44px] justify-center px-3 text-xs"
+                className="type-ui flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-stone-900/20 bg-background px-3 text-sm text-stone-800 transition-colors duration-300 hover:bg-stone-900 hover:text-background disabled:cursor-not-allowed disabled:opacity-40"
               >
                 −
               </button>
-              <p className="label-mono px-1">ZOOM {scale.toFixed(1)}×</p>
+              <p className="type-tech px-2 text-stone-600">
+                Zoom {scale.toFixed(1)}×
+              </p>
               <button
                 type="button"
                 onClick={() =>
@@ -587,7 +609,7 @@ export default function DeliverableViewer({
                 }
                 disabled={scale >= MAX_SCALE}
                 aria-label="Acercar"
-                className="btn-brutal min-h-[44px] min-w-[44px] justify-center px-3 text-xs"
+                className="type-ui flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-stone-900/20 bg-background px-3 text-sm text-stone-800 transition-colors duration-300 hover:bg-stone-900 hover:text-background disabled:cursor-not-allowed disabled:opacity-40"
               >
                 +
               </button>
@@ -601,66 +623,59 @@ export default function DeliverableViewer({
                     setPinFeedback("");
                   }}
                   aria-pressed={pinMode}
-                  className={`btn-brutal min-h-[44px] px-3 text-xs ${
-                    pinMode ? "bg-foreground text-background" : ""
+                  className={`type-ui min-h-[44px] rounded-lg px-4 py-2 text-xs transition-colors duration-300 ${
+                    pinMode
+                      ? "bg-stone-900 text-background hover:bg-stone-800"
+                      : "border border-stone-900/20 bg-background text-stone-700 hover:bg-stone-900 hover:text-background"
                   }`}
                 >
-                  Colocar pin
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
+                  {pinMode ? "Modo pin activo ✓" : "Colocar pin ↗"}
                 </button>
               )}
               {locked ? (
-                <p className="label-mono border border-border bg-surface p-3">
-                  PAGO FINAL PENDIENTE · PREVISUALIZACIÓN
+                <p className="type-tech rounded-lg border border-stone-900/15 bg-surface/75 px-3 py-2.5 text-stone-600">
+                  Pago final pendiente · Previsualización
                 </p>
               ) : (
                 <button
                   type="button"
                   onClick={download}
                   disabled={downloading}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 bg-background px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-background disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {downloading ? "Descargando…" : "Descargar"}
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
+                  {downloading ? "Descargando…" : "Descargar ↗"}
                 </button>
               )}
             </div>
           )}
 
           {pinMode && (
-            <p className="label-mono">
-              MODO PIN ACTIVO · TOCA LA IMAGEN PARA COLOCAR EL PIN
+            <p className="type-editorial text-sm italic text-stone-600">
+              Modo pin activo · Toca sobre la imagen para colocar tu comentario.
             </p>
           )}
 
           {pendingPin && (
-            <div className="flex flex-col gap-2 border border-border bg-surface p-3">
-              <p className="label-mono">
-                PIN {comments.length + 1} · {Math.round(pendingPin.x)}% /{" "}
+            <div className="flex flex-col gap-3 rounded-2xl border border-stone-900/20 bg-surface/75 p-5 shadow-editorial">
+              <p className="type-tech text-stone-600">
+                Pin {comments.length + 1} · {Math.round(pendingPin.x)}% /{" "}
                 {Math.round(pendingPin.y)}%
               </p>
               <textarea
                 value={pinBody}
                 onChange={(event) => setPinBody(event.target.value)}
                 maxLength={2000}
-                placeholder="Escribe el comentario del pin"
-                className="type-ui min-h-[44px] border border-border bg-background p-3 text-sm placeholder:text-stone-500"
+                placeholder="Escribe el comentario del pin…"
+                className="type-ui min-h-[84px] rounded-xl border border-stone-900/15 bg-background p-4 text-sm text-stone-900 transition-colors duration-300 placeholder:text-stone-500 focus:border-stone-900/45"
               />
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={sendPin}
                   disabled={sendingPin}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                  className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {sendingPin ? "Guardando…" : "Enviar pin"}
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
+                  {sendingPin ? "Guardando…" : "Enviar pin ↗"}
                 </button>
                 <button
                   type="button"
@@ -669,13 +684,13 @@ export default function DeliverableViewer({
                     setPinBody("");
                     setPinFeedback("");
                   }}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 bg-background px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-background"
                 >
                   Cancelar
                 </button>
               </div>
               {pinFeedback && (
-                <p className="type-ui border border-border bg-background p-3 text-sm">
+                <p className="type-ui rounded-xl border border-stone-900/15 bg-background p-3 text-sm text-stone-700">
                   {pinFeedback}
                 </p>
               )}
@@ -683,19 +698,19 @@ export default function DeliverableViewer({
           )}
 
           {selectedComment && (
-            <div className="flex flex-col gap-2 border border-border bg-surface p-3">
-              <p className="label-mono">
-                PIN {selectedCommentNumber} · RONDA{" "}
-                {selectedComment.round_number} · PÁGINA{" "}
+            <div className="flex flex-col gap-3 rounded-2xl border border-stone-900/20 bg-background p-5 shadow-editorial">
+              <p className="type-tech text-stone-600">
+                Pin {selectedCommentNumber} · Ronda{" "}
+                {selectedComment.round_number} · Página{" "}
                 {selectedComment.page_or_frame}
               </p>
-              <p className="type-editorial text-base leading-snug">
+              <p className="type-editorial text-base leading-relaxed text-stone-900">
                 {selectedComment.body}
               </p>
               <button
                 type="button"
                 onClick={() => setSelectedCommentId(null)}
-                className="btn-brutal min-h-[44px] self-start px-3 text-xs"
+                className="type-ui min-h-[44px] self-start rounded-lg border border-stone-900/20 px-4 py-2 text-xs text-stone-700 transition-colors duration-300 hover:bg-stone-900 hover:text-background"
               >
                 Cerrar
               </button>
@@ -703,32 +718,28 @@ export default function DeliverableViewer({
           )}
 
           {canReview && isInReview && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2.5 pt-1">
               {(remainingRounds === null || remainingRounds > 0) && (
                 <button
                   type="button"
                   onClick={() => runMutation("changes")}
                   disabled={mutationBusy !== null}
-                  className="btn-brutal min-h-[44px] px-3 text-xs"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/25 bg-background px-5 py-2 text-xs text-stone-900 transition-colors duration-300 hover:bg-stone-900 hover:text-background disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {mutationBusy === "changes"
                     ? "Solicitando…"
-                    : "Solicitar cambios"}
-                  <span className="btn-brutal__arrow" aria-hidden="true">
-                    ↗
-                  </span>
+                    : "Solicitar cambios ↗"}
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => runMutation("approve")}
                 disabled={mutationBusy !== null}
-                className="btn-brutal min-h-[44px] px-3 text-xs"
+                className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors duration-300 hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {mutationBusy === "approve" ? "Aprobando…" : "Aprobar entregable"}
-                <span className="btn-brutal__arrow" aria-hidden="true">
-                  ↗
-                </span>
+                {mutationBusy === "approve"
+                  ? "Aprobando…"
+                  : "Aprobar entregable ↗"}
               </button>
             </div>
           )}
@@ -737,14 +748,14 @@ export default function DeliverableViewer({
             isInReview &&
             remainingRounds !== null &&
             remainingRounds <= 0 && (
-              <p className="type-ui border border-border bg-surface p-3 text-sm">
+              <p className="type-ui rounded-xl border border-stone-900/15 bg-surface/75 p-4 text-sm text-stone-700">
                 No te quedan rondas de cambios incluidas. Deja tus comentarios
                 como pines y contacta al estudio para contratar más rondas.
               </p>
             )}
 
           {actionFeedback && (
-            <p className="type-ui border border-border bg-surface p-3 text-sm">
+            <p className="type-ui rounded-xl border border-[#5F7161]/35 bg-[#EEF2EC]/75 p-4 text-sm text-[#44544A]">
               {actionFeedback}
             </p>
           )}

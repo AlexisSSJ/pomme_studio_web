@@ -1,18 +1,20 @@
-const TOKEN_KEY = "pomme_token";
+// Session Bearer token held in memory only (never persisted to localStorage
+// or sessionStorage). Next.js App Router SPA navigation keeps it alive across
+// client route transitions.
+let memoryToken: string | null = null;
 
 export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return memoryToken;
 }
 
 export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+  memoryToken = token;
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  memoryToken = null;
 }
 
 export function isAuthenticated(): boolean {
-  return getToken() !== null;
+  return memoryToken !== null;
 }

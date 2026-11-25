@@ -131,44 +131,48 @@ export default function ProjectsPage() {
   }
 
   return (
-    <section>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="type-title text-xl">Proyectos</h1>
+    <section className="brief-editorial">
+      <div className="mb-8 flex flex-col gap-4 border-b border-stone-900/15 pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="type-tech text-stone-600">PORTAFOLIO ACTIVO</p>
+          <h1 className="type-title mt-2 text-3xl text-stone-900 md:text-4xl">Proyectos</h1>
+        </div>
         {(me?.role === "SUPER_ADMIN" || me?.role === "LEAD_DESIGNER") && (
           <button
             type="button"
             onClick={() => setShowModal(true)}
-            className="btn-brutal min-h-[44px] px-4 text-xs bg-foreground text-background self-start"
+            className="group type-ui inline-flex min-h-[44px] items-center justify-center gap-2 self-start rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors hover:bg-stone-800"
           >
-            + Nuevo proyecto
-            <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+            <span>+ Nuevo proyecto</span>
+            <span aria-hidden="true" className="arrow-glide">↗</span>
           </button>
         )}
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg border border-border bg-surface p-6 shadow-none">
-            <h2 className="type-subtitle-caps mb-4 text-lg">Crear nuevo proyecto</h2>
+        <div className="animate-backdrop-enter brief-editorial fixed inset-0 z-50 flex items-center justify-center bg-stone-900/35 p-4 backdrop-blur-[2px]">
+          <div className="animate-modal-enter w-full max-w-lg rounded-2xl border border-stone-900/15 bg-background p-6 shadow-editorial">
+            <p className="type-tech text-stone-500">ALTA DE PROYECTO</p>
+            <h2 className="type-title mt-1 mb-5 text-xl text-stone-900">Crear nuevo proyecto</h2>
             <form onSubmit={handleCreateProject} className="flex flex-col gap-4">
-              <label className="flex flex-col gap-1">
-                <span className="type-ui text-sm">Título del proyecto</span>
+              <label className="flex flex-col gap-1.5">
+                <span className="type-tech text-stone-600">Título del proyecto</span>
                 <input
                   type="text"
                   required
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Ej: Residencia Polanco / Rebranding Estudio"
-                  className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3.5 text-sm text-stone-900 outline-none transition-colors focus:border-stone-900/45"
                 />
               </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="type-ui text-sm">Tipo de alcance (Scope)</span>
+              <label className="flex flex-col gap-1.5">
+                <span className="type-tech text-stone-600">Tipo de alcance (Scope)</span>
                 <select
                   value={newScope}
                   onChange={(e) => setNewScope(e.target.value)}
-                  className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3.5 text-sm text-stone-900 outline-none transition-colors focus:border-stone-900/45"
                 >
                   <option value="branding">Branding</option>
                   <option value="interior">Interior</option>
@@ -176,12 +180,12 @@ export default function ProjectsPage() {
                 </select>
               </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="type-ui text-sm">Cliente inicial (opcional)</span>
+              <label className="flex flex-col gap-1.5">
+                <span className="type-tech text-stone-600">Cliente inicial (opcional)</span>
                 <select
                   value={newClientId}
                   onChange={(e) => setNewClientId(e.target.value)}
-                  className="type-ui min-h-[44px] border border-border bg-background px-3 text-sm"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/15 bg-background px-3.5 text-sm text-stone-900 outline-none transition-colors focus:border-stone-900/45"
                 >
                   <option value="">-- Sin cliente asignado --</option>
                   {clients.map((c) => (
@@ -192,18 +196,18 @@ export default function ProjectsPage() {
                 </select>
               </label>
 
-              <div className="flex items-center justify-end gap-3 mt-2">
+              <div className="mt-2 flex items-center justify-end gap-3 border-t border-stone-900/10 pt-4">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="btn-brutal min-h-[44px] px-4 text-xs bg-background"
+                  className="type-ui min-h-[44px] rounded-lg border border-stone-900/20 bg-background px-4 py-2 text-xs text-stone-700 transition-colors hover:bg-stone-900 hover:text-background"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={creatingProject}
-                  className="btn-brutal min-h-[44px] px-4 text-xs bg-foreground text-background"
+                  className="type-ui min-h-[44px] rounded-lg bg-stone-900 px-5 py-2 text-xs text-background transition-colors hover:bg-stone-800 disabled:opacity-50"
                 >
                   {creatingProject ? "Creando…" : "Crear proyecto"}
                 </button>
@@ -214,36 +218,64 @@ export default function ProjectsPage() {
       )}
 
       {message && (
-        <p className="type-ui mt-4 border border-border bg-surface p-3 text-sm">{message}</p>
+        <p className="animate-slide-down type-ui mb-6 rounded-xl border border-stone-900/15 bg-surface/75 px-4 py-3 text-sm text-stone-800">
+          {message}
+        </p>
       )}
 
       {loading && projects.length === 0 ? (
-        <p className="type-ui mt-4 text-sm">Cargando…</p>
+        <p className="type-ui text-sm text-stone-600">Cargando…</p>
       ) : projects.length === 0 ? (
-        <p className="type-ui mt-4 text-sm">Todavía no hay proyectos.</p>
+        <div className="rounded-2xl border border-stone-900/10 bg-surface/65 p-8">
+          <p className="type-editorial text-base italic text-stone-600">
+            Todavía no hay proyectos registrados.
+          </p>
+        </div>
       ) : (
-        <div className="grid-brutal mt-4">
-          {projects.map((project) => (
+        <div className="divide-y divide-stone-900/10 rounded-2xl border border-stone-900/15 bg-background shadow-editorial">
+          {projects.map((project, idx) => (
             <div
               key={project.id}
-              className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-4 px-6 py-5 transition-colors hover:bg-surface/35 sm:flex-row sm:items-center sm:justify-between md:px-7"
             >
-              <div>
-                <p className="type-ui text-sm font-semibold">{project.title}</p>
-                <p className="label-mono mt-1">
-                  {project.status} · {project.scope_type || "sin scope"}
+              <div className="min-w-0 space-y-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="type-tech text-stone-400">
+                    {String(idx + 1).padStart(2, "0")}
+                  </span>
+                  <span aria-hidden="true" className="text-stone-300">
+                    ·
+                  </span>
+                  <span className="type-tech text-stone-700">
+                    {project.status}
+                  </span>
+                  <span aria-hidden="true" className="text-stone-300">
+                    ·
+                  </span>
+                  <span className="type-tech text-stone-500">
+                    {project.scope_type || "Sin scope"}
+                  </span>
+                </div>
+                <p className="type-editorial truncate text-xl text-stone-900">
+                  {project.title}
                 </p>
-                <p className="label-mono mt-1">
+                <p className="type-tech text-stone-500">
                   Rondas {project.remaining_rounds}/{project.included_rounds} ·{" "}
-                  {project.balance_paid ? "PAGADO" : "PENDIENTE"}
+                  <span
+                    className={
+                      project.balance_paid ? "text-[#44544A]" : "text-stone-500"
+                    }
+                  >
+                    {project.balance_paid ? "Pago validado" : "Pago pendiente"}
+                  </span>
                 </p>
               </div>
               <Link
                 href={`/admin/projects/${project.id}`}
-                className="btn-brutal min-h-[44px] px-3 text-xs self-start sm:self-auto"
+                className="group type-ui inline-flex min-h-[42px] shrink-0 whitespace-nowrap items-center justify-center gap-2 self-start rounded-lg border border-stone-900/20 bg-background px-4 py-2 text-xs text-stone-800 transition-colors hover:bg-stone-900 hover:text-background sm:self-auto"
               >
-                Abrir proyecto
-                <span className="btn-brutal__arrow" aria-hidden="true">↗</span>
+                <span>Abrir proyecto</span>
+                <span aria-hidden="true" className="arrow-glide">↗</span>
               </Link>
             </div>
           ))}

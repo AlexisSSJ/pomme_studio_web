@@ -1,0 +1,10 @@
+{
+  "name": "Pomme Studio",
+  "description": "Plataforma integral para estudio de branding y diseño de interiores: gestión de briefs con reportes IA, etapas con subtareas y solicitudes de cambios, especificaciones FF&E y librería centralizada de assets versionada.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
